@@ -1,0 +1,326 @@
+/* Base styles */
+.document-sidebar {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: white;
+  overflow: hidden;
+}
+
+.dark .document-sidebar {
+  background-color: #2a2a2a;
+}
+
+/* Header */
+.sidebar-header {
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.dark .sidebar-header {
+  border-bottom-color: #3a3a3a;
+}
+
+.sidebar-title {
+  color: #2C3E50;
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.dark .sidebar-title {
+  color: white;
+}
+
+.sidebar-subtitle {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.dark .sidebar-subtitle {
+  color: #9ca3af;
+}
+
+/* Scroll Area */
+.sidebar-scroll-area {
+  flex: 1;
+  overflow: auto;
+}
+
+.documents-list {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Document Card */
+.document-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.dark .document-card {
+  border-color: #3a3a3a;
+}
+
+/* Document Header */
+.document-header-button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.document-header-button:hover {
+  background-color: #f9fafb;
+}
+
+.dark .document-header-button:hover {
+  background-color: #3a3a3a;
+}
+
+.chevron-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #6b7280;
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+
+.document-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #3498DB;
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+
+.document-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.document-name {
+  font-size: 0.875rem;
+  color: #2C3E50;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .document-name {
+  color: white;
+}
+
+.document-badges {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.document-badge {
+  font-size: 0.75rem !important;
+  padding: 0.125rem 0.5rem !important;
+  height: auto !important;
+  background-color: #f3f4f6 !important;
+  color: #374151 !important;
+  border: none !important;
+}
+
+.dark .document-badge {
+  background-color: #3a3a3a !important;
+  color: #d1d5db !important;
+}
+
+/* Document Sections */
+.document-sections {
+  border-top: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+}
+
+.dark .document-sections {
+  border-top-color: #3a3a3a;
+  background-color: #1a1a1a;
+}
+
+/* Section Container */
+.section-container {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dark .section-container {
+  border-bottom-color: #3a3a3a;
+}
+
+.section-container:last-child {
+  border-bottom: none;
+}
+
+/* Section Button */
+.section-button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.section-button:hover {
+  background-color: #f3f4f6;
+}
+
+.dark .section-button:hover {
+  background-color: #2a2a2a;
+}
+
+.section-chevron {
+  width: 0.75rem;
+  height: 0.75rem;
+  color: #9ca3af;
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+
+.section-info {
+  flex: 1;
+}
+
+.section-title {
+  font-size: 0.75rem;
+  color: #374151;
+  line-height: 1.3;
+}
+
+.dark .section-title {
+  color: #d1d5db;
+}
+
+.section-page {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.125rem;
+}
+
+.dark .section-page {
+  color: #9ca3af;
+}
+
+/* Chunk Markers */
+.chunk-markers-container {
+  padding: 0 1rem 0.5rem;
+}
+
+.chunk-markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding-left: 1.25rem;
+}
+
+.chunk-button {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  background-color: #3498DB;
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.chunk-button:hover {
+  background-color: #2980B9;
+  transform: translateY(-1px);
+}
+
+.chunk-button:active {
+  transform: translateY(0);
+}
+
+/* Scrollbar styling */
+.sidebar-scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll-area::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.dark .sidebar-scroll-area::-webkit-scrollbar-track {
+  background: #2a2a2a;
+}
+
+.sidebar-scroll-area::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.dark .sidebar-scroll-area::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+}
+
+.sidebar-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+.dark .sidebar-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .documents-list {
+    padding: 0.75rem;
+  }
+  
+  .document-header-button {
+    padding: 0.5rem;
+  }
+  
+  .section-button {
+    padding: 0.5rem;
+  }
+  
+  .chunk-markers-container {
+    padding: 0 0.5rem 0.5rem;
+  }
+}
+
+/* Animation for expanding sections */
+@keyframes expandSection {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+  }
+}
+
+.chunk-markers-container {
+  animation: expandSection 0.2s ease-out;
+}
+
+.document-sections {
+  animation: expandSection 0.2s ease-out;
+}

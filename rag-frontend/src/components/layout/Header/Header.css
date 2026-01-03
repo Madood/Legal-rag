@@ -1,0 +1,392 @@
+/* Header Styles */
+.header {
+  height: 4rem;
+  border-bottom: 1px solid #e5e7eb;
+  background-color: white;
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.dark .header {
+  background-color: #2a2a2a;
+  border-bottom-color: #3a3a3a;
+}
+
+/* Logo */
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, #3498DB, #2C3E50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-text {
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.logo-title {
+  font-weight: 600;
+  color: #2C3E50;
+  font-size: 1rem;
+}
+
+.dark .logo-title {
+  color: white;
+}
+
+.logo-subtitle {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.dark .logo-subtitle {
+  color: #9ca3af;
+}
+
+.guest-badge {
+  margin-left: 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  background-color: rgba(243, 156, 18, 0.1);
+  border: 1px solid #F39C12;
+}
+
+.guest-text {
+  font-size: 0.75rem;
+  color: #F39C12;
+  font-weight: 500;
+}
+
+/* Navigation */
+.header-nav {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+@media (min-width: 768px) {
+  .header-nav {
+    display: flex;
+  }
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease-in-out;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+}
+
+.nav-link-active {
+  background-color: #3498DB;
+  color: white;
+}
+
+.nav-link-active:hover {
+  background-color: #2980B9;
+}
+
+.nav-link-inactive {
+  color: #6b7280;
+  background: transparent;
+}
+
+.dark .nav-link-inactive {
+  color: #d1d5db;
+}
+
+.nav-link-inactive:hover {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.dark .nav-link-inactive:hover {
+  background-color: #3a3a3a;
+  color: white;
+}
+
+.nav-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Header Actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.theme-toggle {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  background: none;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.theme-toggle:hover {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.dark .theme-toggle {
+  color: #d1d5db;
+}
+
+.dark .theme-toggle:hover {
+  background-color: #3a3a3a;
+  color: white;
+}
+
+.theme-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* User Menu Container */
+.user-menu-container {
+  position: relative;
+}
+
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  background: none;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.dark .user-menu-trigger {
+  border-color: #3a3a3a;
+  background-color: #2a2a2a;
+}
+
+.user-menu-trigger:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.dark .user-menu-trigger:hover {
+  background-color: #3a3a3a;
+  border-color: #4a4a4a;
+}
+
+.chevron-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #6b7280;
+  transition: transform 0.2s ease;
+}
+
+.dark .chevron-icon {
+  color: #d1d5db;
+}
+
+.user-menu-trigger[aria-expanded="true"] .chevron-icon {
+  transform: rotate(180deg);
+}
+
+.user-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background-color: #3498DB;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-avatar-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: white;
+}
+
+/* User Menu Content */
+.user-menu-content {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: 14rem;
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e5e7eb;
+  z-index: 100;
+  overflow: hidden;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.dark .user-menu-content {
+  background-color: #2a2a2a;
+  border-color: #3a3a3a;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.user-menu-label {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.dark .user-menu-label {
+  border-bottom-color: #3a3a3a;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.user-name {
+  font-weight: 500;
+  color: #2C3E50;
+  font-size: 0.875rem;
+}
+
+.dark .user-name {
+  color: white;
+}
+
+.user-email {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.dark .user-email {
+  color: #9ca3af;
+}
+
+.menu-separator {
+  height: 1px;
+  background-color: #f3f4f6;
+  margin: 0.25rem 0;
+}
+
+.dark .menu-separator {
+  background-color: #3a3a3a;
+}
+
+/* Menu Items */
+.menu-item,
+.logout-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  text-align: left;
+  transition: background-color 0.15s ease-in-out;
+  color: #374151;
+}
+
+.dark .menu-item {
+  color: #d1d5db;
+}
+
+.menu-item:hover {
+  background-color: #f9fafb;
+  color: #2C3E50;
+}
+
+.dark .menu-item:hover {
+  background-color: #3a3a3a;
+  color: white;
+}
+
+.logout-item {
+  color: #E74C3C;
+}
+
+.logout-item:hover {
+  background-color: rgba(231, 76, 60, 0.1);
+  color: #C0392B;
+}
+
+.dark .logout-item:hover {
+  background-color: rgba(231, 76, 60, 0.2);
+}
+
+.menu-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Focus styles */
+.theme-toggle:focus,
+.user-menu-trigger:focus,
+.menu-item:focus,
+.logout-item:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.3);
+}
+
+.dark .theme-toggle:focus,
+.dark .user-menu-trigger:focus,
+.dark .menu-item:focus,
+.dark .logout-item:focus {
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.5);
+}
+
+/* App Layout */
+.app-layout {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
+  overflow: hidden;
+}
