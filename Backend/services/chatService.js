@@ -1,11 +1,8 @@
-﻿// services/chatService.js - UPDATED WITH AUTHORITY LAYER AND PYTHON INTEGRATION
-
-const documentService = require("./pdfDocumentService");
+﻿const documentService = require("./pdfDocumentService");
 const ragService = require("./ragService");
 const safetyCheck = require("./safetyCheck");
 const legalAuthorityService = require("./New/legalAuthorityService");
 const clarificationService = require("./New/clarificationService");
-// ⭐⭐ NEW: Import Python integration service
 const pythonIntegrationService = require("./pythonIntegrationService");
 
 class ChatService {
@@ -18,7 +15,7 @@ class ChatService {
     try {
       console.log(`\n🤔 Processing with AUTHORITY-PYTHON ARCHITECTURE: "${question}"`);
       
-      // ⭐⭐ STEP 1: Get all documents
+      // STEP 1: Get all documents
       const allDocuments = documentService.getAllDocuments();
       
       if (!allDocuments || allDocuments.length === 0) {
@@ -29,7 +26,7 @@ class ChatService {
         };
       }
       
-      // ⭐⭐ STEP 2: Check authority BEFORE RAG processing
+      // STEP 2: Check authority BEFORE RAG processing
       console.log(`🔍 [ChatService] Checking authority for question...`);
       const authority = legalAuthorityService.lockStatute(question);
       
@@ -59,58 +56,69 @@ class ChatService {
       
       console.log(`✅ Authority locked: ${authority.statute} (${authority.field})`);
       
-      // ⭐⭐ STEP 3: Question classification
+      // STEP 3: Question classification
       const questionClassifier = require('./New/questionClassifier');
       const classification = questionClassifier.classify(question, authority.statute);
       console.log(`🎯 Question classification: ${classification.type}`);
       
-      // ⭐⭐ STEP 4: Handle doctrine/system questions separately
+      // STEP 4: Handle doctrine/system questions separately
       if (classification.type === 'DOCTRINE' || classification.type === 'SYSTEM') {
         console.log(`⚖️ Processing as ${classification.type} question (bypassing Python)`);
         return this.handleDoctrineOrSystemQuestion(question, authority, classification);
       }
       
-      // ⭐⭐ STEP 5: Use Python for authoritative retrieval
+      // STEP 5: Extract paragraph if present
+      const paragraphMatch = question.match(/§\s*(\d+[a-z]?)/i);
+      const paragraph = paragraphMatch ? paragraphMatch[1] : null;
+      
+      // STEP 6: Use Python for authoritative retrieval
       console.log(`🤖 Using Python for authoritative retrieval...`);
       
-      // Get all documents with authority metadata
-      const documentsWithAuthority = this.prepareDocumentsForPython(allDocuments);
-      
-      // Create authority constraints based on question type
-      const authorityConstraints = this.createAuthorityConstraints(
-        authority.statute,
-        classification.type
-      );
-      
-      // Use Python service for authoritative search
       let pythonResults = null;
       let pythonError = null;
       
       try {
         console.log(`📡 Calling Python authoritative search...`);
-        pythonResults = await pythonIntegrationService.authoritativeSearch({
-          query: {
-            text: question,
-            statute: authority.statute,
-            question_type: classification.type.toUpperCase()
-          },
-          authority_constraints: authorityConstraints,
-          documents: documentsWithAuthority,
-          options: {
-            max_results: 30,
-            similarity_threshold: 0.15
-          }
-        });
+        
+        if (paragraph) {
+          // Use paragraph-based authoritative search
+          pythonResults = await pythonIntegrationService.authoritativeSearch(
+            question,
+            authority.statute,
+            paragraph,
+            5
+          );
+        } else {
+          // Use general authoritative search
+          pythonResults = await pythonIntegrationService.authoritativeSearchFull({
+            query: {
+              text: question,
+              statute: authority.statute,
+              question_type: classification.type.toUpperCase()
+            },
+            authority_constraints: this.createAuthorityConstraints(
+              authority.statute,
+              classification.type
+            ),
+            documents: this.prepareDocumentsForPython(allDocuments),
+            options: {
+              max_results: 30,
+              similarity_threshold: 0.15
+            }
+          });
+        }
         
         console.log(`✅ Python returned ${pythonResults.results?.length || 0} results`);
+        if (pythonResults.authoritative_found) {
+          console.log(`🎖️ Found authoritative content!`);
+        }
         
       } catch (error) {
         console.log(`⚠️ Python service error: ${error.message}`);
         pythonError = error;
-        // Fall back to standard RAG if Python fails
       }
       
-      // ⭐⭐ STEP 6: Process with RAG service (with Python results if available)
+      // STEP 7: Process with RAG service (with Python results if available)
       const ragResponse = await ragService.generateResponse(
         question,
         allDocuments,
@@ -120,25 +128,26 @@ class ChatService {
           field: authority.field,
           questionType: classification.type,
           pythonResults: pythonResults,
-          usePythonResults: !pythonError && pythonResults?.results?.length > 0
+          usePythonResults: !pythonError && pythonResults?.results?.length > 0,
+          requestedParagraph: paragraph
         }
       );
       
       // Add Python service metadata to RAG response
-      if (pythonResults && !pythonError) {
+      if (pythonResults && !pythonError && pythonResults.success) {
         ragResponse.python_service_used = true;
         ragResponse.python_results = pythonResults.results?.length || 0;
-        ragResponse.python_processing_time = pythonResults.processing_time || 0;
+        ragResponse.python_authoritative_found = pythonResults.authoritative_found || false;
         
         // Mark if all results are authoritative
-        const allAuthoritative = pythonResults.authority_summary?.all_authoritative || 
+        const allAuthoritative = pythonResults.authoritative_found || 
                                 this.checkAllAuthoritative(pythonResults.results);
         ragResponse.all_authoritative = allAuthoritative;
         
         // Add top authority rank
         if (pythonResults.results && pythonResults.results.length > 0) {
           const topRank = Math.min(...pythonResults.results.map(r => 
-            r.metadata?.authority_rank || 100
+            r.authority_info?.authority_rank || 100
           ));
           ragResponse.top_authority_rank = topRank;
         }
@@ -146,19 +155,20 @@ class ChatService {
         ragResponse.python_service_error = pythonError.message;
       }
       
-      // ⭐⭐ STEP 7: Safety check (enhanced)
+      // STEP 8: Safety check (enhanced)
       const safetyValidation = ragResponse.safetyCheck || await safetyCheck.validateBeforeAnswer(question, ragResponse);
       
-      // ⭐⭐ STEP 8: Structure the answer with authority context
+      // STEP 9: Structure the answer with authority context
       const structuredAnswer = this.structureAnswerWithAuthority(
         ragResponse, 
         question, 
         safetyValidation, 
         authority,
-        classification
+        classification,
+        paragraph
       );
       
-      // ⭐⭐ STEP 9: Add to conversation history with authority metadata
+      // STEP 10: Add to conversation history with authority metadata
       const conversationEntry = {
         question: question,
         answer: structuredAnswer.fullAnswer,
@@ -171,8 +181,9 @@ class ChatService {
         authority: authority,
         classification: classification,
         safetyCheck: safetyValidation,
-        python_used: !!pythonResults && !pythonError,
-        python_results: pythonResults?.results?.length || 0
+        python_used: pythonResults && !pythonError && pythonResults.success,
+        python_results: pythonResults?.results?.length || 0,
+        python_authoritative: pythonResults?.authoritative_found || false
       };
 
       this.conversationHistory.push(conversationEntry);
@@ -190,7 +201,7 @@ class ChatService {
         authoritySource: authority.source,
         safetyScore: safetyValidation.score,
         architecture: 'authority_python',
-        python_used: !!pythonResults && !pythonError
+        python_used: pythonResults && !pythonError && pythonResults.success
       });
 
       // Log processing
@@ -223,7 +234,7 @@ class ChatService {
             statuteLocked: ragResponse.metadata?.statuteLocked || false,
             python_service_used: ragResponse.python_service_used || false,
             python_results: ragResponse.python_results || 0,
-            python_processing_time: ragResponse.python_processing_time || 0,
+            python_authoritative_found: ragResponse.python_authoritative_found || false,
             all_authoritative: ragResponse.all_authoritative || false,
             top_authority_rank: ragResponse.top_authority_rank || 100
           },
@@ -342,10 +353,10 @@ class ChatService {
   checkAllAuthoritative(results) {
     if (!results || results.length === 0) return false;
     
-    // Check if all results have high authority (rank ≤ 3)
+    // Check if all results have high authority (rank ≤ 3) or are marked as authoritative
     return results.every(result => {
-      const rank = result.metadata?.authority_rank || 100;
-      return rank <= 3;
+      const rank = result.authority_info?.authority_rank || 100;
+      return rank <= 3 || result.is_authoritative === true;
     });
   }
 
@@ -366,24 +377,59 @@ class ChatService {
     );
   }
 
-  structureAnswerWithAuthority(ragResponse, question, safetyValidation, authority, classification) {
-    // Extract paragraph from question
-    const paragraphMatch = question.match(/§\s*(\d+[a-z]?)/i);
-    const requestedParagraph = paragraphMatch ? paragraphMatch[1] : null;
-    
+  structureAnswerWithAuthority(ragResponse, question, safetyValidation, authority, classification, paragraph) {
     // Start with the RAG answer
     let fullAnswer = ragResponse.answer;
     
-    // Add authority context if available
+    // FIX: Get statuteName before using it
+    let statuteName = '';
     if (authority && authority.statute) {
-      const statuteName = legalAuthorityService.getStatuteDisplayName(authority.statute);
+      try {
+        // Try to get display name from legal authority service
+        if (legalAuthorityService && typeof legalAuthorityService.getStatuteDisplayName === 'function') {
+          statuteName = legalAuthorityService.getStatuteDisplayName(authority.statute);
+        } else {
+          // Fallback if method doesn't exist
+          const fallbackNames = {
+            'StGB': 'Strafgesetzbuch (StGB)',
+            'BGB': 'Bürgerliches Gesetzbuch (BGB)',
+            'HGB': 'Handelsgesetzbuch (HGB)',
+            'GG': 'Grundgesetz (GG)',
+            'EU-GDPR': 'EU-Datenschutz-Grundverordnung (GDPR)'
+          };
+          statuteName = fallbackNames[authority.statute] || authority.statute;
+        }
+      } catch (error) {
+        console.log(`⚠️ Could not get statute display name: ${error.message}`);
+        statuteName = authority.statute; // fallback to statute code
+      }
+    }
+    
+    // Add authority context if available
+    if (authority && authority.statute && statuteName) {
       if (!fullAnswer.includes(statuteName)) {
         fullAnswer = `⚖️ **Gesetz:** ${statuteName}\n\n${fullAnswer}`;
+      }
+    } else if (authority && authority.statute) {
+      // Fallback if we couldn't get display name
+      fullAnswer = `⚖️ **Gesetz:** ${authority.statute}\n\n${fullAnswer}`;
+    }
+    
+    // Add paragraph information if available
+    if (paragraph) {
+      const paragraphText = `§ ${paragraph}`;
+      if (!fullAnswer.includes(paragraphText)) {
+        const statuteDisplay = statuteName || (authority ? authority.statute : '');
+        if (statuteDisplay) {
+          fullAnswer = `**Rechtsnorm:** ${paragraphText} ${statuteDisplay}\n\n${fullAnswer}`;
+        } else {
+          fullAnswer = `**Rechtsnorm:** ${paragraphText}\n\n${fullAnswer}`;
+        }
       }
     }
     
     // Add authority badge if all sources are authoritative
-    if (ragResponse.all_authoritative) {
+    if (ragResponse.all_authoritative || ragResponse.python_authoritative_found) {
       fullAnswer = `🎖️ **AUTHORITATIVE ANSWER** 🎖️\n\n${fullAnswer}`;
     }
     
@@ -395,6 +441,11 @@ class ChatService {
           ` [${citation.authority.type} Rank:${citation.authority.rank}]` : '';
         fullAnswer += `${index + 1}. ${citation.document}${authorityInfo}\n`;
       });
+    }
+    
+    // Add Python authoritative info if available
+    if (ragResponse.python_authoritative_found) {
+      fullAnswer += `\n\n✅ **Autoritative Quelle:** Diese Antwort basiert auf dem exakten Gesetzestext.`;
     }
     
     // Add safety warnings if any
@@ -416,7 +467,7 @@ class ChatService {
     // Add Python service info
     if (ragResponse.python_service_used) {
       fullAnswer += `\n\n🤖 *Diese Antwort verwendet die autoritative Python-Suche.*`;
-      if (ragResponse.all_authoritative) {
+      if (ragResponse.all_authoritative || ragResponse.python_authoritative_found) {
         fullAnswer += ` Alle Quellen sind hochrangig.`;
       }
     }
@@ -440,7 +491,7 @@ class ChatService {
       domain: ragResponse.metadata?.legalDomain || 'general',
       statute: ragResponse.metadata?.statute || null,
       confidence: ragResponse.confidence,
-      requestedParagraph: requestedParagraph,
+      requestedParagraph: paragraph,
       exactParagraphMatch: ragResponse.metadata?.exactParagraphMatch || false,
       safetyCheck: safetyValidation,
       authority: authority,
@@ -450,6 +501,7 @@ class ChatService {
         chunksUsed: ragResponse.metadata?.chunksUsed || 0,
         processingTime: ragResponse.metadata?.processingTime || 0,
         pythonServiceUsed: ragResponse.python_service_used || false,
+        pythonAuthoritativeFound: ragResponse.python_authoritative_found || false,
         allAuthoritative: ragResponse.all_authoritative || false,
         topAuthorityRank: ragResponse.top_authority_rank || 100
       }
@@ -469,8 +521,7 @@ class ChatService {
     
     if (pythonResults) {
       console.log(`Python results: ${pythonResults.results?.length || 0}`);
-      console.log(`Python processing: ${pythonResults.processing_time?.toFixed(2) || 0}s`);
-      console.log(`All authoritative: ${ragResponse.all_authoritative || false}`);
+      console.log(`Python authoritative: ${pythonResults.authoritative_found || false}`);
     }
     
     if (ragResponse.citations && ragResponse.citations.length > 0) {
@@ -492,7 +543,8 @@ class ChatService {
       question, 
       safetyValidation, 
       authority, 
-      { type: 'GENERAL' }
+      { type: 'GENERAL' },
+      null
     );
   }
 
@@ -558,7 +610,8 @@ class ChatService {
         authority: c.authority?.statute || 'none',
         confidence: c.confidence,
         safetyScore: c.safetyCheck?.score || 0,
-        python_used: c.python_used || false
+        python_used: c.python_used || false,
+        python_authoritative: c.python_authoritative || false
       })),
       safetyStats: {
         totalQuestions: this.conversationHistory.length,
@@ -570,7 +623,7 @@ class ChatService {
         clarifications: this.conversationHistory.filter(c => c.authority?.status !== 'LOCKED').length,
         pythonUsed: this.conversationHistory.filter(c => c.python_used).length,
         authoritativeAnswers: this.conversationHistory.filter(c => 
-          c.structuredAnswer?.metadata?.allAuthoritative
+          c.python_authoritative || c.structuredAnswer?.metadata?.allAuthoritative
         ).length
       }
     };
@@ -683,7 +736,7 @@ class ChatService {
       // Test with a simple search
       const documents = this.prepareDocumentsForPython(documentService.getAllDocuments());
       
-      const testResult = await pythonIntegrationService.authoritativeSearch({
+      const testResult = await pythonIntegrationService.authoritativeSearchFull({
         query: {
           text: "Was regelt § 280 BGB?",
           statute: "BGB",
@@ -706,6 +759,7 @@ class ChatService {
         connection: connectionTest,
         search_test: {
           results: testResult.results?.length || 0,
+          authoritative_found: testResult.authoritative_found || false,
           processing_time: testResult.processing_time,
           authority_summary: testResult.authority_summary
         },
@@ -718,6 +772,61 @@ class ChatService {
         error: error.message,
         timestamp: new Date().toISOString()
       };
+    }
+  }
+  
+  // New method: Debug structureAnswerWithAuthority
+  testStructureAnswer() {
+    console.log('🧪 Testing structureAnswerWithAuthority method...');
+    
+    const mockRagResponse = {
+      answer: 'This is a test answer about HGB §15.',
+      confidence: 0.95,
+      citations: [],
+      metadata: {
+        legalDomain: 'commercial',
+        statute: 'HGB'
+      },
+      python_service_used: false,
+      all_authoritative: false
+    };
+    
+    const mockAuthority = {
+      status: 'LOCKED',
+      statute: 'HGB',
+      field: 'commercial',
+      source: 'explicit',
+      confidence: 0.95
+    };
+    
+    const mockSafetyValidation = {
+      isValid: true,
+      score: 85,
+      warnings: [],
+      errors: []
+    };
+    
+    const mockClassification = {
+      type: 'NORMATIVE'
+    };
+    
+    try {
+      const result = this.structureAnswerWithAuthority(
+        mockRagResponse,
+        "What does § 15 HGB regulate?",
+        mockSafetyValidation,
+        mockAuthority,
+        mockClassification,
+        '15'
+      );
+      
+      console.log('✅ Test passed!');
+      console.log('Full answer preview:', result.fullAnswer.substring(0, 200) + '...');
+      return result;
+    } catch (error) {
+      console.log(`❌ Test failed: ${error.message}`);
+      console.log('Stack:', error.stack);
+      return null;
     }
   }
 }

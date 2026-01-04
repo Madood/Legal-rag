@@ -1,4 +1,4 @@
-// services/legalAuthorityService.js
+// services/New/legalAuthorityService.js
 
 class LegalAuthorityService {
   constructor() {
@@ -20,16 +20,83 @@ class LegalAuthorityService {
       'data_protection': ['EU-GDPR']
     };
     
-    // Statute patterns for detection
+    // IMPROVED: Statute patterns with better detection
     this.statutePatterns = {
-      'StGB': /\bStGB\b|§\s*\d+\s*StGB|Strafgesetzbuch/i,
-      'BGB': /\bBGB\b|§\s*\d+\s*BGB|Bürgerliches Gesetzbuch/i,
-      'HGB': /\bHGB\b|§\s*\d+\s*HGB|Handelsgesetzbuch/i,
-      'GG': /\bGG\b|Artikel\s*\d+\s*GG|Grundgesetz/i,
-      'EU-GDPR': /\bGDPR\b|DSGVO|Datenschutz-Grundverordnung|Artikel\s*\d+\s*GDPR/i
+      'StGB': {
+        patterns: [
+          /\bStGB\b/i,
+          /\bStGB\s+§/i,
+          /\bstrafgesetzbuch\b/i,
+          /\bcriminal\s+code\b/i,
+          /\bpenal\s+code\b/i,
+          /\bstrafrecht\b/i,
+          /\bcriminal\s+law\b/i,
+          /§\s*\d+\s*(?:StGB|stgb)/i,
+          /§\s*\d+\s*.*criminal/i,
+          /§\s*\d+\s*.*penal/i
+        ],
+        field: 'criminal',
+        displayName: 'Strafgesetzbuch (German Criminal Code)',
+        keywords: ['straf', 'criminal', 'penal', 'theft', 'murder', 'robbery', 'prison', 'sentence', 'punishment']
+      },
+      
+      'BGB': {
+        patterns: [
+          /\bBGB\b/i,
+          /\bBGB\s+§/i,
+          /\bbürgerliches\s+gesetzbuch\b/i,
+          /\bcivil\s+code\b/i,
+          /§\s*\d+\s*(?:BGB|bgb)/i,
+          /§\s*\d+\s*.*civil/i
+        ],
+        field: 'civil',
+        displayName: 'Bürgerliches Gesetzbuch (German Civil Code)',
+        keywords: ['civil', 'contract', 'obligation', 'property', 'damages', 'liability', 'family', 'inheritance']
+      },
+      
+      'HGB': {
+        patterns: [
+          /\bHGB\b/i,
+          /\bHGB\s+§/i,
+          /\bhandelsgesetzbuch\b/i,
+          /\bcommercial\s+code\b/i,
+          /§\s*\d+\s*(?:HGB|hgb)/i,
+          /§\s*\d+\s*.*commercial/i
+        ],
+        field: 'commercial',
+        displayName: 'Handelsgesetzbuch (German Commercial Code)',
+        keywords: ['commercial', 'merchant', 'trade', 'business', 'company', 'firm', 'register']
+      },
+      
+      'GG': {
+        patterns: [
+          /\bGG\b/i,
+          /\bgrundgesetz\b/i,
+          /\bconstitution\b/i,
+          /\bbasic\s+law\b/i,
+          /Artikel\s*\d+\s*(?:GG|gg)/i,
+          /Article\s*\d+\s*.*constitution/i
+        ],
+        field: 'constitutional',
+        displayName: 'Grundgesetz (German Basic Law)',
+        keywords: ['constitution', 'basic law', 'grundrecht', 'freedom', 'democracy', 'state']
+      },
+      
+      'EU-GDPR': {
+        patterns: [
+          /\bGDPR\b/i,
+          /\bDSGVO\b/i,
+          /\bdatenschutz-grundverordnung\b/i,
+          /\bgeneral\s+data\s+protection\s+regulation\b/i,
+          /Article\s*\d+\s*(?:GDPR|gdpr)/i
+        ],
+        field: 'data_protection',
+        displayName: 'EU-Datenschutz-Grundverordnung (GDPR)',
+        keywords: ['data protection', 'privacy', 'personal data', 'processing', 'consent']
+      }
     };
     
-    // Doctrine mapping (no retrieval needed)
+    // IMPROVED: Doctrine mapping
     this.doctrines = {
       'schuldprinzip': {
         type: 'PRINCIPLE',
@@ -75,62 +142,85 @@ class LegalAuthorityService {
   }
 
   /* -------------------------------------------------
-     CORE: Lock statute before retrieval
+     CORE: Lock statute before retrieval - IMPROVED
   -------------------------------------------------- */
   lockStatute(question) {
-    console.log(`🔍 [Authority] Analyzing question for statute: "${question}"`);
+    console.log(`🔍 [Authority] Analyzing question for statute: "${question.substring(0, 60)}..."`);
     
     const lowerQuestion = question.toLowerCase();
     
-    // Step 1: Check for explicit statute mentions
-    const explicitStatutes = [];
+    // Step 1: Check for explicit statute mentions with weighted scoring
+    const statuteScores = {};
     
-    for (const [statute, pattern] of Object.entries(this.statutePatterns)) {
-      if (pattern.test(question)) {
-        explicitStatutes.push(statute);
+    for (const [statute, config] of Object.entries(this.statutePatterns)) {
+      let score = 0;
+      
+      // Check patterns (highest weight)
+      for (const pattern of config.patterns) {
+        if (pattern.test(question)) {
+          score += 10; // Pattern match gives high score
+        }
+      }
+      
+      // Check keywords in question
+      for (const keyword of config.keywords) {
+        if (lowerQuestion.includes(keyword.toLowerCase())) {
+          score += 3; // Keyword match gives moderate score
+        }
+      }
+      
+      if (score > 0) {
+        statuteScores[statute] = {
+          score: score,
+          field: config.field,
+          displayName: config.displayName
+        };
       }
     }
     
-    // Step 2: Handle multiple explicit statutes
-    if (explicitStatutes.length > 1) {
-      console.log(`⚠️  Multiple statutes detected: ${explicitStatutes.join(', ')}`);
-      return {
-        status: 'AMBIGUOUS',
-        statutes: explicitStatutes,
-        clarification: this.generateAmbiguityClarification(explicitStatutes, question)
-      };
+    // Step 2: Find the statute with highest score
+    let bestStatute = null;
+    let bestScore = 0;
+    
+    for (const [statute, data] of Object.entries(statuteScores)) {
+      if (data.score > bestScore) {
+        bestScore = data.score;
+        bestStatute = statute;
+      }
     }
     
-    // Step 3: Single explicit statute found
-    if (explicitStatutes.length === 1) {
-      const statute = explicitStatutes[0];
-      const field = this.getFieldFromStatute(statute);
-      console.log(`🔒 [Authority] Locked statute: ${statute} (${field})`);
+    // Step 3: Handle results
+    if (bestStatute && bestScore >= 10) {
+      // High confidence match (pattern found)
+      console.log(`🔒 [Authority] Locked statute: ${bestStatute} (${statuteScores[bestStatute].field}) - Score: ${bestScore}`);
       
       return {
         status: 'LOCKED',
-        statute: statute,
-        field: field,
+        statute: bestStatute,
+        field: statuteScores[bestStatute].field,
         source: 'explicit',
-        questionType: this.classifyQuestionType(question, statute)
+        confidence: Math.min(1.0, bestScore / 20),
+        questionType: this.classifyQuestionType(question, bestStatute)
       };
-    }
-    
-    // Step 4: No explicit statute - try implicit detection
-    const impliedStatute = this.inferStatuteFromQuestion(question);
-    
-    if (impliedStatute) {
-      const field = this.getFieldFromStatute(impliedStatute);
-      console.log(`🔍 [Authority] Implied statute: ${impliedStatute} (${field})`);
+    } else if (bestStatute && bestScore >= 3) {
+      // Medium confidence match (keywords only)
+      console.log(`🔍 [Authority] Implied statute: ${bestStatute} (${statuteScores[bestStatute].field}) - Score: ${bestScore}`);
       
       return {
         status: 'LOCKED',
-        statute: impliedStatute,
-        field: field,
+        statute: bestStatute,
+        field: statuteScores[bestStatute].field,
         source: 'implicit',
-        questionType: this.classifyQuestionType(question, impliedStatute),
-        confidence: 0.7 // Lower confidence for implicit detection
+        confidence: Math.min(0.7, bestScore / 10),
+        questionType: this.classifyQuestionType(question, bestStatute)
       };
+    }
+    
+    // Step 4: Try paragraph-based inference
+    const paragraphStatute = this.inferStatuteFromParagraph(question);
+    if (paragraphStatute) {
+      console.log(`🔍 [Authority] Inferred from paragraph: ${paragraphStatute.statute}`);
+      return paragraphStatute;
     }
     
     // Step 5: Cannot determine statute
@@ -142,79 +232,96 @@ class LegalAuthorityService {
   }
 
   /* -------------------------------------------------
-     Implicit statute inference
+     IMPROVED: Paragraph-based inference
   -------------------------------------------------- */
-  inferStatuteFromQuestion(question) {
+  inferStatuteFromParagraph(question) {
     const lowerQuestion = question.toLowerCase();
     
-    // Check paragraph references
+    // Extract paragraph number
     const paragraphMatch = question.match(/§\s*(\d+[a-z]?)/i);
-    if (paragraphMatch) {
-      const paragraph = paragraphMatch[1];
-      const num = parseInt(paragraph, 10);
-      
-      // HGB range
-      if (num >= 1 && num <= 372) {
-        return 'HGB'; // Commercial law paragraphs
-      }
-      
-      // BGB range
-      if (num >= 1 && num <= 2385) {
-        return 'BGB'; // Civil law paragraphs
-      }
-      
-      // StGB range
-      if (num >= 1 && num <= 358) {
-        return 'StGB'; // Criminal law paragraphs
-      }
+    if (!paragraphMatch) return null;
+    
+    const paragraph = paragraphMatch[1];
+    const num = parseInt(paragraph, 10);
+    
+    // Check context around the paragraph
+    const contextBefore = question.substring(0, paragraphMatch.index).toLowerCase();
+    const contextAfter = question.substring(paragraphMatch.index + paragraphMatch[0].length).toLowerCase();
+    const fullContext = contextBefore + ' ' + contextAfter;
+    
+    // Check for statute mentions in context
+    if (fullContext.includes('stgb') || fullContext.includes('criminal') || fullContext.includes('straf')) {
+      return {
+        status: 'LOCKED',
+        statute: 'StGB',
+        field: 'criminal',
+        source: 'paragraph_context',
+        confidence: 0.85,
+        questionType: 'NORMATIVE'
+      };
     }
     
-    // Check article references
-    const articleMatch = question.match(/(?:Artikel|Art\.|Article)\s*(\d+)/i);
-    if (articleMatch) {
-      const article = articleMatch[1];
-      
-      // GG articles
-      if (article >= 1 && article <= 146) {
-        return 'GG';
-      }
-      
-      // GDPR articles
-      if (article >= 1 && article <= 99) {
-        return 'EU-GDPR';
-      }
+    if (fullContext.includes('bgb') || fullContext.includes('civil') || fullContext.includes('bürgerlich')) {
+      return {
+        status: 'LOCKED',
+        statute: 'BGB',
+        field: 'civil',
+        source: 'paragraph_context',
+        confidence: 0.85,
+        questionType: 'NORMATIVE'
+      };
     }
     
-    // Check for legal fields
-    if (lowerQuestion.includes('strafbar') || lowerQuestion.includes('freiheitsstrafe') || 
-        lowerQuestion.includes('geldstrafe') || lowerQuestion.includes('verbrechen')) {
-      return 'StGB';
+    if (fullContext.includes('hgb') || fullContext.includes('commercial') || fullContext.includes('handel')) {
+      return {
+        status: 'LOCKED',
+        statute: 'HGB',
+        field: 'commercial',
+        source: 'paragraph_context',
+        confidence: 0.85,
+        questionType: 'NORMATIVE'
+      };
     }
     
-    if (lowerQuestion.includes('kaufmann') || lowerQuestion.includes('handelsregister') || 
-        lowerQuestion.includes('prokura') || lowerQuestion.includes('firma')) {
-      return 'HGB';
+    // Fallback to paragraph number ranges
+    if (num >= 1 && num <= 358) { // StGB range
+      return {
+        status: 'LOCKED',
+        statute: 'StGB',
+        field: 'criminal',
+        source: 'paragraph_range',
+        confidence: 0.65,
+        questionType: 'NORMATIVE'
+      };
     }
     
-    if (lowerQuestion.includes('vertrag') || lowerQuestion.includes('miete') || 
-        lowerQuestion.includes('kauf') || lowerQuestion.includes('schadensersatz')) {
-      return 'BGB';
+    if (num >= 1 && num <= 372) { // HGB range
+      return {
+        status: 'LOCKED',
+        statute: 'HGB',
+        field: 'commercial',
+        source: 'paragraph_range',
+        confidence: 0.65,
+        questionType: 'NORMATIVE'
+      };
     }
     
-    if (lowerQuestion.includes('grundrecht') || lowerQuestion.includes('meinungsfreiheit') || 
-        lowerQuestion.includes('verfassung')) {
-      return 'GG';
-    }
-    
-    if (lowerQuestion.includes('datenschutz') || lowerQuestion.includes('personenbezogen')) {
-      return 'EU-GDPR';
+    if (num >= 1 && num <= 2385) { // BGB range
+      return {
+        status: 'LOCKED',
+        statute: 'BGB',
+        field: 'civil',
+        source: 'paragraph_range',
+        confidence: 0.65,
+        questionType: 'NORMATIVE'
+      };
     }
     
     return null;
   }
 
   /* -------------------------------------------------
-     Question classification
+     IMPROVED: Question classification
   -------------------------------------------------- */
   classifyQuestionType(question, statute = null) {
     const lowerQuestion = question.toLowerCase();
@@ -243,9 +350,18 @@ class LegalAuthorityService {
       return 'SYSTEM';
     }
     
-    // Normative questions (with paragraph/article reference)
-    if (/§\s*\d+|\barticle\s*\d+|\bartikel\s*\d+/i.test(lowerQuestion)) {
-      return 'NORMATIVE';
+    // Check for § or Article reference
+    const hasLegalReference = /§\s*\d+|\barticle\s*\d+|\bartikel\s*\d+/i.test(lowerQuestion);
+    
+    if (hasLegalReference) {
+      // Check if it's asking about an offense
+      const offenseTerms = ['constitutes', 'regulated', 'defines', 'prescribes', 'provides', 'sanction', 'penalty', 'offense'];
+      if (offenseTerms.some(term => lowerQuestion.includes(term))) {
+        return 'NORMATIVE';
+      }
+      
+      // Default for legal references
+      return 'DEFINITION';
     }
     
     // Offense category questions
@@ -258,8 +374,8 @@ class LegalAuthorityService {
       return 'OFFENSE';
     }
     
-    // General legal question within a statute
-    if (statute) {
+    // General questions about a specific statute
+    if (statute && (lowerQuestion.includes('explain') || lowerQuestion.includes('what is') || lowerQuestion.includes('was ist'))) {
       return 'GENERAL_STATUTE';
     }
     
@@ -270,15 +386,8 @@ class LegalAuthorityService {
      Field and hierarchy methods
   -------------------------------------------------- */
   getFieldFromStatute(statute) {
-    const fieldMap = {
-      'StGB': 'criminal',
-      'BGB': 'civil',
-      'HGB': 'commercial',
-      'GG': 'constitutional',
-      'EU-GDPR': 'data_protection'
-    };
-    
-    return fieldMap[statute] || 'general';
+    const config = this.statutePatterns[statute];
+    return config ? config.field : 'general';
   }
   
   getStatutesForField(field) {
@@ -295,9 +404,22 @@ class LegalAuthorityService {
   }
 
   /* -------------------------------------------------
-     Clarification generators
+     IMPROVED: Clarification generators
   -------------------------------------------------- */
   generateMissingStatuteClarification(question) {
+    const lowerQuestion = question.toLowerCase();
+    
+    // Try to suggest based on keywords
+    let suggestion = '';
+    
+    if (lowerQuestion.includes('criminal') || lowerQuestion.includes('straf') || lowerQuestion.includes('penal')) {
+      suggestion = '\n\n**Vorschlag:** Ihre Frage scheint sich auf Strafrecht zu beziehen. Bitte formulieren Sie: "Was regelt § 1 StGB?"';
+    } else if (lowerQuestion.includes('commercial') || lowerQuestion.includes('handel') || lowerQuestion.includes('business')) {
+      suggestion = '\n\n**Vorschlag:** Ihre Frage scheint sich auf Handelsrecht zu beziehen. Bitte formulieren Sie: "Was regelt § 1 HGB?"';
+    } else if (lowerQuestion.includes('civil') || lowerQuestion.includes('bürgerlich') || lowerQuestion.includes('contract')) {
+      suggestion = '\n\n**Vorschlag:** Ihre Frage scheint sich auf Zivilrecht zu beziehen. Bitte formulieren Sie: "Was regelt § 1 BGB?"';
+    }
+    
     return {
       german: `**Statutenklärung erforderlich**\n\n` +
               `Ihre Frage enthält keine eindeutige Gesetzesangabe.\n\n` +
@@ -310,8 +432,9 @@ class LegalAuthorityService {
               `**Beispiele korrekter Fragestellung:**\n` +
               `• "Was regelt § 15 **HGB**?"\n` +
               `• "Welche Strafen sieht **StGB** § 242 vor?"\n` +
-              `• "Erklären Sie Artikel 5 **GG**"\n\n` +
-              `*Ohne Gesetzesangabe kann keine präzise Antwort gegeben werden.*`,
+              `• "Erklären Sie Artikel 5 **GG**"` +
+              suggestion +
+              `\n\n*Ohne Gesetzesangabe kann keine präzise Antwort gegeben werden.*`,
       
       english: `**Statute clarification required**\n\n` +
                `Your question does not contain a clear statute reference.\n\n` +
@@ -324,22 +447,14 @@ class LegalAuthorityService {
                `**Examples of correct phrasing:**\n` +
                `• "What does § 15 **HGB** regulate?"\n` +
                `• "What penalties does **StGB** § 242 provide?"\n` +
-               `• "Explain Article 5 **GG**"\n\n` +
-               `*Without statute reference, no precise answer can be given.*`
+               `• "Explain Article 5 **GG**"` +
+               suggestion +
+               `\n\n*Without statute reference, no precise answer can be given.*`
     };
   }
 
   generateAmbiguityClarification(statutes, question) {
-    const statuteNames = statutes.map(s => {
-      const names = {
-        'StGB': 'Strafgesetzbuch (StGB)',
-        'BGB': 'Bürgerliches Gesetzbuch (BGB)',
-        'HGB': 'Handelsgesetzbuch (HGB)',
-        'GG': 'Grundgesetz (GG)',
-        'EU-GDPR': 'EU-Datenschutz-Grundverordnung (GDPR)'
-      };
-      return names[s] || s;
-    }).join(', ');
+    const statuteNames = statutes.map(s => this.statutePatterns[s]?.displayName || s).join(', ');
     
     return {
       german: `**Mehrdeutige Gesetzesangabe**\n\n` +
@@ -375,7 +490,7 @@ class LegalAuthorityService {
   }
 
   /* -------------------------------------------------
-     Validation methods
+     IMPROVED: Validation methods
   -------------------------------------------------- */
   validateAnswer(question, answer, statute) {
     const lowerQuestion = question.toLowerCase();
@@ -383,46 +498,49 @@ class LegalAuthorityService {
     
     const validations = [];
     
-    // Criminal law should not cite GDPR
-    if ((lowerQuestion.includes('straf') || lowerQuestion.includes('criminal')) && 
-        statute === 'EU-GDPR') {
-      validations.push({
-        isValid: false,
-        reason: 'Criminal law question answered by data protection regulation',
-        expected: 'StGB or GG',
-        actual: 'EU-GDPR'
-      });
-    }
-    
-    // Constitutional questions should cite GG
-    if ((lowerQuestion.includes('grundgesetz') || lowerQuestion.includes('constitution')) && 
-        statute !== 'GG') {
-      validations.push({
-        isValid: false,
-        reason: 'Constitutional question answered by non-constitutional statute',
-        expected: 'GG',
-        actual: statute
-      });
-    }
-    
-    // Commercial questions should cite HGB
-    if ((lowerQuestion.includes('kaufmann') || lowerQuestion.includes('handel')) && 
-        statute !== 'HGB') {
-      validations.push({
-        isValid: false,
-        reason: 'Commercial law question answered by non-commercial statute',
-        expected: 'HGB',
-        actual: statute
-      });
+    // Check statute consistency
+    const config = this.statutePatterns[statute];
+    if (config) {
+      // Check if question keywords match statute field
+      const mismatchedKeywords = [];
+      for (const keyword of config.keywords) {
+        if (lowerQuestion.includes(keyword.toLowerCase()) && !lowerAnswer.includes(keyword.toLowerCase())) {
+          mismatchedKeywords.push(keyword);
+        }
+      }
+      
+      if (mismatchedKeywords.length > 0) {
+        validations.push({
+          isValid: false,
+          severity: 'warning',
+          reason: `Answer missing keywords from question: ${mismatchedKeywords.join(', ')}`,
+          recommendation: `Include relevant legal terminology`
+        });
+      }
     }
     
     // Check if answer contains statute reference
     if (statute && !lowerAnswer.includes(statute.toLowerCase())) {
       validations.push({
         isValid: false,
+        severity: 'error',
         reason: `Answer does not mention the governing statute (${statute})`,
         recommendation: `Include ${statute} citation in answer`
       });
+    }
+    
+    // Check for paragraph reference if question has one
+    const questionParagraph = question.match(/§\s*(\d+[a-z]?)/i);
+    if (questionParagraph) {
+      const paragraph = questionParagraph[0];
+      if (!lowerAnswer.includes(paragraph.toLowerCase())) {
+        validations.push({
+          isValid: false,
+          severity: 'warning',
+          reason: `Answer does not reference the paragraph from question (${paragraph})`,
+          recommendation: `Include reference to ${paragraph}`
+        });
+      }
     }
     
     // If all validations passed
@@ -433,10 +551,13 @@ class LegalAuthorityService {
       };
     }
     
+    // Check if there are any critical errors
+    const hasError = validations.some(v => v.severity === 'error');
+    
     return {
-      isValid: false,
+      isValid: !hasError,
       validations: validations,
-      message: 'Answer failed legal authority validation'
+      message: hasError ? 'Answer failed legal authority validation' : 'Answer has warnings but passes validation'
     };
   }
 
@@ -457,15 +578,33 @@ class LegalAuthorityService {
   }
 
   getStatuteDisplayName(statute) {
-    const displayNames = {
-      'StGB': 'Strafgesetzbuch (StGB)',
-      'BGB': 'Bürgerliches Gesetzbuch (BGB)',
-      'HGB': 'Handelsgesetzbuch (HGB)',
-      'GG': 'Grundgesetz (GG)',
-      'EU-GDPR': 'EU-Datenschutz-Grundverordnung (GDPR)'
-    };
+    const config = this.statutePatterns[statute];
+    return config ? config.displayName : statute;
+  }
+  
+  /**
+   * Get all available statutes
+   */
+  getAvailableStatutes() {
+    return Object.keys(this.statutePatterns);
+  }
+  
+  /**
+   * Debug method to test statute detection
+   */
+  testStatuteDetection(question) {
+    console.log(`\n🧪 Testing statute detection for: "${question}"`);
+    const result = this.lockStatute(question);
     
-    return displayNames[statute] || statute;
+    console.log(`Result:`);
+    console.log(`  Status: ${result.status}`);
+    console.log(`  Statute: ${result.statute || 'none'}`);
+    console.log(`  Field: ${result.field || 'none'}`);
+    console.log(`  Source: ${result.source || 'none'}`);
+    console.log(`  Confidence: ${result.confidence || 'none'}`);
+    console.log(`  Question Type: ${result.questionType || 'none'}`);
+    
+    return result;
   }
 }
 

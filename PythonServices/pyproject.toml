@@ -1,0 +1,39 @@
+[project]
+name = "legal-rag-python-service"
+version = "1.0.0"
+description = "Legal RAG Python Service"
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+
+[project.dependencies]
+fastapi = ">=0.115,<0.116"
+uvicorn = {extras = ["standard"], version = ">=0.40,<0.41"}
+python-dotenv = ">=1.0,<2.0"
+pydantic = ">=2.12,<3.0"
+pydantic-settings = ">=2.7,<3.0"
+
+# Use chromadb from git (more likely to be updated for Python 3.14)
+chromadb = {git = "https://github.com/chroma-core/chroma.git", rev = "main"}
+
+# Alternative: Use a more compatible vector store
+pinecone-client = ">=3.0,<4.0"  # or weaviate-client
+
+PyMuPDF = ">=1.24,<2.0"
+pdfplumber = ">=0.11,<0.12"
+pdfminer.six = ">=20241210"
+
+sentence-transformers = ">=3.4,<4.0"
+transformers = ">=4.49,<5.0"
+torch = ">=2.5,<3.0"
+numpy = ">=2.0,<3.0"
+
+faiss-cpu = ">=1.8,<2.0"  # May need to build from source
+
+pandas = ">=2.2,<3.0"
+scikit-learn = ">=1.6,<2.0"
+scipy = ">=1.15,<2.0"
+requests = ">=2.32,<3.0"
+aiofiles = ">=24.1,<25.0"
+tqdm = ">=4.67,<5.0"

@@ -180,6 +180,89 @@ class SourceAuthorityResolver {
       }
     };
   }
+
+  /**
+   * Classify a single chunk (simplified version of classifyDocument)
+   */
+  classifyChunk(content, statute, document) {
+    // For chunks, we'll inherit the document's authority
+    // but also check if the chunk itself has normative content
+    
+    const docAuthority = document.authority_metadata || {
+      source_type: 'unknown',
+      authority_rank: 100,
+      is_authoritative: false,
+      classification_reason: 'No document authority metadata'
+    };
+    
+    // Check if this specific chunk has normative content
+    const hasNormativeContent = this.hasNormativeContent(content);
+    const paragraphCount = this.countParagraphs(content);
+    const articleCount = this.countArticles(content);
+    const language = this.detectLanguage(content);
+    
+    // Boost authority if chunk contains legal references
+    let authorityBoost = 0;
+    if (paragraphCount > 0 || articleCount > 0) {
+      authorityBoost = -5; // Lower number = higher authority
+    }
+    if (hasNormativeContent) {
+      authorityBoost -= 3;
+    }
+    
+    // Language preference based on statute
+    const preferredLanguages = this.languagePriority[statute] || ['de', 'en'];
+    const languageMatch = preferredLanguages.includes(language) ? -2 : 0;
+    
+    return {
+      authority_metadata: {
+        ...docAuthority,
+        authority_rank: Math.max(1, Math.min(100, docAuthority.authority_rank + authorityBoost + languageMatch)),
+        chunk_analysis: {
+          language: language,
+          has_legal_references: paragraphCount > 0 || articleCount > 0,
+          has_normative_content: hasNormativeContent,
+          paragraph_count: paragraphCount,
+          article_count: articleCount,
+          word_count: content.split(/\s+/).length,
+          is_boilerplate: this.isBoilerplateChunk(content)
+        }
+      }
+    };
+  }
+
+  /**
+   * Check if chunk is boilerplate
+   */
+  isBoilerplateChunk(content) {
+    const boilerplateMarkers = [
+      'Copyright',
+      '©',
+      'All rights reserved',
+      'Translated by',
+      'Übersetzt von',
+      'Translation provided by',
+      'This is a translation',
+      'Dies ist eine Übersetzung',
+      'Stand:',
+      'As of:',
+      'Version:',
+      'Last updated:',
+      'Zuletzt aktualisiert:',
+      'Ein Service des Bundesministerium',
+      'Service provided by',
+      'reproduced',
+      'PDF generated',
+      'Samson Übersetzungen',
+      'Dr. Carmen',
+      'Michael Bohlander'
+    ];
+    
+    const lowerContent = content.toLowerCase();
+    return boilerplateMarkers.some(marker => 
+      lowerContent.includes(marker.toLowerCase())
+    );
+  }
   
   /**
    * Detection methods

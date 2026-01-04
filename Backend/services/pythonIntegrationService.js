@@ -1,4 +1,3 @@
-// services/pythonIntegrationService.js
 const axios = require('axios');
 const sourceAuthorityResolver = require('./sourceAuthorityResolver');
 
@@ -112,6 +111,135 @@ class PythonIntegrationService {
     } catch (error) {
       console.error(`❌ [Python Integration] Error:`, error.message);
       return this.handlePythonError(error, question, statute);
+    }
+  }
+  
+  /**
+   * Authoritative search by statute and paragraph - STATUTE-FIRST
+   */
+  async authoritativeSearch(question, statute, paragraph, k = 5) {
+    console.log(`🔍 [Python Authoritative] Searching for ${statute} §${paragraph}: "${question.substring(0, 50)}..."`);
+    
+    try {
+      const response = await this.axiosInstance.post('/api/search/authoritative', {
+        query: question,
+        statute: statute,
+        paragraph: paragraph,
+        k: k
+      });
+      
+      if (!response.data) {
+        throw new Error('Empty response from Python authoritative search');
+      }
+      
+      console.log(`✅ [Python Authoritative] Found ${response.data.results?.length || 0} results`);
+      
+      // Transform to match expected format
+      const results = (response.data.results || []).map(result => ({
+        content: result.content || '',
+        statute: result.statute || statute,
+        paragraph: result.paragraph || paragraph,
+        document_id: result.document_id || 'unknown',
+        similarity: result.score || result.similarity || 0.8,
+        is_authoritative: result.is_authoritative || false,
+        match_type: result.match_type || 'semantic',
+        authority_info: {
+          source_type: result.authority_info?.source_type || 'statute',
+          authority_rank: 1,
+          is_authoritative: result.is_authoritative || false
+        },
+        confidence: result.score || 0.8,
+        metadata: {
+          has_paragraph: true,
+          is_normative: true
+        }
+      }));
+      
+      return {
+        success: true,
+        results: results,
+        authoritative_found: response.data.authoritative_found || false,
+        statute: statute,
+        paragraph: paragraph,
+        count: results.length
+      };
+      
+    } catch (error) {
+      console.error(`❌ [Python Authoritative] Error: ${error.message}`);
+      
+      // Return fallback structure
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        authoritative_found: false,
+        fallback_reason: 'python_service_error'
+      };
+    }
+  }
+  
+  /**
+   * Simple search for backward compatibility
+   */
+  async search(query, statute, k = 10) {
+    console.log(`🔍 [Python Search] Searching ${statute}: "${query.substring(0, 50)}..."`);
+    
+    try {
+      const response = await this.axiosInstance.post('/api/search', {
+        query: query,
+        statute: statute,
+        k: k
+      });
+      
+      return {
+        success: true,
+        results: response.data.results || [],
+        count: response.data.count || 0
+      };
+      
+    } catch (error) {
+      console.error(`❌ [Python Search] Error: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        count: 0
+      };
+    }
+  }
+  
+  /**
+   * Authoritative search with full request object (for backward compatibility)
+   */
+  async authoritativeSearchFull(request) {
+    console.log(`🔍 [Python Full Auth] Searching with full request...`);
+    
+    try {
+      // Extract query components
+      const queryText = request.query?.text || '';
+      const statute = request.query?.statute || request.statute;
+      const questionType = request.query?.question_type || 'NORMATIVE';
+      
+      // Extract paragraph from query text if available
+      const paragraphMatch = queryText.match(/§\s*(\d+[a-z]?)/i);
+      const paragraph = paragraphMatch ? paragraphMatch[1] : null;
+      
+      if (paragraph) {
+        // Use paragraph-based search
+        return await this.authoritativeSearch(queryText, statute, paragraph, request.options?.max_results || 5);
+      } else {
+        // Use general search
+        return await this.search(queryText, statute, request.options?.max_results || 10);
+      }
+      
+    } catch (error) {
+      console.error(`❌ [Python Full Auth] Error: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        count: 0
+      };
     }
   }
   
@@ -388,6 +516,13 @@ class PythonIntegrationService {
       console.log(`❌ [Python Integration] Connection failed: ${error.message}`);
       return { success: false, error: error.message };
     }
+  }
+  
+  /**
+   * Get endpoint URL for logging
+   */
+  getEndpoint() {
+    return this.pythonServiceUrl;
   }
 }
 
