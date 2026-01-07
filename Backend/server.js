@@ -35,19 +35,14 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // Serve static files
 app.use("/documents", express.static(path.join(__dirname, "documents")));
 
-// Import services
-let documentService, chatService, embeddingService;
-try {
-  documentService = require("./services/pdfDocumentService");
-  chatService = require("./services/chatService");
-  embeddingService = require("./services/embeddingService");
-  console.log("✅ All services loaded");
-} catch (error) {
-  console.log("⚠️  Services not found:", error.message);
-  documentService = null;
-  chatService = null;
-  embeddingService = null;
-}
+// Import services through the centralized registry
+const services = require("./services/index");
+console.log("✅ All services loaded through service registry");
+
+// Create convenient aliases for commonly used services
+const documentService = services.ingestion.pdfDocumentService;
+const chatService = services.orchestration.chatService;
+const embeddingService = services.retrieval.embeddingService;
 
 // ==================== RAG SYSTEM INITIALIZATION ====================
 async function initializeRAGSystem() {
@@ -55,10 +50,10 @@ async function initializeRAGSystem() {
     console.log('\n🔨 Initializing RAG system...');
     
     // Get all documents
-    const documents = documentService ? documentService.getAllDocuments() : [];
+    const documents = documentService.getAllDocuments();
     console.log(`📚 Found ${documents.length} documents`);
     
-    if (documents.length > 0 && embeddingService) {
+    if (documents.length > 0) {
       // Build TF-IDF index once with proper document format
       const allChunks = [];
       documents.forEach(doc => {
@@ -79,7 +74,7 @@ async function initializeRAGSystem() {
         console.log('⚠️  No document content available for TF-IDF');
       }
     } else {
-      console.log('⚠️  No documents or embedding service available');
+      console.log('⚠️  No documents available for RAG initialization');
     }
     
     console.log('🚀 RAG system ready');
@@ -90,28 +85,22 @@ async function initializeRAGSystem() {
 
 // Call initialization AFTER services are loaded but BEFORE server starts listening
 setTimeout(() => {
-  if (documentService && embeddingService) {
-    initializeRAGSystem();
-  } else {
-    console.log('⚠️  Skipping RAG initialization: services not available');
-  }
+  initializeRAGSystem();
 }, 2000); // 2 second delay to ensure all services are loaded
 
 // ==================== ROUTES ====================
 
 // Health check
 app.get("/api/health", async (req, res) => {
-  const docs = documentService ? documentService.getAllDocuments() : [];
-  const indexStatus = embeddingService ? embeddingService.getIndexStatus() : null;
+  const docs = documentService.getAllDocuments();
+  const indexStatus = embeddingService.getIndexStatus();
   
-  // Get system health from chat service if available
+  // Get system health from chat service
   let systemHealth = {};
-  if (chatService && typeof chatService.healthCheck === 'function') {
-    try {
-      systemHealth = await chatService.healthCheck();
-    } catch (error) {
-      systemHealth = { status: 'unknown', error: error.message };
-    }
+  try {
+    systemHealth = await chatService.healthCheck();
+  } catch (error) {
+    systemHealth = { status: 'unknown', error: error.message };
   }
 
   res.json({
@@ -124,29 +113,27 @@ app.get("/api/health", async (req, res) => {
     system: systemHealth,
     documents: {
       count: docs.length,
-      loaded: !!documentService,
+      loaded: true,
     },
-    embeddings: indexStatus ? {
+    embeddings: {
       indexBuilt: indexStatus.isIndexBuilt,
       documentsIndexed: indexStatus.documentsIndexed,
       indexSize: indexStatus.indexSize
-    } : null,
+    },
+    services: {
+      ingestion: Object.keys(services.ingestion),
+      classification: Object.keys(services.classification),
+      authority: Object.keys(services.authority),
+      retrieval: Object.keys(services.retrieval),
+      validation: Object.keys(services.validation),
+      clarification: Object.keys(services.clarification),
+      orchestration: Object.keys(services.orchestration)
+    }
   });
 });
 
 // List all documents
 app.get("/api/documents", (req, res) => {
-  if (!documentService) {
-    return res.json({
-      success: true,
-      data: {
-        documents: [],
-        count: 0,
-        message: "Document service not loaded",
-      },
-    });
-  }
-
   const documents = documentService.getAllDocuments();
 
   res.json({
@@ -162,13 +149,6 @@ app.get("/api/documents", (req, res) => {
 // Get specific document content
 app.get("/api/documents/:filename", (req, res) => {
   const { filename } = req.params;
-
-  if (!documentService) {
-    return res.status(404).json({
-      success: false,
-      error: "Document service not available",
-    });
-  }
 
   const content = documentService.getDocumentContent(filename);
 
@@ -198,17 +178,6 @@ app.post("/api/documents/search", (req, res) => {
     return res.status(400).json({
       success: false,
       error: "Search query is required",
-    });
-  }
-
-  if (!documentService) {
-    return res.json({
-      success: true,
-      data: {
-        results: [],
-        count: 0,
-        message: "Document service not loaded",
-      },
     });
   }
 
@@ -244,23 +213,6 @@ app.post("/api/chat/query", async (req, res) => {
     });
   }
 
-  if (!chatService || !documentService) {
-    return res.json({
-      success: true,
-      data: {
-        answer: `The RAG system would search through German legal documents to answer: "${question}"`,
-        sources: [],
-        confidence: 0.5,
-        conversationId: "mock-" + Date.now(),
-        metadata: {
-          documentsUsed: 0,
-          processingTime: "instant",
-          language: "german",
-        },
-      },
-    });
-  }
-
   try {
     const response = await chatService.processQuestion(question);
 
@@ -280,17 +232,6 @@ app.post("/api/chat/query", async (req, res) => {
 
 // Get chat history
 app.get("/api/chat/history", (req, res) => {
-  if (!chatService) {
-    return res.json({
-      success: true,
-      data: {
-        conversations: [],
-        count: 0,
-        message: "Chat service not loaded",
-      },
-    });
-  }
-
   const limit = parseInt(req.query.limit) || 10;
   const history = chatService.getConversationHistory(limit);
 
@@ -306,15 +247,6 @@ app.get("/api/chat/history", (req, res) => {
 
 // Get statistics
 app.get("/api/stats", (req, res) => {
-  if (!chatService || !documentService) {
-    return res.json({
-      success: true,
-      data: {
-        message: "Services not loaded",
-      },
-    });
-  }
-
   const stats = chatService.getStats();
 
   res.json({
@@ -362,13 +294,6 @@ app.post("/api/documents/upload", upload.single("document"), (req, res) => {
 
 // RAG system status endpoint
 app.get("/api/rag/status", (req, res) => {
-  if (!embeddingService) {
-    return res.json({
-      success: false,
-      error: "Embedding service not available",
-    });
-  }
-
   const indexStatus = embeddingService.getIndexStatus();
   
   res.json({
@@ -385,57 +310,10 @@ app.get("/api/rag/status", (req, res) => {
   });
 });
 
-// Test endpoint
-app.get("/api/test", (req, res) => {
-  const docs = documentService ? documentService.getAllDocuments() : [];
-  const indexStatus = embeddingService ? embeddingService.getIndexStatus() : null;
 
-  res.json({
-    success: true,
-    message: "German Legal RAG Backend is working! 🎉",
-    version: "2.0.0",
-    data: {
-      service: "German Legal RAG System",
-      features: [
-        "Document upload and storage",
-        "German legal text processing",
-        "Semantic search in documents",
-        "Question answering with citations",
-        "Conversation history",
-        "TF-IDF based embeddings",
-        "Legal domain routing",
-        "Safety checks and validation"
-      ],
-      currentStatus: {
-        documentsLoaded: docs.length,
-        tfidfIndexBuilt: indexStatus ? indexStatus.isIndexBuilt : false,
-        servicesActive: !!documentService && !!chatService && !!embeddingService,
-        environment: process.env.NODE_ENV,
-      },
-      endpoints: {
-        "GET /api/health": "Health check with system status",
-        "GET /api/documents": "List all documents",
-        "GET /api/documents/:filename": "Get document content",
-        "POST /api/documents/search": "Search in documents",
-        "POST /api/chat/query": "Ask questions about documents",
-        "GET /api/chat/history": "Get conversation history",
-        "GET /api/stats": "Get statistics",
-        "POST /api/documents/upload": "Upload new document",
-        "GET /api/rag/status": "RAG system status",
-      },
-    },
-  });
-});
 
 // Test RAG questions endpoint
 app.get("/api/test/rag", async (req, res) => {
-  if (!chatService || !documentService) {
-    return res.status(500).json({
-      success: false,
-      error: "Services not available",
-    });
-  }
-
   const testQuestions = [
     "§433 BGB Kaufvertrag",
     "Strafe bei Diebstahl",
@@ -480,10 +358,82 @@ app.get("/api/test/rag", async (req, res) => {
   });
 });
 
+// Test endpoint
+app.get("/api/test", (req, res) => {
+  const docs = documentService.getAllDocuments();
+  const indexStatus = embeddingService.getIndexStatus();
+
+  res.json({
+    success: true,
+    message: "German Legal RAG Backend is working! 🎉",
+    version: "2.0.0",
+    data: {
+      service: "German Legal RAG System",
+      features: [
+        "Document upload and storage",
+        "German legal text processing",
+        "Semantic search in documents",
+        "Question answering with citations",
+        "Conversation history",
+        "TF-IDF based embeddings",
+        "Legal domain routing",
+        "Safety checks and validation"
+      ],
+      currentStatus: {
+        documentsLoaded: docs.length,
+        tfidfIndexBuilt: indexStatus.isIndexBuilt,
+        servicesActive: true,
+        environment: process.env.NODE_ENV,
+      },
+      serviceRegistry: {
+        groups: Object.keys(services),
+        totalServices: Object.values(services).reduce((sum, group) => sum + Object.keys(group).length, 0)
+      },
+      endpoints: {
+        "GET /api/health": "Health check with system status",
+        "GET /api/documents": "List all documents",
+        "GET /api/documents/:filename": "Get document content",
+        "POST /api/documents/search": "Search in documents",
+        "POST /api/chat/query": "Ask questions about documents",
+        "GET /api/chat/history": "Get conversation history",
+        "GET /api/stats": "Get statistics",
+        "POST /api/documents/upload": "Upload new document",
+        "GET /api/rag/status": "RAG system status",
+      },
+    },
+  });
+});
+
+// Service details endpoint
+app.get("/api/services", (req, res) => {
+  const serviceDetails = {};
+
+  Object.entries(services).forEach(([groupName, group]) => {
+    serviceDetails[groupName] = {};
+    Object.entries(group).forEach(([serviceName, service]) => {
+      serviceDetails[groupName][serviceName] = {
+        type: typeof service,
+        hasHealthCheck: typeof service.healthCheck === 'function',
+        methods: Object.getOwnPropertyNames(service.constructor.prototype).filter(
+          name => name !== 'constructor'
+        )
+      };
+    });
+  });
+
+  res.json({
+    success: true,
+    data: {
+      services: serviceDetails,
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
 // Main endpoint
 app.get("/", (req, res) => {
-  const docs = documentService ? documentService.getAllDocuments() : [];
-  const indexStatus = embeddingService ? embeddingService.getIndexStatus() : null;
+  const docs = documentService.getAllDocuments();
+  const indexStatus = embeddingService.getIndexStatus();
 
   res.json({
     message: "Welcome to German Legal RAG Backend",
@@ -498,14 +448,16 @@ app.get("/", (req, res) => {
           return types;
         }, {}),
       },
-      embeddings: indexStatus ? {
+      embeddings: {
         indexBuilt: indexStatus.isIndexBuilt,
         ready: indexStatus.isIndexBuilt
-      } : { ready: false }
+      },
+      serviceGroups: Object.keys(services).length
     },
     quickLinks: {
       health: "/api/health",
       documents: "/api/documents",
+      services: "/api/services",
       test: "/api/test",
       ragStatus: "/api/rag/status",
       ragTest: "/api/test/rag",
@@ -522,6 +474,7 @@ app.listen(PORT, () => {
 💚 Health: http://localhost:${PORT}/api/health
 🧪 Test: http://localhost:${PORT}/api/test
 📚 Documents: http://localhost:${PORT}/api/documents
+⚙️  Services: http://localhost:${PORT}/api/services
 🤖 RAG Status: http://localhost:${PORT}/api/rag/status
 
 📖 German Legal RAG Backend Ready!

@@ -3,8 +3,8 @@ const path = require("path");
 const pdf = require("pdf-parse");
 const natural = require("natural");
 
-// ⭐⭐ NEW: Import source authority resolver
-const sourceAuthorityResolver = require('./sourceAuthorityResolver');
+// ⭐⭐ FIXED: Authority resolution moved to Python - no longer needed in Node
+// const sourceAuthorityResolver = require('../authority/sourceAuthorityResolver');
 
 class PDFDocumentService {
   constructor() {
@@ -109,9 +109,17 @@ class PDFDocumentService {
               },
             };
 
-            // ⭐⭐ STEP 2: Add authority classification
-            const authorityInfo = sourceAuthorityResolver.classifyDocument(document, statute);
-            document.authority_metadata = authorityInfo.authority_metadata;
+            // ⭐⭐ FIXED: Authority classification moved to Python
+            // Provide neutral placeholder metadata
+            document.authority_metadata = {
+              source_type: 'unclassified',
+              authority_rank: 100,
+              is_authoritative: false,
+              classification_reason: 'authority_resolution_moved_to_python',
+              classification_method: 'python_service',
+              weight: 1.0,
+              requires_python_evaluation: true
+            };
 
             this.documents.push(document);
             
@@ -128,7 +136,7 @@ class PDFDocumentService {
             console.log(`   ✅ Loaded: ${relativePath}`);
             console.log(`       Title: ${title}`);
             console.log(`       Statute: ${statute || 'Unknown'} (${statuteInfo.confidence * 100}% confidence)`);
-            console.log(`       Authority: ${authorityInfo.authority_metadata.source_type} (rank: ${authorityInfo.authority_metadata.authority_rank})`);
+            console.log(`       Authority: ${document.authority_metadata.source_type} (Python will evaluate)`);
             console.log(`       Chunks: ${chunks.length}`);
             console.log(`       Detection: ${statuteInfo.method}`);
           }
@@ -147,7 +155,7 @@ class PDFDocumentService {
         console.log(`  ${index + 1}. ${doc.metadata.title} ${statInfo}`);
         console.log(`     Type: ${doc.metadata.type} | Pages: ${doc.metadata.pages} | Chunks: ${doc.chunks.length}`);
         console.log(`     Statute Confidence: ${(doc.metadata.statuteConfidence * 100).toFixed(0)}%`);
-        console.log(`     Authority: ${doc.authority_metadata?.source_type || 'Unknown'} (Rank: ${doc.authority_metadata?.authority_rank || 'N/A'})`);
+        console.log(`     Authority: ${doc.authority_metadata?.source_type || 'unclassified'} (Python evaluation)`);
         console.log(`     Path: ${doc.filepath}`);
         console.log();
       });
@@ -160,16 +168,12 @@ class PDFDocumentService {
         console.log(`  ${statute}: ${count} document${count !== 1 ? 's' : ''}`);
       });
 
-      // Show authority distribution
+      // Show authority distribution - now all unclassified
       console.log("\n🏛️  AUTHORITY DISTRIBUTION:");
       console.log("=".repeat(40));
-      const authorityStats = this.getAuthorityStatistics();
-      Object.entries(authorityStats).forEach(([authority, count]) => {
-        console.log(`  ${authority}: ${count} document${count !== 1 ? 's' : ''}`);
-      });
+      console.log(`  unclassified: ${this.documents.length} documents (Python will classify)`);
 
-      // 🔥 Build TF-IDF index AFTER all documents are loaded
-      await this.buildTFIDFIndex();
+      console.log('📚 Documents loaded. Authority resolution will be done by Python service.');
 
     } catch (error) {
       console.log("⚠️  Error loading PDF documents:", error.message);
@@ -238,7 +242,7 @@ class PDFDocumentService {
           { pattern: /\bGDPR\b/, score: 0.8, evidence: 'GDPR abbreviation' },
           { pattern: /\bDSGVO\b/, score: 0.8, evidence: 'DSGVO abbreviation' }
         ],
-        keywords: ['Datenschutz', 'personenbezogen', 'Einwilligung', 'Verarbeitung'],
+        keywords: ['Datenschutz', 'personenbezogen', 'Einwilligung', 'Verprocessing'],
         filenamePattern: /gdpr|dsgvo/
       }
     ];
@@ -296,11 +300,11 @@ class PDFDocumentService {
     return stats;
   }
 
-  // ⭐⭐ NEW: Get authority statistics
+  // ⭐⭐ FIXED: Simplified authority statistics (now all unclassified)
   getAuthorityStatistics() {
     const stats = {};
     this.documents.forEach(doc => {
-      const authorityType = doc.authority_metadata?.source_type || 'unknown';
+      const authorityType = doc.authority_metadata?.source_type || 'unclassified';
       stats[authorityType] = (stats[authorityType] || 0) + 1;
     });
     return stats;
@@ -351,23 +355,23 @@ class PDFDocumentService {
         pages: doc.metadata.pages,
         confidence: doc.metadata.statuteConfidence,
         detectionMethod: doc.metadata.statuteDetectionMethod,
-        authority: doc.authority_metadata?.source_type || 'Unknown'
+        authority: doc.authority_metadata?.source_type || 'unclassified'
       });
     });
     
     return grouped;
   }
 
-  // ⭐⭐ NEW: Get documents grouped by authority
+  // ⭐⭐ FIXED: Simplified authority grouping (all unclassified)
   getDocumentsGroupedByAuthority() {
     const grouped = {};
     
     this.documents.forEach(doc => {
-      const authority = doc.authority_metadata?.source_type || 'unknown';
+      const authority = doc.authority_metadata?.source_type || 'unclassified';
       if (!grouped[authority]) {
         grouped[authority] = {
           authority: authority,
-          authorityRank: doc.authority_metadata?.authority_rank || 0,
+          authorityRank: 100,
           count: 0,
           totalChunks: 0,
           totalPages: 0,
@@ -425,15 +429,9 @@ class PDFDocumentService {
     return Array.from(statutes).sort();
   }
 
-  // ⭐⭐ NEW: Get all available authority types
+  // ⭐⭐ FIXED: Simplified authority types (all unclassified)
   getAvailableAuthorityTypes() {
-    const authorities = new Set();
-    this.documents.forEach(doc => {
-      if (doc.authority_metadata?.source_type) {
-        authorities.add(doc.authority_metadata.source_type);
-      }
-    });
-    return Array.from(authorities).sort();
+    return ['unclassified'];
   }
 
   // ⭐⭐ NEW: Validate document for statute-first architecture
@@ -458,27 +456,23 @@ class PDFDocumentService {
       issues.push('No paragraphs or articles found - may not contain normative text');
     }
     
-    // Check for authority metadata
-    if (!doc.authority_metadata) {
-      issues.push('No authority metadata assigned');
-    }
-    
     return {
       id: doc.id,
       filename: doc.filename,
       statute: metadata.statute,
       confidence: metadata.statuteConfidence,
-      authority: doc.authority_metadata?.source_type || 'None',
-      authorityRank: doc.authority_metadata?.authority_rank || 0,
+      authority: doc.authority_metadata?.source_type || 'unclassified',
+      authorityRank: doc.authority_metadata?.authority_rank || 100,
       isValid: issues.length === 0,
       issues: issues,
       chunkCount: doc.chunks?.length || 0,
       paragraphCount: metadata.paragraphCount || 0,
-      articleCount: metadata.articleCount || 0
+      articleCount: metadata.articleCount || 0,
+      requires_python_evaluation: true
     };
   }
 
-  // ⭐⭐ NEW: Get document validation report
+  // ⭐⭐ FIXED: Updated validation report
   getValidationReport() {
     const report = {
       totalDocuments: this.documents.length,
@@ -499,7 +493,7 @@ class PDFDocumentService {
         report.issues.push({
           document: doc.filename,
           statute: doc.metadata.statute,
-          authority: doc.authority_metadata?.source_type || 'None',
+          authority: doc.authority_metadata?.source_type || 'unclassified',
           issues: validation.issues
         });
       }
@@ -523,16 +517,17 @@ class PDFDocumentService {
         report.byStatute[statute].invalid++;
       }
       
-      // Group by authority
-      const authority = doc.authority_metadata?.source_type || 'unknown';
+      // Group by authority (all unclassified)
+      const authority = doc.authority_metadata?.source_type || 'unclassified';
       if (!report.byAuthority[authority]) {
         report.byAuthority[authority] = {
           count: 0,
           valid: 0,
           invalid: 0,
           totalChunks: 0,
-          averageRank: 0,
-          rankCount: 0
+          averageRank: 100,
+          rankCount: 0,
+          requires_python_evaluation: true
         };
       }
       
@@ -544,16 +539,13 @@ class PDFDocumentService {
         report.byAuthority[authority].invalid++;
       }
       
-      if (doc.authority_metadata?.authority_rank) {
-        report.byAuthority[authority].rankCount++;
-        report.byAuthority[authority].averageRank = 
-          (report.byAuthority[authority].averageRank * (report.byAuthority[authority].rankCount - 1) + 
-           doc.authority_metadata.authority_rank) / report.byAuthority[authority].rankCount;
-      }
+      report.byAuthority[authority].rankCount++;
     });
     
     report.validationRate = report.totalDocuments > 0 ? 
       (report.validDocuments / report.totalDocuments) * 100 : 0;
+    
+    report.authority_note = 'Authority classification deferred to Python service';
     
     return report;
   }
@@ -877,46 +869,6 @@ class PDFDocumentService {
     return de > en ? "german" : "english";
   }
 
-  // NEW METHOD: Build TF-IDF index after all documents are loaded
-  async buildTFIDFIndex() {
-    try {
-      console.log('\n🔨 Building TF-IDF index from loaded documents...');
-      
-      // Collect all chunk content for TF-IDF
-      const allChunksContent = [];
-      
-      this.documents.forEach(doc => {
-        if (doc.chunks && Array.isArray(doc.chunks)) {
-          doc.chunks.forEach(chunk => {
-            if (chunk && chunk.length > 50) { // Only use meaningful chunks
-              allChunksContent.push({ content: chunk });
-            }
-          });
-        }
-      });
-      
-      console.log(`📊 Preparing ${allChunksContent.length} chunks for TF-IDF...`);
-      
-      if (allChunksContent.length > 0) {
-        // Check if embeddingService is available
-        try {
-          const embeddingService = require('./embeddingService');
-          await embeddingService.buildIndex(allChunksContent);
-          
-          const indexStatus = embeddingService.getIndexStatus();
-          console.log(`✅ TF-IDF index built with ${indexStatus.documentsIndexed} documents`);
-        } catch (embeddingError) {
-          console.log('⚠️  Could not build TF-IDF index:', embeddingError.message);
-        }
-      } else {
-        console.log('⚠️  No chunks available for TF-IDF');
-      }
-      
-    } catch (error) {
-      console.log('❌ Error building TF-IDF index:', error.message);
-    }
-  }
-
   // 🎯 SIMPLIFIED: Only basic search for documents (not answering questions)
   async searchDocuments(query, options = {}) {
     const { limit = 5 } = options;
@@ -960,8 +912,8 @@ class PDFDocumentService {
             statute: doc.metadata.statute,
             language: doc.metadata.language,
             pages: doc.metadata.pages,
-            authority: doc.authority_metadata?.source_type || 'Unknown',
-            authorityRank: doc.authority_metadata?.authority_rank || 0
+            authority: doc.authority_metadata?.source_type || 'unclassified',
+            authorityRank: doc.authority_metadata?.authority_rank || 100
           },
           score: score,
           excerpt: doc.content.substring(0, 200) + (doc.content.length > 200 ? '...' : ''),
@@ -993,7 +945,7 @@ class PDFDocumentService {
       content: d.content, // Keep content for RAG system
       chunks: d.chunks, // Keep actual chunks for RAG system
       metadata: d.metadata, // Include enhanced metadata
-      authority_metadata: d.authority_metadata // Include authority metadata
+      authority_metadata: d.authority_metadata // Include authority metadata placeholder
     }));
   }
 
@@ -1044,7 +996,7 @@ class PDFDocumentService {
       const type = doc.metadata.type || 'unknown';
       const jurisdiction = doc.metadata.jurisdiction || 'unknown';
       const language = doc.metadata.language || 'unknown';
-      const authority = doc.authority_metadata?.source_type || 'unknown';
+      const authority = doc.authority_metadata?.source_type || 'unclassified';
       
       stats.statutes[statute] = (stats.statutes[statute] || 0) + 1;
       stats.types[type] = (stats.types[type] || 0) + 1;
@@ -1056,40 +1008,36 @@ class PDFDocumentService {
     return stats;
   }
 
-  // 🎯 NEW: Debug method to see what statutes and authorities were detected
+  // 🎯 FIXED: Debug method updated for Python authority
   debugStatuteAndAuthorityDetection() {
     console.log('\n🔍 STATUTE & AUTHORITY DETECTION DEBUG:');
     console.log('='.repeat(80));
+    console.log('📌 NOTE: Authority resolution now handled by Python service');
+    console.log('='.repeat(80));
+    
     this.documents.forEach((doc, index) => {
       console.log(`${index + 1}. ${doc.filename}`);
       console.log(`   Title: ${doc.metadata.title}`);
       console.log(`   Statute: ${doc.metadata.statute || 'NOT DETECTED'}`);
       console.log(`   Statute Confidence: ${(doc.metadata.statuteConfidence * 100).toFixed(0)}%`);
       console.log(`   Statute Detection Method: ${doc.metadata.statuteDetectionMethod}`);
-      console.log(`   Authority Type: ${doc.authority_metadata?.source_type || 'NOT ASSIGNED'}`);
-      console.log(`   Authority Rank: ${doc.authority_metadata?.authority_rank || 'N/A'}`);
-      console.log(`   Authority Weight: ${doc.authority_metadata?.weight || 'N/A'}`);
-      console.log(`   Authority Classification Method: ${doc.authority_metadata?.classification_method || 'N/A'}`);
+      console.log(`   Authority Type: unclassified (Python will evaluate)`);
+      console.log(`   Authority Rank: 100 (default placeholder)`);
+      console.log(`   Authority Weight: 1.0 (default)`);
+      console.log(`   Authority Classification: deferred_to_python`);
       console.log(`   Type: ${doc.metadata.type}`);
-      console.log(`   First 3 lines of content:`);
-      const lines = doc.content.split('\n').slice(0, 3);
-      lines.forEach((line, i) => console.log(`     ${i + 1}. ${line.substring(0, 100)}...`));
       console.log();
     });
   }
 
-  // 🎯 NEW: Get documents sorted by authority rank
+  // 🎯 FIXED: All documents have same authority rank now
   getDocumentsByAuthorityRank(minRank = 0) {
-    return this.documents
-      .filter(doc => doc.authority_metadata?.authority_rank >= minRank)
-      .sort((a, b) => {
-        const rankA = a.authority_metadata?.authority_rank || 0;
-        const rankB = b.authority_metadata?.authority_rank || 0;
-        return rankB - rankA;
-      });
+    return this.documents.filter(doc => 
+      doc.authority_metadata?.authority_rank >= minRank
+    );
   }
 
-  // 🎯 NEW: Search documents with authority filtering
+  // 🎯 FIXED: Search documents - authority filtering now minimal
   async searchDocumentsWithAuthority(query, options = {}) {
     const { 
       limit = 5, 
@@ -1105,26 +1053,11 @@ class PDFDocumentService {
     }
 
     console.log(`🔍 Advanced document search for: "${query}"`);
-    console.log(`   Filters: minAuthorityRank=${minAuthorityRank}, authorityType=${authorityType || 'any'}`);
+    console.log(`   Note: Authority filtering minimal - Python handles full classification`);
 
     const queryLower = query.toLowerCase();
-    const filteredDocs = this.documents.filter(doc => {
-      // Filter by authority rank
-      if (minAuthorityRank > 0 && (!doc.authority_metadata || doc.authority_metadata.authority_rank < minAuthorityRank)) {
-        return false;
-      }
-      
-      // Filter by authority type
-      if (authorityType && (!doc.authority_metadata || doc.authority_metadata.source_type !== authorityType)) {
-        return false;
-      }
-      
-      return true;
-    });
 
-    console.log(`📊 ${filteredDocs.length} documents pass authority filters`);
-
-    for (const doc of filteredDocs) {
+    for (const doc of this.documents) {
       let score = 0;
       const contentLower = doc.content.toLowerCase();
 
@@ -1143,11 +1076,6 @@ class PDFDocumentService {
         score += 2;
       }
 
-      // Boost by authority rank
-      if (doc.authority_metadata?.authority_rank) {
-        score += doc.authority_metadata.authority_rank * 0.5;
-      }
-
       if (score > 0) {
         results.push({
           document: {
@@ -1158,8 +1086,8 @@ class PDFDocumentService {
             statute: doc.metadata.statute,
             language: doc.metadata.language,
             pages: doc.metadata.pages,
-            authority: doc.authority_metadata?.source_type || 'Unknown',
-            authorityRank: doc.authority_metadata?.authority_rank || 0,
+            authority: doc.authority_metadata?.source_type || 'unclassified',
+            authorityRank: doc.authority_metadata?.authority_rank || 100,
             authorityWeight: doc.authority_metadata?.weight || 1.0
           },
           score: score,
@@ -1168,7 +1096,7 @@ class PDFDocumentService {
       }
     }
 
-    console.log(`📊 Found ${results.length} matching documents after authority filtering`);
+    console.log(`📊 Found ${results.length} matching documents`);
     const sortedResults = results.sort((a, b) => b.score - a.score).slice(0, limit);
     
     return sortedResults;
