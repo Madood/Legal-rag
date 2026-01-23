@@ -5,7 +5,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const fs = require("fs");
 const path = require("path");
-
+const pdfDocumentService = require("./services/ingestion/pdfDocumentService");
 // Load environment variables
 dotenv.config();
 
@@ -42,58 +42,61 @@ console.log("✅ All services loaded through service registry");
 // Create convenient aliases for commonly used services
 const documentService = services.ingestion.pdfDocumentService;
 const chatService = services.orchestration.chatService;
-const embeddingService = services.retrieval.embeddingService;
 
 // ==================== RAG SYSTEM INITIALIZATION ====================
 async function initializeRAGSystem() {
   try {
     console.log('\n🔨 Initializing RAG system...');
     
+    // ✅ NEW: Load and parse PDF documents
+    await documentService.loadDocuments();
+    
     // Get all documents
     const documents = documentService.getAllDocuments();
-    console.log(`📚 Found ${documents.length} documents`);
+    console.log(`📚 Found ${documents.length} parsed documents`);
     
     if (documents.length > 0) {
-      // Build TF-IDF index once with proper document format
-      const allChunks = [];
+      console.log(`✅ PDF parsing complete. TF-IDF ready for lexical precision.`);
+      
+      // Document statistics
+      const statuteCounts = {};
       documents.forEach(doc => {
-        if (doc.content) {
-          // Create document objects for TF-IDF
-          allChunks.push({
-            content: doc.content || '',
-            metadata: doc.metadata || {}
-          });
-        }
+        const statute = doc.metadata?.statute || 'UNKNOWN';
+        statuteCounts[statute] = (statuteCounts[statute] || 0) + 1;
       });
       
-      if (allChunks.length > 0) {
-        await embeddingService.buildIndex(allChunks);
-        const indexStatus = embeddingService.getIndexStatus();
-        console.log(`✅ TF-IDF index built with ${indexStatus.documentsIndexed} documents`);
-      } else {
-        console.log('⚠️  No document content available for TF-IDF');
-      }
+      console.log('📊 Statute distribution:');
+      Object.entries(statuteCounts).forEach(([statute, count]) => {
+        console.log(`  ${statute}: ${count} documents`);
+      });
+      
+      // Check for content
+      const documentsWithContent = documents.filter(doc => 
+        doc.content && doc.content.length > 100
+      );
+      console.log(`📝 ${documentsWithContent.length} documents have substantial content`);
+      
     } else {
       console.log('⚠️  No documents available for RAG initialization');
+      console.log('📁 Please place PDF files in the /documents folder');
     }
     
-    console.log('🚀 RAG system ready');
+    console.log('🚀 RAG system ready (Node-owned text, TF-IDF enhanced)');
   } catch (error) {
     console.error('❌ Failed to initialize RAG system:', error);
   }
 }
 
-// Call initialization AFTER services are loaded but BEFORE server starts listening
+// Call initialization
 setTimeout(() => {
   initializeRAGSystem();
-}, 2000); // 2 second delay to ensure all services are loaded
+}, 1000);
 
 // ==================== ROUTES ====================
 
 // Health check
 app.get("/api/health", async (req, res) => {
   const docs = documentService.getAllDocuments();
-  const indexStatus = embeddingService.getIndexStatus();
   
   // Get system health from chat service
   let systemHealth = {};
@@ -106,27 +109,29 @@ app.get("/api/health", async (req, res) => {
   res.json({
     status: "OK",
     service: "German Legal RAG Backend",
-    version: "2.0.0",
+    version: "2.1.0", // ✅ UPDATED VERSION
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     port: process.env.PORT || 5000,
     system: systemHealth,
     documents: {
       count: docs.length,
-      loaded: true,
+      loaded: docs.length > 0,
+      parsed: docs.filter(d => d.content).length,
+      statutes: [...new Set(docs.map(d => d.metadata?.statute).filter(Boolean))],
+      totalContent: docs.reduce((sum, d) => sum + (d.content?.length || 0), 0)
     },
-    embeddings: {
-      indexBuilt: indexStatus.isIndexBuilt,
-      documentsIndexed: indexStatus.documentsIndexed,
-      indexSize: indexStatus.indexSize
+    features: {
+      pdf_parsing: true,
+      tfidf_reranking: true,
+      python_authority: true,
+      doctrine_enforcement: true,
+      paragraph_anchoring: false // Will be added next
     },
     services: {
       ingestion: Object.keys(services.ingestion),
-      classification: Object.keys(services.classification),
-      authority: Object.keys(services.authority),
       retrieval: Object.keys(services.retrieval),
       validation: Object.keys(services.validation),
-      clarification: Object.keys(services.clarification),
       orchestration: Object.keys(services.orchestration)
     }
   });
@@ -135,13 +140,22 @@ app.get("/api/health", async (req, res) => {
 // List all documents
 app.get("/api/documents", (req, res) => {
   const documents = documentService.getAllDocuments();
+  
+  const enhancedDocs = documents.map(doc => ({
+    filename: doc.filename,
+    statute: doc.metadata?.statute || "UNKNOWN",
+    contentLength: doc.content?.length || 0,
+    chunkCount: doc.chunks?.length || 0,
+    metadata: doc.metadata,
+    hasContent: !!(doc.content && doc.content.length > 100)
+  }));
 
   res.json({
     success: true,
     data: {
-      documents: documents,
+      documents: enhancedDocs,
       count: documents.length,
-      message: `Found ${documents.length} German legal documents`,
+      message: `Found ${documents.length} German legal documents (parsed: ${documents.filter(d => d.content).length})`,
     },
   });
 });
@@ -150,9 +164,11 @@ app.get("/api/documents", (req, res) => {
 app.get("/api/documents/:filename", (req, res) => {
   const { filename } = req.params;
 
-  const content = documentService.getDocumentContent(filename);
+  const doc = documentService.getAllDocuments().find(d => 
+    d.filename === filename || d.id === filename
+  );
 
-  if (!content) {
+  if (!doc) {
     return res.status(404).json({
       success: false,
       error: "Document not found",
@@ -162,17 +178,20 @@ app.get("/api/documents/:filename", (req, res) => {
   res.json({
     success: true,
     data: {
-      filename: filename,
-      content: content,
-      length: content.length,
-      wordCount: content.split(/\s+/).length,
+      filename: doc.filename,
+      content: doc.content,
+      length: doc.content?.length || 0,
+      wordCount: doc.content?.split(/\s+/).length || 0,
+      chunks: doc.chunks?.length || 0,
+      statute: doc.metadata?.statute,
+      metadata: doc.metadata
     },
   });
 });
 
 // Search in documents
 app.post("/api/documents/search", (req, res) => {
-  const { query, limit = 5 } = req.body;
+  const { query, limit = 5, statute = null } = req.body;
 
   if (!query) {
     return res.status(400).json({
@@ -182,7 +201,7 @@ app.post("/api/documents/search", (req, res) => {
   }
 
   try {
-    const results = documentService.searchDocuments(query, { limit });
+    const results = documentService.searchDocuments(query, { limit, statute });
 
     res.json({
       success: true,
@@ -190,6 +209,7 @@ app.post("/api/documents/search", (req, res) => {
         results: results,
         count: results.length,
         query: query,
+        statute: statute,
         message: `Found ${results.length} relevant results`,
       },
     });
@@ -294,65 +314,63 @@ app.post("/api/documents/upload", upload.single("document"), (req, res) => {
 
 // RAG system status endpoint
 app.get("/api/rag/status", (req, res) => {
-  const indexStatus = embeddingService.getIndexStatus();
+  const documents = documentService.getAllDocuments();
+  
+  const status = {
+    pdfParsing: {
+      enabled: true,
+      documentsParsed: documents.filter(d => d.content).length,
+      totalDocuments: documents.length
+    },
+    tfidf: {
+      enabled: true,
+      library: "natural",
+      status: "ready"
+    },
+    pythonIntegration: {
+      enabled: true,
+      service: process.env.PYTHON_SERVICE_URL || "http://localhost:8000"
+    },
+    doctrineEnforcement: {
+      enabled: true,
+      statutes: ["BGB", "StGB", "GG", "HGB", "EU-GDPR"],
+      excludedStatutes: ["BDSG", "Entgeltfortzahlungsgesetz"]
+    }
+  };
+  
+  res.json({
+    success: true,
+    data: status,
+    timestamp: new Date().toISOString(),
+    message: "RAG system is fully initialized with PDF parsing and TF-IDF"
+  });
+});
+
+// Test PDF parsing endpoint
+app.get("/api/test/pdf", (req, res) => {
+  const documents = documentService.getAllDocuments();
+  
+  const testResults = documents.slice(0, 3).map(doc => ({
+    filename: doc.filename,
+    statute: doc.metadata?.statute || "UNKNOWN",
+    contentPreview: doc.content?.substring(0, 200) + "...",
+    contentLength: doc.content?.length || 0,
+    chunkCount: doc.chunks?.length || 0,
+    paragraphs: doc.metadata?.detectedParagraphs?.slice(0, 5) || [],
+    hasNormParagraphs: doc.chunks?.some(chunk => 
+      chunk.metadata?.isNormParagraph
+    ) || false
+  }));
   
   res.json({
     success: true,
     data: {
-      indexBuilt: indexStatus.isIndexBuilt,
-      documentsIndexed: indexStatus.documentsIndexed,
-      indexSize: indexStatus.indexSize,
-      timestamp: new Date().toISOString(),
-      message: indexStatus.isIndexBuilt 
-        ? "RAG system is fully initialized" 
-        : "RAG system is initializing..."
-    }
-  });
-});
-
-
-
-// Test RAG questions endpoint
-app.get("/api/test/rag", async (req, res) => {
-  const testQuestions = [
-    "§433 BGB Kaufvertrag",
-    "Strafe bei Diebstahl",
-    "Grundrecht Religionsfreiheit",
-    "Handelsregister Eintragung",
-    "Was ist das Wetter?"
-  ];
-
-  const results = [];
-
-  for (const question of testQuestions) {
-    try {
-      const response = await chatService.processQuestion(question);
-      results.push({
-        question,
-        success: response.success,
-        statute: response.data?.statute || response.data?.legalDomain || 'unknown',
-        confidence: response.data?.confidence,
-        hasCitations: response.data?.sources && response.data.sources.length > 0,
-        safetyScore: response.data?.safetyCheck?.score || 0
-      });
-    } catch (error) {
-      results.push({
-        question,
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  res.json({
-    success: true,
-    data: {
-      testResults: results,
-      timestamp: new Date().toISOString(),
+      testResults,
       summary: {
-        total: results.length,
-        passed: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
+        totalDocuments: documents.length,
+        hasContent: documents.filter(d => d.content).length,
+        avgContentLength: documents.reduce((sum, d) => sum + (d.content?.length || 0), 0) / Math.max(1, documents.length),
+        statutesFound: [...new Set(documents.map(d => d.metadata?.statute).filter(Boolean))]
       }
     }
   });
@@ -361,37 +379,39 @@ app.get("/api/test/rag", async (req, res) => {
 // Test endpoint
 app.get("/api/test", (req, res) => {
   const docs = documentService.getAllDocuments();
-  const indexStatus = embeddingService.getIndexStatus();
 
   res.json({
     success: true,
     message: "German Legal RAG Backend is working! 🎉",
-    version: "2.0.0",
+    version: "2.1.0",
     data: {
       service: "German Legal RAG System",
       features: [
-        "Document upload and storage",
+        "PDF text extraction (Node-owned)",
         "German legal text processing",
-        "Semantic search in documents",
+        "Semantic search via Python",
+        "TF-IDF lexical precision",
         "Question answering with citations",
-        "Conversation history",
-        "TF-IDF based embeddings",
+        "Doctrine enforcement gates",
         "Legal domain routing",
         "Safety checks and validation"
       ],
       currentStatus: {
         documentsLoaded: docs.length,
-        tfidfIndexBuilt: indexStatus.isIndexBuilt,
-        servicesActive: true,
+        documentsParsed: docs.filter(d => d.content).length,
+        pdfParsing: true,
+        tfidfReady: true,
         environment: process.env.NODE_ENV,
       },
-      serviceRegistry: {
-        groups: Object.keys(services),
-        totalServices: Object.values(services).reduce((sum, group) => sum + Object.keys(group).length, 0)
+      architecture: {
+        principle: "Epistemic separation",
+        nodeResponsibility: "Textual truth, TF-IDF, doctrine gates",
+        pythonResponsibility: "Semantic meaning, authority resolution",
+        doctrineEnforcement: "Pre-retrieval gates, domain anchoring"
       },
       endpoints: {
         "GET /api/health": "Health check with system status",
-        "GET /api/documents": "List all documents",
+        "GET /api/documents": "List all parsed documents",
         "GET /api/documents/:filename": "Get document content",
         "POST /api/documents/search": "Search in documents",
         "POST /api/chat/query": "Ask questions about documents",
@@ -399,6 +419,7 @@ app.get("/api/test", (req, res) => {
         "GET /api/stats": "Get statistics",
         "POST /api/documents/upload": "Upload new document",
         "GET /api/rag/status": "RAG system status",
+        "GET /api/test/pdf": "Test PDF parsing results",
       },
     },
   });
@@ -433,24 +454,26 @@ app.get("/api/services", (req, res) => {
 // Main endpoint
 app.get("/", (req, res) => {
   const docs = documentService.getAllDocuments();
-  const indexStatus = embeddingService.getIndexStatus();
 
   res.json({
     message: "Welcome to German Legal RAG Backend",
-    version: "2.0.0",
+    version: "2.1.0",
     status: "running",
     system: {
       documents: {
         count: docs.length,
-        types: docs.reduce((types, doc) => {
-          const type = doc.type || doc.metadata?.documentType || 'unknown';
-          types[type] = (types[type] || 0) + 1;
-          return types;
+        parsed: docs.filter(d => d.content).length,
+        statutes: docs.reduce((statutes, doc) => {
+          const statute = doc.metadata?.statute || 'UNKNOWN';
+          statutes[statute] = (statutes[statute] || 0) + 1;
+          return statutes;
         }, {}),
       },
-      embeddings: {
-        indexBuilt: indexStatus.isIndexBuilt,
-        ready: indexStatus.isIndexBuilt
+      features: {
+        pdf_parsing: "active",
+        tfidf_reranking: "ready",
+        python_authority: "integrated",
+        doctrine_gates: "enabled"
       },
       serviceGroups: Object.keys(services).length
     },
@@ -460,8 +483,8 @@ app.get("/", (req, res) => {
       services: "/api/services",
       test: "/api/test",
       ragStatus: "/api/rag/status",
-      ragTest: "/api/test/rag",
-      chatExample: 'curl -X POST http://localhost:5000/api/chat/query -H "Content-Type: application/json" -d \'{"question": "What is human dignity?"}\'',
+      pdfTest: "/api/test/pdf",
+      chatExample: 'curl -X POST http://localhost:5000/api/chat/query -H "Content-Type: application/json" -d \'{"question": "Was ist Eigentum gemäß BGB?"}\'',
     },
   });
 });
@@ -476,6 +499,7 @@ app.listen(PORT, () => {
 📚 Documents: http://localhost:${PORT}/api/documents
 ⚙️  Services: http://localhost:${PORT}/api/services
 🤖 RAG Status: http://localhost:${PORT}/api/rag/status
+📄 PDF Test: http://localhost:${PORT}/api/test/pdf
 
 📖 German Legal RAG Backend Ready!
 ===================================`);

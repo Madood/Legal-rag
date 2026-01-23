@@ -18,6 +18,33 @@ class PythonIntegrationService {
   }
 
   /**
+   * Normalize authority mode from Python to JS standard format
+   */
+  normalizeAuthorityMode(pythonMode, statute, paragraph, hasAnchorNorm = false) {
+    // If Python already provides standard mode, use it
+    if (pythonMode && ['none', 'overview', 'exact'].includes(pythonMode)) {
+      return pythonMode;
+    }
+    
+    // Determine mode based on resolution characteristics
+    if (!statute) {
+      return 'none';
+    }
+    
+    if (statute && paragraph) {
+      return 'exact';
+    }
+    
+    // Statute locked but paragraph open (with or without anchor norm)
+    if (statute && !paragraph) {
+      return 'overview';
+    }
+    
+    // Fallback
+    return 'none';
+  }
+
+  /**
    * Main method: Get authority resolution from Python
    */
   async resolveAuthority(question) {
@@ -32,22 +59,38 @@ class PythonIntegrationService {
         throw new Error('Empty response from Python authority service');
       }
       
-      console.log(`✅ [Python Authority] Resolved: ${response.data.statute || 'NO_STATUTE'} ${response.data.reference ? '§' + response.data.reference : ''}`);
+      const pythonData = response.data;
+      
+      // Normalize authority mode
+      const authorityMode = this.normalizeAuthorityMode(
+        pythonData.authority_mode,
+        pythonData.statute,
+        pythonData.reference,
+        pythonData.has_anchor_norm
+      );
+      
+      console.log(`✅ [Python Authority] Resolved: ${pythonData.statute || 'NO_STATUTE'} ${pythonData.reference ? '§' + pythonData.reference : ''} (mode: ${authorityMode})`);
       
       return {
         success: true,
         authority: {
-          statute: response.data.statute,
-          paragraph: response.data.reference,
-          isArticle: response.data.referenceType === 'ARTICLE',
-          requiresClarification: response.data.requiresClarification || false,
-          clarification: response.data.clarification,
-          confidence: response.data.confidence || 0.8,
-          referenceSource: response.data.referenceSource || 'none'
+          statute: pythonData.statute,
+          paragraph: pythonData.reference,
+          isArticle: pythonData.referenceType === 'ARTICLE',
+          requiresClarification: pythonData.requiresClarification || false,
+          clarification: pythonData.clarification,
+          confidence: pythonData.confidence || 0.8,
+          referenceSource: pythonData.referenceSource || 'none',
+          authority_mode: authorityMode, // ✅ NORMALIZED
+          has_anchor_norm: pythonData.has_anchor_norm || false,
+          statute_locked: !!pythonData.statute,
+          paragraph_locked: !!pythonData.reference
         },
         metadata: {
-          processingTime: response.data.processingTime || 0,
-          statuteLocked: !!response.data.statute
+          processingTime: pythonData.processingTime || 0,
+          statuteLocked: !!pythonData.statute,
+          python_raw_mode: pythonData.authority_mode || 'unknown',
+          normalized_mode: authorityMode
         }
       };
       
@@ -58,25 +101,30 @@ class PythonIntegrationService {
   }
 
   /**
-   * Get authoritative sources from Python (source authority)
+   * Get authoritative sources from Python via search/authoritative endpoint
    */
   async getAuthoritativeSources(question, statute, questionType, allDocuments) {
-    console.log(`\n🤖 [Python Sources] Getting authoritative sources...`);
+    console.log(`\n🤖 [Python Sources] Getting authoritative sources for ${statute}...`);
     
     try {
-      const response = await this.axiosInstance.post('/api/source-authority/resolve', {
-        question: question,
+      // ✅ FIX 1: Correct endpoint and payload
+      const response = await this.axiosInstance.post('/query/search/authoritative', {
+        query: question,
         statute: statute,
-        questionType: questionType,
-        documents: allDocuments
+        k: 20
       });
       
-      console.log(`✅ [Python Sources] Found ${response.data.allowed_documents?.length || 0} authoritative sources`);
+      console.log(`✅ [Python Sources] Found ${response.data.results?.length || 0} authoritative sources`);
       
       return {
         success: true,
-        allowed_documents: response.data.allowed_documents || [],
-        authority_summary: response.data.authority_summary || {}
+        allowed_documents: response.data.results || [],
+        authority_summary: {
+          statute: statute,
+          document_count: response.data.results?.length || 0,
+          search_metadata: response.data.metadata || {}
+        }
+        // ✅ Removed authority_mode override
       };
       
     } catch (error) {
@@ -149,7 +197,8 @@ class PythonIntegrationService {
           total_processing_time: processingTime,
           statute: authority.statute,
           paragraph: authority.paragraph,
-          confidence: authority.confidence
+          confidence: authority.confidence,
+          authority_mode: authority.authority_mode // ✅ Propagate mode
         }
       };
       
@@ -166,22 +215,19 @@ class PythonIntegrationService {
     console.log(`🔍 [Python Retrieval] Searching ${statute} ${paragraph ? '§' + paragraph : ''}`);
     
     try {
-      const response = await this.axiosInstance.post('/api/search', {
+      // ✅ FIX 2: Correct endpoint and minimal payload
+      const response = await this.axiosInstance.post('/query/search', {
         query: question,
         statute: statute,
-        paragraph: paragraph,
-        documents: documents,
-        options: {
-          k: 10,
-          similarity_threshold: 0.15
-        }
+        k: 10
       });
       
       return {
         success: true,
         results: response.data.results || [],
         count: response.data.results?.length || 0,
-        metadata: response.data.metadata || {}
+        metadata: response.data.metadata || {},
+        authority_mode: paragraph ? 'exact' : 'overview' // ✅ Add mode
       };
       
     } catch (error) {
@@ -190,7 +236,8 @@ class PythonIntegrationService {
         success: false,
         error: error.message,
         results: [],
-        count: 0
+        count: 0,
+        authority_mode: 'none' // Default mode on error
       };
     }
   }
@@ -200,7 +247,8 @@ class PythonIntegrationService {
    */
   async search(query, statute, k = 10) {
     try {
-      const response = await this.axiosInstance.post('/api/search', {
+      // ✅ FIX 3: Correct endpoint
+      const response = await this.axiosInstance.post('/query/search', {
         query: query,
         statute: statute,
         k: k
@@ -221,17 +269,62 @@ class PythonIntegrationService {
       };
     }
   }
-
+// 🔴 CRITICAL FIX: Add this method to the PythonIntegrationService class
+/**
+ * Call Python's doctrine inductor for doctrinal analysis
+ */
+async callDoctrineInductor(question, authority) {
+  console.log(`🧠 [Python Doctrine] Calling doctrine inductor for ${authority.statute} §${authority.paragraph}`);
+  
+  try {
+    const response = await this.axiosInstance.post('/api/doctrine/induct', {
+      question: question,
+      authority: {
+        statute: authority.statute,
+        paragraph: authority.paragraph,
+        authority_mode: authority.authority_mode,
+        normFunction: authority.normFunction || 'OPERATIVE'
+      }
+    }, {
+      timeout: 5000 // Fast timeout for doctrine calls
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.log(`⚠️ [Python Doctrine] Call failed: ${error.message}`);
+    return null;
+  }
+}
   /**
-   * Health check
+   * Enhanced health check with mode validation
    */
   async healthCheck() {
     try {
       const response = await this.axiosInstance.get('/api/health', { timeout: 5000 });
+      
+      // Test mode normalization
+      const testModes = [
+        { mode: 'concise', statute: 'BGB', paragraph: null, expected: 'overview' },
+        { mode: 'detailed', statute: 'BGB', paragraph: '903', expected: 'exact' },
+        { mode: 'unknown', statute: null, paragraph: null, expected: 'none' }
+      ];
+      
+      const modeValidation = testModes.map(test => ({
+        input: test.mode,
+        expected: test.expected,
+        actual: this.normalizeAuthorityMode(test.mode, test.statute, test.paragraph),
+        valid: this.normalizeAuthorityMode(test.mode, test.statute, test.paragraph) === test.expected
+      }));
+      
       return {
         status: 'healthy',
         python_service: true,
-        version: response.data?.version || 'unknown'
+        version: response.data?.version || 'unknown',
+        mode_normalization: {
+          operational: true,
+          test_results: modeValidation,
+          all_valid: modeValidation.every(m => m.valid)
+        }
       };
     } catch (error) {
       return {
@@ -267,13 +360,14 @@ class PythonIntegrationService {
   }
 
   /**
-   * Test connection
+   * Enhanced test connection with mode checks
    */
   async testConnection() {
     try {
       const health = await this.healthCheck();
       if (health.status === 'healthy') {
         console.log(`✅ [Python] Connection successful`);
+        console.log(`📊 [Python] Mode normalization: ${health.mode_normalization?.all_valid ? 'PASS' : 'FAIL'}`);
         return { success: true, ...health };
       } else {
         console.log(`❌ [Python] Connection failed: ${health.error}`);
@@ -290,6 +384,39 @@ class PythonIntegrationService {
    */
   getEndpoint() {
     return this.pythonServiceUrl;
+  }
+
+  /**
+   * Debug: Simulate Python responses for testing
+   */
+  simulatePythonResponse(question) {
+    // Simulate different Python responses for testing
+    const scenarios = {
+      'Was ist Eigentum?': {
+        statute: 'BGB',
+        reference: null,
+        authority_mode: 'concise',
+        has_anchor_norm: true,
+        confidence: 0.85
+      },
+      'Wie lautet § 903 BGB?': {
+        statute: 'BGB',
+        reference: '903',
+        authority_mode: 'detailed',
+        has_anchor_norm: true,
+        confidence: 0.95
+      },
+      'Was bedeutet Vertragsfreiheit?': {
+        statute: null,
+        reference: null,
+        authority_mode: 'none',
+        requiresClarification: true,
+        confidence: 0.3
+      }
+    };
+    
+    const match = Object.keys(scenarios).find(key => question.includes(key));
+    return scenarios[match] || scenarios['Was ist Eigentum?'];
   }
 }
 

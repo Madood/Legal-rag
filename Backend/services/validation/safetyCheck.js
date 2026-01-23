@@ -1,181 +1,684 @@
-// services/validation/safetyCheck.js - UPDATED VERSION
-// ⭐⭐ FIXED: Authority resolution moved to Python - simplified safety check
+// services/validation/safetyCheck.js - LEGAL ASSURANCE LAYER
+// ⭐⭐ ENHANCED: From Validation to Legal Epistemology & Examiner Expectations
 
 class SafetyCheck {
   constructor() {
     this.checks = [];
-    console.log('✅ SafetyCheck initialized (simplified - authority moved to Python)');
+    this.initializeLegalMethodology();
+    console.log('✅ SafetyCheck initialized (Legal Epistemology Layer)');
   }
 
+  /**
+   * Initialize German legal methodology framework
+   */
+  initializeLegalMethodology() {
+    // Legal Severity Levels
+    this.LEGAL_SEVERITY = {
+      CRITICAL: {
+        code: 'CRITICAL',
+        weight: 30,
+        description: 'Substantive legal error or doctrinal contradiction',
+        examples: [
+          'Mixing criminal and civil law principles',
+          'Claiming unlimited ownership (contradicts § 903 Satz 2 BGB)',
+          'Ignoring constitutional hierarchy (GG > BGB)'
+        ]
+      },
+      MAJOR: {
+        code: 'MAJOR',
+        weight: 15,
+        description: 'Incomplete but fundamentally correct legal reasoning',
+        examples: [
+          'Missing essential legal principle (e.g., Schuldprinzip in criminal law)',
+          'Omitted mandatory doctrinal limitation',
+          'Incomplete systematic positioning'
+        ]
+      },
+      MINOR: {
+        code: 'MINOR',
+        weight: 5,
+        description: 'Formal or presentational issues',
+        examples: [
+          'Missing citation format',
+          'Incomplete source attribution',
+          'Minor structural inconsistency'
+        ]
+      }
+    };
+
+    // Examiner Tolerance Zones by Domain
+    this.EXAMINER_TOLERANCE = {
+      property: {
+        mandatoryConcepts: [
+          'Schranken des Eigentums',
+          'Differenzierung Eigentum/Besitz',
+          'Systematik Sachenrecht'
+        ],
+        toleranceForIncompleteness: 'MEDIUM',
+        requiredHierarchy: ['GG Art. 14', 'BGB Buch 3', 'Spezialgesetze']
+      },
+      contract: {
+        mandatoryConcepts: [
+          'Vertragsfreiheit + Grenzen',
+          'Prinzip von Treu und Glauben (§ 242 BGB)',
+          'Leistungsstörungen'
+        ],
+        toleranceForIncompleteness: 'HIGH',
+        requiredHierarchy: ['GG Art. 2', 'BGB Buch 2', 'AGB-Recht']
+      },
+      criminal: {
+        mandatoryConcepts: [
+          'Schuldprinzip',
+          'Legalitätsprinzip (Art. 103 Abs. 2 GG)',
+          'Verhältnismäßigkeit der Strafe'
+        ],
+        toleranceForIncompleteness: 'LOW',
+        requiredHierarchy: ['GG', 'StGB', 'StPO']
+      },
+      tort: {
+        mandatoryConcepts: [
+          'Verschuldensprinzip',
+          'Kausalität',
+          'Schadensersatzfunktionen'
+        ],
+        toleranceForIncompleteness: 'MEDIUM',
+        requiredHierarchy: ['BGB §§ 823 ff.', 'Haftungsprivilegien']
+      },
+      constitutional: {
+        mandatoryConcepts: [
+          'Verhältnismäßigkeitsprüfung',
+          'Wesensgehaltsgarantie (Art. 19 Abs. 2 GG)',
+          'Grundrechtsdogmatik'
+        ],
+        toleranceForIncompleteness: 'VERY_LOW',
+        requiredHierarchy: ['GG', 'Europarecht', 'Bundesrecht', 'Landesrecht']
+      }
+    };
+
+    // Legal Source Hierarchy (German Law)
+    this.LEGAL_HIERARCHY = [
+      { level: 0, source: 'GG', description: 'Verfassungsrecht (höchste Rangstufe)' },
+      { level: 1, source: 'EU-Recht', description: 'Vorrang vor nationalem Recht (Art. 23 GG)' },
+      { level: 2, source: 'Bundesgesetze', description: 'Formelle Gesetze des Bundes' },
+      { level: 3, source: 'Landesgesetze', description: 'Gesetze der Bundesländer' },
+      { level: 4, source: 'Rechtsverordnungen', description: 'Verordnungsrecht' },
+      { level: 5, source: 'Rechtsprechung', description: 'Judikative Auslegung' },
+      { level: 6, source: 'Wissenschaft', description: 'Juristische Literatur' }
+    ];
+  }
+
+  /**
+   * Main validation with legal epistemology awareness
+   */
   async validateBeforeAnswer(question, ragResponse, authority = null) {
-    const warnings = [];
-    const errors = [];
-    const recommendations = [];
+    const doctrinalNotes = [];
+    const methodologicalLimits = [];
+    const authorityConstraints = [];
+    const legalSeverities = [];
+
+    // 1. Determine legal domain
+    const legalDomain = this.detectLegalDomain(question, authority);
     
-    // 1. Basic question validation
-    if (!question || question.trim().length < 3) {
-      errors.push('QUESTION_TOO_SHORT');
+    // 2. Check examiner expectations for this domain
+    const domainExpectations = this.checkDomainExpectations(legalDomain, ragResponse.answer);
+    doctrinalNotes.push(...domainExpectations.notes);
+    if (domainExpectations.severity) {
+      legalSeverities.push(domainExpectations.severity);
     }
-    
-    if (question.length > 1000) {
-      errors.push('QUESTION_TOO_LONG');
+
+    // 3. Validate hierarchy awareness
+    const hierarchyValidation = this.validateLegalHierarchy(ragResponse.answer, legalDomain);
+    doctrinalNotes.push(...hierarchyValidation.notes);
+    if (hierarchyValidation.severity) {
+      legalSeverities.push(hierarchyValidation.severity);
     }
-    
-    // 2. Check answer content
-    if (!ragResponse.answer || ragResponse.answer.trim().length < 10) {
-      errors.push('ANSWER_TOO_SHORT');
-      return {
-        isValid: false,
-        score: 10,
-        errors,
-        warnings,
-        recommendations: ['Generate more complete answer']
-      };
-    }
-    
-    // 3. Check architecture compliance
-    if (!ragResponse.metadata?.architecture || ragResponse.metadata.architecture !== 'authority_python') {
-      warnings.push('Answer not generated with authority-python architecture');
-    }
-    
-    // 4. Check for Python service usage
-    if (ragResponse.metadata?.python_used) {
-      // Python was used - this is good
-      if (ragResponse.metadata?.python_authoritative_found) {
-        // Python found authoritative sources
-        recommendations.push('Python authority service found authoritative sources');
-      }
-    } else {
-      warnings.push('Python authority service not used - answer may lack authority validation');
-    }
-    
-    // 5. Check answer structure
-    const hasRule = ragResponse.answer.includes('**Regel:**') || ragResponse.answer.includes('**Rule:**');
-    const hasMeaning = ragResponse.answer.includes('**Bedeutung:**') || ragResponse.answer.includes('**Meaning:**');
-    
-    if (!hasRule || !hasMeaning) {
-      warnings.push('Answer structure may be incomplete');
-    }
-    
-    // 6. Check for boilerplate contamination
-    if (this.containsBoilerplate(ragResponse.answer)) {
-      errors.push('Answer contains boilerplate text');
-      recommendations.push('Check boilerplate filtering');
-    }
-    
-    // 7. Check confidence level
-    if (ragResponse.confidence < 0.3) {
-      errors.push(`Low confidence (${(ragResponse.confidence * 100).toFixed(0)}%) - verify accuracy`);
-      recommendations.push('Repeat question with specific statute and paragraph reference');
-    } else if (ragResponse.confidence < 0.5) {
-      warnings.push(`Medium confidence (${(ragResponse.confidence * 100).toFixed(0)}%)`);
-    }
-    
-    // 8. Check if any chunks were used
-    if (ragResponse.metadata?.chunksUsed === 0) {
-      errors.push('No legal text found - answer may be generic');
-    }
-    
-    // 9. Check for statute information (Python will provide this)
-    const statute = ragResponse.metadata?.statute;
-    if (statute) {
-      recommendations.push(`Answer based on ${statute} - Python authority service validated`);
-    } else {
-      warnings.push('No statute identified - verify legal domain');
-    }
-    
-    // 10. Check Python integration health
-    if (ragResponse.metadata?.python_error) {
-      errors.push(`Python service error: ${ragResponse.metadata.python_error}`);
-      recommendations.push('Check Python authority service connection');
-    }
-    
-    // Generate recommendations if none from above
-    if (recommendations.length === 0 && (warnings.length > 0 || errors.length > 0)) {
-      if (statute) {
-        recommendations.push(`Use explicit ${statute} paragraph/article reference for precise answer`);
-      } else {
-        recommendations.push('Repeat question with specific statute reference');
-      }
-    }
-    
+
+    // 4. Distinguish INCOMPLETE vs INCORRECT
+    const correctnessAnalysis = this.analyzeLegalCorrectness(ragResponse.answer, legalDomain, authority);
+    doctrinalNotes.push(...correctnessAnalysis.doctrinalNotes);
+    methodologicalLimits.push(...correctnessAnalysis.methodologicalLimits);
+    legalSeverities.push(...correctnessAnalysis.severities);
+
+    // 5. Assess examiner tolerance
+    const toleranceAssessment = this.assessExaminerTolerance(
+      legalDomain,
+      ragResponse.answer,
+      ragResponse.confidence,
+      authority?.authority_mode
+    );
+    doctrinalNotes.push(...toleranceAssessment.notes);
+
+    // 6. Basic technical checks (existing logic)
+    const technicalValidation = this.performTechnicalChecks(question, ragResponse, authority);
+    methodologicalLimits.push(...technicalValidation.methodologicalLimits);
+    authorityConstraints.push(...technicalValidation.authorityConstraints);
+
+    // 7. Calculate risk profiles
+    const riskProfile = this.calculateRiskProfiles(
+      doctrinalNotes,
+      methodologicalLimits,
+      authorityConstraints,
+      legalSeverities,
+      authority
+    );
+
+    // 8. Generate legal assurance assessment
+    const legalAssurance = this.generateLegalAssurance(
+      riskProfile,
+      legalDomain,
+      ragResponse.confidence,
+      authority
+    );
+
     return {
-      isValid: errors.length === 0,
-      warnings: [...new Set(warnings)],
-      errors: [...new Set(errors)],
-      recommendations: [...new Set(recommendations)],
-      score: this.calculateSafetyScore(warnings, errors, ragResponse.metadata),
+      ...legalAssurance,
       metadata: {
-        architecture: ragResponse.metadata?.architecture || 'unknown',
-        python_used: ragResponse.metadata?.python_used || false,
-        python_authoritative: ragResponse.metadata?.python_authoritative_found || false,
-        statute_identified: !!statute,
-        chunks_used: ragResponse.metadata?.chunksUsed || 0
+        legalDomain,
+        legalMethodology: 'german_civil_law',
+        architecture: 'doctrinal_templates_v2',
+        examinerExpectations: this.EXAMINER_TOLERANCE[legalDomain]?.mandatoryConcepts || [],
+        doctrinalCoverage: this.calculateDoctrinalCoverage(ragResponse.answer, legalDomain)
       }
     };
   }
-  
-  containsBoilerplate(text) {
-    const boilerplateMarkers = [
-      'service provided by',
-      'bundesministerium der justiz',
-      'official journal',
-      'celex number',
-      'reproduced',
-      'ein service des',
-      'Übersetzung',
-      'Translation',
-      'register notices',
-      'this document is',
-      'copyright',
-      'all rights reserved'
-    ];
-    
-    return boilerplateMarkers.some(marker => 
-      text.toLowerCase().includes(marker)
-    );
+
+  /**
+   * Detect legal domain with German methodology
+   */
+  detectLegalDomain(question, authority) {
+    // Priority 1: Authority-based detection
+    if (authority?.statute) {
+      switch (authority.statute) {
+        case 'BGB':
+          if (authority.paragraph >= 903 && authority.paragraph <= 1011) return 'property';
+          if (authority.paragraph >= 433 && authority.paragraph <= 534) return 'contract';
+          if (authority.paragraph >= 823 && authority.paragraph <= 853) return 'tort';
+          return 'civil';
+        case 'StGB':
+          return 'criminal';
+        case 'GG':
+          return 'constitutional';
+        case 'HGB':
+          return 'commercial';
+        default:
+          return 'general';
+      }
+    }
+
+    // Priority 2: Content-based detection
+    const lowerQuestion = question.toLowerCase();
+    if (lowerQuestion.includes('eigentum') || lowerQuestion.includes('besitz') || lowerQuestion.includes('sachenrecht')) {
+      return 'property';
+    }
+    if (lowerQuestion.includes('vertrag') || lowerQuestion.includes('schuldrecht')) {
+      return 'contract';
+    }
+    if (lowerQuestion.includes('straf') || lowerQuestion.includes('stgb')) {
+      return 'criminal';
+    }
+    if (lowerQuestion.includes('grundgesetz') || lowerQuestion.includes('grundrecht')) {
+      return 'constitutional';
+    }
+    if (lowerQuestion.includes('delikt') || lowerQuestion.includes('haftung')) {
+      return 'tort';
+    }
+
+    return 'general';
   }
-  
-  calculateSafetyScore(warnings, errors, metadata = {}) {
-    let score = 100;
-    
-    // Base deductions
-    score -= warnings.length * 5;
-    score -= errors.length * 15;
-    
-    // Architecture compliance
-    if (metadata.architecture === 'authority_python') {
-      score += 10;
+
+  /**
+   * Check domain-specific examiner expectations
+   */
+  checkDomainExpectations(domain, answer) {
+    const expectations = this.EXAMINER_TOLERANCE[domain];
+    if (!expectations) return { notes: [], severity: null };
+
+    const notes = [];
+    let severity = null;
+
+    // Check each mandatory concept
+    expectations.mandatoryConcepts.forEach(concept => {
+      if (!answer.includes(concept)) {
+        const note = `Domain "${domain}" expected to mention: ${concept}`;
+        notes.push(note);
+        
+        // Determine severity based on concept importance
+        if (concept.includes('Schranken') || concept.includes('Prinzip')) {
+          severity = this.LEGAL_SEVERITY.MAJOR;
+        }
+      }
+    });
+
+    // Check hierarchy awareness
+    expectations.requiredHierarchy.forEach(hierarchyElement => {
+      if (domain === 'constitutional' && !answer.includes('GG')) {
+        notes.push('Constitutional discussion must reference Grundgesetz hierarchy');
+        severity = this.LEGAL_SEVERITY.CRITICAL;
+      }
+    });
+
+    return { notes, severity };
+  }
+
+  /**
+   * Validate legal hierarchy awareness
+   */
+  validateLegalHierarchy(answer, domain) {
+    const notes = [];
+    let severity = null;
+
+    // Check if answer acknowledges legal hierarchy
+    const hasHierarchyAwareness = this.LEGAL_HIERARCHY.some(level => 
+      answer.includes(level.source) || answer.includes(level.description)
+    );
+
+    if (!hasHierarchyAwareness) {
+      notes.push('Answer lacks explicit legal hierarchy awareness');
+      if (domain === 'constitutional') {
+        severity = this.LEGAL_SEVERITY.MAJOR;
+      }
     }
-    
-    // Python service usage
-    if (metadata.python_used) {
-      score += 10;
+
+    // Detect hierarchy violations
+    const lowerAnswer = answer.toLowerCase();
+    if (lowerAnswer.includes('bgb') && lowerAnswer.includes('stgb') && !lowerAnswer.includes('unterschied')) {
+      notes.push('Civil and criminal law mentioned without clear differentiation');
+      severity = this.LEGAL_SEVERITY.CRITICAL;
     }
-    
-    if (metadata.python_authoritative_found) {
-      score += 15;
+
+    return { notes, severity };
+  }
+
+  /**
+   * Distinguish INCOMPLETE vs INCORRECT
+   */
+  analyzeLegalCorrectness(answer, domain, authority) {
+    const doctrinalNotes = [];
+    const methodologicalLimits = [];
+    const severities = [];
+
+    // Analyze completeness
+    const completenessScore = this.assessCompleteness(answer, domain);
+    if (completenessScore < 0.7) {
+      doctrinalNotes.push(`Answer is incomplete for ${domain} domain (coverage: ${(completenessScore * 100).toFixed(0)}%)`);
+      severities.push(this.LEGAL_SEVERITY.MAJOR);
     }
+
+    // Detect incorrect statements
+    const incorrectStatements = this.detectLegalIncorrectness(answer, domain);
+    if (incorrectStatements.length > 0) {
+      doctrinalNotes.push(...incorrectStatements);
+      severities.push(this.LEGAL_SEVERITY.CRITICAL);
+    }
+
+    // Check if answer confuses conceptual levels
+    const conceptualClarity = this.assessConceptualClarity(answer, domain);
+    if (!conceptualClarity.isClear) {
+      methodologicalLimits.push(conceptualClarity.issue);
+      if (conceptualClarity.severity === 'critical') {
+        severities.push(this.LEGAL_SEVERITY.CRITICAL);
+      }
+    }
+
+    return { doctrinalNotes, methodologicalLimits, severities };
+  }
+
+  /**
+   * Assess examiner tolerance based on domain and authority mode
+   */
+  assessExaminerTolerance(domain, answer, confidence, authorityMode) {
+    const notes = [];
+    const tolerance = this.EXAMINER_TOLERANCE[domain]?.toleranceForIncompleteness || 'MEDIUM';
+
+    // Adjust tolerance based on authority mode
+    let effectiveTolerance = tolerance;
+    if (authorityMode === 'exact') {
+      effectiveTolerance = 'LOW'; // Exact mode demands precision
+    } else if (authorityMode === 'none') {
+      effectiveTolerance = 'HIGH'; // Conceptual questions allow more leeway
+    }
+
+    // Apply tolerance rules
+    const wordCount = answer.split(/\s+/).length;
+    const normCount = (answer.match(/§/g) || []).length;
+
+    if (effectiveTolerance === 'LOW' && normCount === 0) {
+      notes.push('Low tolerance mode requires explicit legal references');
+    }
+
+    if (effectiveTolerance === 'VERY_LOW' && wordCount < 100) {
+      notes.push('Very low tolerance for brevity in this domain');
+    }
+
+    return { notes, effectiveTolerance };
+  }
+
+  /**
+   * Perform technical checks (existing logic adapted)
+   */
+  performTechnicalChecks(question, ragResponse, authority) {
+    const methodologicalLimits = [];
+    const authorityConstraints = [];
+
+    // Basic validation
+    if (!ragResponse.answer || ragResponse.answer.trim().length < 10) {
+      methodologicalLimits.push('ANSWER_TOO_SHORT');
+    }
+
+    // Authority mode awareness
+    if (authority?.authority_mode === 'none' && ragResponse.confidence > 0.7) {
+      methodologicalLimits.push('High confidence without statute may indicate overclaiming');
+    }
+
+    // Check Python integration
+    if (!ragResponse.metadata?.python_service_used) {
+      authorityConstraints.push('Authority validation bypassed (Python service not used)');
+    }
+
+    return { methodologicalLimits, authorityConstraints };
+  }
+
+  /**
+   * Calculate risk profiles
+   */
+  calculateRiskProfiles(doctrinalNotes, methodologicalLimits, authorityConstraints, legalSeverities, authority) {
+    // Calculate doctrinal risk
+    const doctrinalRisk = legalSeverities.reduce((sum, severity) => 
+      sum + severity.weight, 0
+    );
+
+    // Calculate methodological risk
+    const methodologicalRisk = methodologicalLimits.length * 5;
+
+    // Calculate authority risk
+    let authorityRisk = 0;
+    if (authority?.authority_mode === 'none') authorityRisk += 10;
+    if (authorityConstraints.length > 0) authorityRisk += authorityConstraints.length * 7;
+
+    // Determine overall risk level
+    const totalRisk = doctrinalRisk + methodologicalRisk + authorityRisk;
+    let riskLevel = 'LOW';
+    if (totalRisk > 30) riskLevel = 'MEDIUM';
+    if (totalRisk > 60) riskLevel = 'HIGH';
+    if (totalRisk > 90) riskLevel = 'CRITICAL';
+
+    return {
+      doctrinalRisk: {
+        score: doctrinalRisk,
+        level: doctrinalRisk > 20 ? 'HIGH' : doctrinalRisk > 10 ? 'MEDIUM' : 'LOW',
+        notes: doctrinalNotes
+      },
+      methodologicalRisk: {
+        score: methodologicalRisk,
+        level: methodologicalRisk > 15 ? 'HIGH' : methodologicalRisk > 5 ? 'MEDIUM' : 'LOW',
+        limits: methodologicalLimits
+      },
+      authorityRisk: {
+        score: authorityRisk,
+        level: authorityRisk > 15 ? 'HIGH' : authorityRisk > 5 ? 'MEDIUM' : 'LOW',
+        constraints: authorityConstraints
+      },
+      overallRisk: {
+        score: totalRisk,
+        level: riskLevel,
+        severityBreakdown: legalSeverities.map(s => s.code)
+      }
+    };
+  }
+
+  /**
+   * Generate comprehensive legal assurance
+   */
+  generateLegalAssurance(riskProfile, legalDomain, confidence, authority) {
+    const isAcceptable = riskProfile.overallRisk.level !== 'CRITICAL';
     
-    // Confidence adjustments
-    if (metadata.confidence) {
-      if (metadata.confidence > 0.7) {
-        score += 10;
-      } else if (metadata.confidence < 0.3) {
-        score -= 20;
+    // Determine legal defensibility
+    let legalDefensibility = 'HIGH';
+    if (riskProfile.doctrinalRisk.level === 'HIGH') legalDefensibility = 'MEDIUM';
+    if (riskProfile.doctrinalRisk.level === 'HIGH' && riskProfile.authorityRisk.level === 'HIGH') {
+      legalDefensibility = 'LOW';
+    }
+
+    // Generate recommendations
+    const recommendations = this.generateLegalRecommendations(riskProfile, legalDomain);
+
+    return {
+      isLegallySound: isAcceptable,
+      legalDefensibility,
+      confidenceAdjusted: this.adjustConfidenceForLegalRisk(confidence, riskProfile),
+      riskProfile,
+      doctrinalAssessment: {
+        domain: legalDomain,
+        completeness: this.assessDoctrinalCompleteness(riskProfile),
+        correctness: riskProfile.doctrinalRisk.level === 'LOW' ? 'HIGH' : 'MEDIUM'
+      },
+      examinerReadiness: this.assessExaminerReadiness(riskProfile, authority),
+      recommendations,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Assess doctrinal completeness
+   */
+  assessDoctrinalCompleteness(riskProfile) {
+    const { doctrinalRisk, methodologicalRisk } = riskProfile;
+    
+    if (doctrinalRisk.level === 'LOW' && methodologicalRisk.level === 'LOW') {
+      return 'COMPREHENSIVE';
+    } else if (doctrinalRisk.level === 'MEDIUM' || methodologicalRisk.level === 'MEDIUM') {
+      return 'ADEQUATE';
+    } else {
+      return 'PARTIAL';
+    }
+  }
+
+  /**
+   * Assess readiness for examiner scrutiny
+   */
+  assessExaminerReadiness(riskProfile, authority) {
+    const { doctrinalRisk, authorityRisk, overallRisk } = riskProfile;
+    
+    // Critical factors for examiners
+    const criticalFactors = [];
+    if (doctrinalRisk.notes.some(note => note.includes('hierarchy'))) {
+      criticalFactors.push('HIERARCHY_VIOLATION');
+    }
+    if (doctrinalRisk.notes.some(note => note.includes('Schranken') && !note.includes('mentioned'))) {
+      criticalFactors.push('MISSING_LIMITATIONS');
+    }
+    if (authority?.authority_mode === 'none' && authorityRisk.level === 'HIGH') {
+      criticalFactors.push('NO_LEGAL_BASIS');
+    }
+
+    if (criticalFactors.length > 0 || overallRisk.level === 'CRITICAL') {
+      return 'NOT_READY';
+    } else if (overallRisk.level === 'HIGH' || criticalFactors.length > 1) {
+      return 'NEEDS_REVIEW';
+    } else if (overallRisk.level === 'MEDIUM') {
+      return 'ACCEPTABLE';
+    } else {
+      return 'EXAMINER_READY';
+    }
+  }
+
+  /**
+   * Generate legal recommendations
+   */
+  generateLegalRecommendations(riskProfile, legalDomain) {
+    const recommendations = [];
+    const { doctrinalRisk, methodologicalRisk, authorityRisk } = riskProfile;
+
+    // Doctrinal recommendations
+    if (doctrinalRisk.level === 'MEDIUM' || doctrinalRisk.level === 'HIGH') {
+      recommendations.push({
+        category: 'DOCTRINAL',
+        priority: doctrinalRisk.level === 'HIGH' ? 'HIGH' : 'MEDIUM',
+        action: 'Strengthen legal reasoning structure',
+        details: `Address: ${doctrinalRisk.notes.slice(0, 2).join(', ')}`
+      });
+    }
+
+    // Domain-specific recommendations
+    const expectations = this.EXAMINER_TOLERANCE[legalDomain];
+    if (expectations) {
+      recommendations.push({
+        category: 'DOMAIN_EXPECTATIONS',
+        priority: 'MEDIUM',
+        action: 'Ensure coverage of mandatory concepts',
+        details: `Expected: ${expectations.mandatoryConcepts.slice(0, 2).join(', ')}`
+      });
+    }
+
+    // Authority recommendations
+    if (authorityRisk.level === 'HIGH') {
+      recommendations.push({
+        category: 'AUTHORITY',
+        priority: 'HIGH',
+        action: 'Improve legal foundation',
+        details: 'Specify exact statute and paragraph for authoritative answer'
+      });
+    }
+
+    return recommendations;
+  }
+
+  /**
+   * Adjust confidence based on legal risk
+   */
+  adjustConfidenceForLegalRisk(confidence, riskProfile) {
+    let adjusted = confidence;
+    
+    // Reduce confidence based on doctrinal risk
+    if (riskProfile.doctrinalRisk.level === 'HIGH') adjusted *= 0.6;
+    else if (riskProfile.doctrinalRisk.level === 'MEDIUM') adjusted *= 0.8;
+    
+    // Further reduction for authority risk
+    if (riskProfile.authorityRisk.level === 'HIGH') adjusted *= 0.7;
+    else if (riskProfile.authorityRisk.level === 'MEDIUM') adjusted *= 0.9;
+    
+    // Ensure not below minimum
+    return Math.max(0.1, Math.min(1.0, adjusted));
+  }
+
+  /**
+   * Helper methods
+   */
+  assessCompleteness(answer, domain) {
+    const expectations = this.EXAMINER_TOLERANCE[domain];
+    if (!expectations) return 0.5;
+    
+    const mandatoryConcepts = expectations.mandatoryConcepts;
+    const foundCount = mandatoryConcepts.filter(concept => 
+      answer.toLowerCase().includes(concept.toLowerCase())
+    ).length;
+    
+    return mandatoryConcepts.length > 0 ? foundCount / mandatoryConcepts.length : 0.5;
+  }
+
+  detectLegalIncorrectness(answer, domain) {
+    const incorrectStatements = [];
+    const lowerAnswer = answer.toLowerCase();
+    
+    // Domain-specific incorrect patterns
+    const incorrectPatterns = {
+      property: [
+        { pattern: 'eigentum ist unbeschränkt', correction: 'Eigentum unterliegt Schranken (§ 903 Satz 2 BGB)' },
+        { pattern: 'besitz ist eigentum', correction: 'Besitz ≠ Eigentum (§ 854 vs § 903 BGB)' }
+      ],
+      criminal: [
+        { pattern: 'strafrecht ohne schuld', correction: 'Strafrecht folgt dem Schuldprinzip' },
+        { pattern: 'strafe ohne gesetzliche grundlage', correction: 'nulla poena sine lege (Art. 103 Abs. 2 GG)' }
+      ],
+      constitutional: [
+        { pattern: 'grundrechte sind schrankenlos', correction: 'Grundrechte unterliegen der verfassungsmäßigen Ordnung' }
+      ]
+    };
+    
+    const patterns = incorrectPatterns[domain] || [];
+    patterns.forEach(({ pattern, correction }) => {
+      if (lowerAnswer.includes(pattern)) {
+        incorrectStatements.push(`Legally incorrect: "${pattern}" - Correct: ${correction}`);
+      }
+    });
+    
+    return incorrectStatements;
+  }
+
+  assessConceptualClarity(answer, domain) {
+    const lowerAnswer = answer.toLowerCase();
+    
+    // Check for conceptual confusion
+    if (domain === 'property' && lowerAnswer.includes('besitz') && lowerAnswer.includes('eigentum')) {
+      const hasClarification = lowerAnswer.includes('unterschied') || lowerAnswer.includes('verschieden');
+      if (!hasClarification) {
+        return {
+          isClear: false,
+          issue: 'Distinction between Besitz and Eigentum not clearly articulated',
+          severity: 'medium'
+        };
       }
     }
     
-    // Chunk usage
-    if (metadata.chunksUsed && metadata.chunksUsed > 0) {
-      score += 5;
-    } else if (metadata.chunksUsed === 0) {
-      score -= 20;
+    if (domain === 'contract' && lowerAnswer.includes('willenserklärung')) {
+      const hasElements = lowerAnswer.includes('handlung') && lowerAnswer.includes('erfolg') && lowerAnswer.includes('bewusstsein');
+      if (!hasElements) {
+        return {
+          isClear: false,
+          issue: 'Willenserklärung elements incomplete',
+          severity: 'low'
+        };
+      }
     }
     
-    return Math.max(0, Math.min(100, score));
+    return { isClear: true, issue: null, severity: null };
   }
-  
+
+  calculateDoctrinalCoverage(answer, domain) {
+    const coverage = {
+      legalPrinciples: 0,
+      normReferences: 0,
+      systematicPositioning: 0,
+      limitationsAcknowledged: 0
+    };
+    
+    const lowerAnswer = answer.toLowerCase();
+    
+    // Count legal principles
+    if (lowerAnswer.includes('prinzip') || lowerAnswer.includes('grundsatz')) coverage.legalPrinciples++;
+    
+    // Count norm references
+    coverage.normReferences = (lowerAnswer.match(/§/g) || []).length;
+    
+    // Check systematic positioning
+    if (domain === 'property' && lowerAnswer.includes('sachenrecht')) coverage.systematicPositioning = 1;
+    if (domain === 'contract' && lowerAnswer.includes('schuldrecht')) coverage.systematicPositioning = 1;
+    
+    // Check limitations
+    if (lowerAnswer.includes('schranken') || lowerAnswer.includes('grenzen') || lowerAnswer.includes('beschränkung')) {
+      coverage.limitationsAcknowledged = 1;
+    }
+    
+    return coverage;
+  }
+
+  // Existing methods (adapted for new terminology)
+  logSafetyEvent(eventType, details) {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+      timestamp,
+      event: eventType,
+      details,
+      system: 'German-Legal-RAG',
+      architecture: 'legal_epistemology_layer',
+      methodology: 'german_civil_law'
+    };
+    
+    console.log(`⚖️  LEGAL ASSURANCE: ${timestamp} - ${eventType}`, details);
+    
+    return logEntry;
+  }
+
   validateDocumentConsistency(documents) {
     const issues = [];
     
@@ -194,324 +697,167 @@ class SafetyCheck {
       totalDocuments: documents.length,
       issues,
       isConsistent: issues.length === 0,
-      statutes: [...new Set(documents.map(d => d.metadata?.statute).filter(Boolean))]
+      statutes: [...new Set(documents.map(d => d.metadata?.statute).filter(Boolean))],
+      legalDomains: this.extractLegalDomains(documents)
     };
   }
-  
-  logSafetyEvent(eventType, details) {
-    const timestamp = new Date().toISOString();
-    const logEntry = {
-      timestamp,
-      event: eventType,
-      details,
-      system: 'German-Legal-RAG',
-      architecture: 'authority_python'
-    };
-    
-    console.log(`🛡️  SAFETY LOG: ${timestamp} - ${eventType}`, details);
-    
-    return logEntry;
-  }
-  
-  validateCrossStatuteContamination(response, documents) {
-    const statute = response.metadata?.statute;
-    if (!statute) return { isValid: true, note: 'No statute in response - Python will validate' };
-    
-    const citations = response.citations || [];
-    const foreignCitations = citations.filter(citation => 
-      citation.statute && citation.statute !== statute
-    );
-    
-    if (foreignCitations.length > 0) {
-      return {
-        isValid: false,
-        error: `Cross-statute contamination: ${statute} answer cites ${foreignCitations.map(c => c.statute).join(', ')}`,
-        foreignCitations,
-        recommendation: 'Python authority service will enforce strict field isolation'
-      };
-    }
-    
-    return { isValid: true };
-  }
-  
-  generateSafetyReport(conversationHistory = []) {
-    const totalQuestions = conversationHistory.length;
-    const questionsWithPython = conversationHistory.filter(c => c.metadata?.python_used).length;
-    const questionsWithAuthority = conversationHistory.filter(c => c.metadata?.python_authoritative_found).length;
-    
-    const safetyScores = conversationHistory
-      .map(c => c.safetyCheck?.score || 0)
-      .filter(score => score > 0);
-    
-    const avgSafetyScore = safetyScores.length > 0 ? 
-      safetyScores.reduce((a, b) => a + b, 0) / safetyScores.length : 0;
-    
-    const confidences = conversationHistory
-      .map(c => c.confidence || 0)
-      .filter(confidence => confidence > 0);
-    
-    const avgConfidence = confidences.length > 0 ? 
-      confidences.reduce((a, b) => a + b, 0) / confidences.length : 0;
-    
-    // Statute distribution
-    const statuteCounts = {};
-    conversationHistory.forEach(c => {
-      const statute = c.statute || c.metadata?.statute;
-      if (statute) {
-        statuteCounts[statute] = (statuteCounts[statute] || 0) + 1;
+
+  extractLegalDomains(documents) {
+    const domains = new Set();
+    documents.forEach(doc => {
+      if (doc.metadata?.statute) {
+        const statute = doc.metadata.statute;
+        if (statute === 'BGB') domains.add('civil');
+        if (statute === 'StGB') domains.add('criminal');
+        if (statute === 'GG') domains.add('constitutional');
+        if (statute === 'HGB') domains.add('commercial');
       }
     });
-    
-    // Error and warning analysis
-    const allErrors = conversationHistory.flatMap(c => c.safetyCheck?.errors || []);
-    const allWarnings = conversationHistory.flatMap(c => c.safetyCheck?.warnings || []);
-    
-    const errorCategories = {};
-    allErrors.forEach(error => {
-      const category = this.categorizeError(error);
-      errorCategories[category] = (errorCategories[category] || 0) + 1;
-    });
-    
-    return {
+    return Array.from(domains);
+  }
+
+  /**
+   * Generate comprehensive legal methodology report
+   */
+  generateLegalMethodologyReport(conversationHistory = []) {
+    const report = {
       timestamp: new Date().toISOString(),
-      architecture: 'authority_python',
-      summary: {
-        totalQuestions,
-        questionsWithPython,
-        questionsWithAuthority,
-        pythonUsageRate: totalQuestions > 0 ? (questionsWithPython / totalQuestions) * 100 : 0,
-        authorityRate: totalQuestions > 0 ? (questionsWithAuthority / totalQuestions) * 100 : 0,
-        averageSafetyScore: Math.round(avgSafetyScore),
-        averageConfidence: Math.round(avgConfidence * 100)
-      },
-      statutes: statuteCounts,
-      errorAnalysis: errorCategories,
-      pythonUsage: {
-        pythonUsed: questionsWithPython,
-        pythonAuthoritative: questionsWithAuthority,
-        pythonErrorRate: conversationHistory.filter(c => c.metadata?.python_error).length
-      },
-      recommendations: this.generateSystemRecommendations(
-        totalQuestions,
-        questionsWithPython,
-        avgSafetyScore,
-        statuteCounts,
-        errorCategories
-      )
-    };
-  }
-  
-  categorizeError(error) {
-    if (error.includes('Statute') || error.includes('Gesetz')) return 'STATUTE_ERROR';
-    if (error.includes('Boilerplate')) return 'BOILERPLATE_ERROR';
-    if (error.includes('Konfidenz') || error.includes('confidence')) return 'CONFIDENCE_ERROR';
-    if (error.includes('Architektur') || error.includes('architecture')) return 'ARCHITECTURE_ERROR';
-    if (error.includes('Python') || error.includes('python')) return 'PYTHON_ERROR';
-    return 'OTHER_ERROR';
-  }
-  
-  generateSystemRecommendations(totalQuestions, questionsWithPython, avgSafetyScore, statuteCounts, errorCategories) {
-    const recommendations = [];
-    
-    if (totalQuestions > 0) {
-      const pythonRate = (questionsWithPython / totalQuestions) * 100;
-      
-      if (pythonRate < 90) {
-        recommendations.push({
-          priority: 'HIGH',
-          action: 'Improve Python integration',
-          description: 'Python authority service not used for all questions.',
-          metric: `${Math.round(pythonRate)}% Python usage rate`,
-          target: '> 90%'
-        });
-      }
-      
-      if (avgSafetyScore < 70) {
-        recommendations.push({
-          priority: 'HIGH',
-          action: 'Improve answer quality',
-          description: 'Average safety score too low.',
-          metric: `${Math.round(avgSafetyScore)} safety score`,
-          target: '> 70'
-        });
-      }
-      
-      // Analyze error categories
-      if (errorCategories.PYTHON_ERROR > 3) {
-        recommendations.push({
-          priority: 'MEDIUM',
-          action: 'Check Python service connection',
-          description: 'Multiple Python service errors.',
-          metric: `${errorCategories.PYTHON_ERROR} Python errors`,
-          target: '< 2'
-        });
-      }
-    }
-    
-    // Check Python dependency
-    recommendations.push({
-      priority: 'LOW',
-      action: 'Ensure Python service is running',
-      description: 'Authority resolution depends on Python service.',
-      metric: 'Python service dependency',
-      target: 'Always running'
-    });
-    
-    return recommendations;
-  }
-  
-  monitorPerformance(metrics) {
-    const {
-      processingTime,
-      chunkCount,
-      documentCount,
-      confidence,
-      safetyScore,
-      pythonUsed,
-      pythonAuthoritative
-    } = metrics;
-    
-    const performance = {
-      timestamp: new Date().toISOString(),
-      processingTime: {
-        value: processingTime,
-        status: processingTime < 2000 ? 'good' : processingTime < 5000 ? 'acceptable' : 'slow'
-      },
-      resources: {
-        chunksProcessed: chunkCount,
-        documentsUsed: documentCount,
-        status: chunkCount > 0 && documentCount > 0 ? 'good' : 'insufficient'
-      },
-      quality: {
-        confidence: confidence * 100,
-        safetyScore: safetyScore,
-        status: confidence > 0.5 && safetyScore > 70 ? 'good' : 'needs_attention'
-      },
-      python: {
-        used: pythonUsed,
-        authoritative: pythonAuthoritative,
-        status: pythonAuthoritative ? 'authoritative' : pythonUsed ? 'used' : 'not_used'
-      },
-      architecture: 'authority_python'
+      methodologyFramework: 'German Civil Law Epistemology',
+      assessmentCriteria: Object.keys(this.LEGAL_SEVERITY).map(key => ({
+        level: key,
+        ...this.LEGAL_SEVERITY[key]
+      })),
+      domainExpectations: Object.entries(this.EXAMINER_TOLERANCE).map(([domain, config]) => ({
+        domain,
+        mandatoryConcepts: config.mandatoryConcepts,
+        tolerance: config.toleranceForIncompleteness
+      })),
+      performanceAnalysis: this.analyzeLegalPerformance(conversationHistory),
+      institutionalReadiness: this.assessInstitutionalReadiness(conversationHistory)
     };
     
-    // Log performance issues
-    if (performance.processingTime.status === 'slow') {
-      this.logSafetyEvent('PERFORMANCE_WARNING', {
-        message: 'Processing time slow',
-        processingTime,
-        recommendation: 'Optimize Python service calls'
-      });
-    }
-    
-    if (performance.resources.status === 'insufficient') {
-      this.logSafetyEvent('RESOURCE_WARNING', {
-        message: 'Insufficient resources for answer',
-        chunkCount,
-        documentCount,
-        recommendation: 'Load more documents or check chunk generation'
-      });
-    }
-    
-    if (performance.quality.status === 'needs_attention') {
-      this.logSafetyEvent('QUALITY_WARNING', {
-        message: 'Answer quality needs attention',
-        confidence: confidence * 100,
-        safetyScore,
-        recommendation: 'Review Python authority service configuration'
-      });
-    }
-    
-    return performance;
+    return report;
   }
-  
-  // New: Validate Python service health
-  validatePythonServiceHealth(pythonIntegrationService) {
-    try {
-      if (!pythonIntegrationService || typeof pythonIntegrationService.healthCheck !== 'function') {
-        return {
-          service: 'PythonIntegrationService',
-          status: 'unavailable',
-          error: 'Python integration service not available',
-          timestamp: new Date().toISOString()
+
+  analyzeLegalPerformance(conversationHistory) {
+    const legalDomains = new Set();
+    const severityCounts = { CRITICAL: 0, MAJOR: 0, MINOR: 0 };
+    const domainPerformance = {};
+    
+    conversationHistory.forEach(entry => {
+      const domain = entry.safetyCheck?.metadata?.legalDomain || 'unknown';
+      legalDomains.add(domain);
+      
+      // Count severities
+      const safetyCheck = entry.safetyCheck;
+      if (safetyCheck?.riskProfile?.overallRisk?.severityBreakdown) {
+        safetyCheck.riskProfile.overallRisk.severityBreakdown.forEach(severity => {
+          severityCounts[severity] = (severityCounts[severity] || 0) + 1;
+        });
+      }
+      
+      // Track domain performance
+      if (!domainPerformance[domain]) {
+        domainPerformance[domain] = {
+          count: 0,
+          avgConfidence: 0,
+          avgLegalDefensibility: 0
         };
       }
       
-      // Check if we can call Python service
-      const health = pythonIntegrationService.healthCheck();
-      
-      return {
-        service: 'PythonIntegrationService',
-        status: health.status || 'unknown',
-        python_service: health.python_service || false,
-        error: health.error,
-        timestamp: new Date().toISOString()
-      };
-      
-    } catch (error) {
-      return {
-        service: 'PythonIntegrationService',
-        status: 'unhealthy',
-        error: error.message,
-        timestamp: new Date().toISOString()
-      };
-    }
-  }
-  
-  // Quick validation for system startup
-  validateSystemStartup(services) {
-    const validation = {
-      timestamp: new Date().toISOString(),
-      services: {},
-      overallStatus: 'checking'
-    };
-    
-    // Check required services
-    const requiredServices = [
-      'pdfDocumentService',
-      'embeddingService',
-      'pythonIntegrationService'
-    ];
-    
-    requiredServices.forEach(serviceName => {
-      const service = services[serviceName];
-      validation.services[serviceName] = {
-        available: !!service,
-        type: service ? typeof service : 'missing'
-      };
+      domainPerformance[domain].count++;
+      domainPerformance[domain].avgConfidence += entry.confidence || 0;
+      domainPerformance[domain].avgLegalDefensibility += 
+        safetyCheck?.legalDefensibility === 'HIGH' ? 1 : 
+        safetyCheck?.legalDefensibility === 'MEDIUM' ? 0.5 : 0;
     });
     
-    // Check if we have documents
-    if (services.pdfDocumentService) {
-      const documents = services.pdfDocumentService.getAllDocuments();
-      validation.documents = {
-        count: documents.length,
-        hasContent: documents.length > 0,
-        statutes: [...new Set(documents.map(d => d.metadata?.statute).filter(Boolean))]
-      };
+    // Calculate averages
+    Object.keys(domainPerformance).forEach(domain => {
+      const perf = domainPerformance[domain];
+      perf.avgConfidence = perf.count > 0 ? (perf.avgConfidence / perf.count) : 0;
+      perf.avgLegalDefensibility = perf.count > 0 ? (perf.avgLegalDefensibility / perf.count) : 0;
+    });
+    
+    return {
+      domainsCovered: Array.from(legalDomains),
+      severityDistribution: severityCounts,
+      domainPerformance,
+      overallLegalSoundness: conversationHistory.filter(
+        c => c.safetyCheck?.isLegallySound
+      ).length / Math.max(1, conversationHistory.length)
+    };
+  }
+
+  assessInstitutionalReadiness(conversationHistory) {
+    const criticalSeverityCount = conversationHistory.filter(
+      c => c.safetyCheck?.riskProfile?.overallRisk?.severityBreakdown?.includes('CRITICAL')
+    ).length;
+    
+    const highDefensibilityCount = conversationHistory.filter(
+      c => c.safetyCheck?.legalDefensibility === 'HIGH'
+    ).length;
+    
+    const examinerReadyCount = conversationHistory.filter(
+      c => c.safetyCheck?.examinerReadiness === 'EXAMINER_READY'
+    ).length;
+    
+    const total = conversationHistory.length;
+    
+    const readinessScores = {
+      criticalIssueRate: total > 0 ? criticalSeverityCount / total : 0,
+      highDefensibilityRate: total > 0 ? highDefensibilityCount / total : 0,
+      examinerReadyRate: total > 0 ? examinerReadyCount / total : 0
+    };
+    
+    let institutionalRating = 'PROTOTYPE';
+    if (readinessScores.criticalIssueRate < 0.1 && 
+        readinessScores.highDefensibilityRate > 0.8 &&
+        readinessScores.examinerReadyRate > 0.7) {
+      institutionalRating = 'PRODUCTION_READY';
+    } else if (readinessScores.criticalIssueRate < 0.2 &&
+               readinessScores.highDefensibilityRate > 0.6) {
+      institutionalRating = 'BETA';
     }
     
-    // Check Python service specifically
-    if (services.pythonIntegrationService) {
-      const pythonHealth = this.validatePythonServiceHealth(services.pythonIntegrationService);
-      validation.python = pythonHealth;
+    return {
+      readinessScores,
+      institutionalRating,
+      recommendations: this.generateInstitutionalRecommendations(readinessScores)
+    };
+  }
+
+  generateInstitutionalRecommendations(readinessScores) {
+    const recommendations = [];
+    
+    if (readinessScores.criticalIssueRate > 0.1) {
+      recommendations.push({
+        priority: 'CRITICAL',
+        action: 'Reduce critical legal errors',
+        target: 'Critical issue rate < 10%',
+        current: `${(readinessScores.criticalIssueRate * 100).toFixed(1)}%`
+      });
     }
     
-    // Determine overall status
-    const missingServices = requiredServices.filter(name => !validation.services[name]?.available);
-    
-    if (missingServices.length > 0) {
-      validation.overallStatus = 'degraded';
-      validation.missingServices = missingServices;
-    } else if (validation.documents && validation.documents.count === 0) {
-      validation.overallStatus = 'no_documents';
-    } else if (validation.python && validation.python.status !== 'healthy') {
-      validation.overallStatus = 'python_unavailable';
-    } else {
-      validation.overallStatus = 'healthy';
+    if (readinessScores.highDefensibilityRate < 0.8) {
+      recommendations.push({
+        priority: 'HIGH',
+        action: 'Improve legal defensibility',
+        target: 'High defensibility rate > 80%',
+        current: `${(readinessScores.highDefensibilityRate * 100).toFixed(1)}%`
+      });
     }
     
-    return validation;
+    if (readinessScores.examinerReadyRate < 0.7) {
+      recommendations.push({
+        priority: 'MEDIUM',
+        action: 'Enhance examiner readiness',
+        target: 'Examiner ready rate > 70%',
+        current: `${(readinessScores.examinerReadyRate * 100).toFixed(1)}%`
+      });
+    }
+    
+    return recommendations;
   }
 }
 

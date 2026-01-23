@@ -54,3 +54,10 @@ docs/_build/
 # Database files
 *.db
 *.sqlite
+
+# RAG / AI generated artifacts
+PythonServices/data/cache/
+PythonServices/data/indices/
+*.pkl
+*.faiss
+

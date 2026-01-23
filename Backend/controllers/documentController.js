@@ -5,6 +5,163 @@ const embeddingService = require('../services/embeddingService');
 const fs = require('fs').promises;
 const path = require('path');
 
+// ========== CRITICAL RAG BRIDGE ==========
+
+// 🔥 NEW: Load processed documents into RAG memory (runtime)
+exports.loadDocumentsToMemory = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    
+    console.log('🔄 Loading processed documents into RAG memory...');
+    
+    // Get processed documents from MongoDB
+    const documents = await Document.find({ 
+      uploadedBy: userId,
+      status: 'processed' 
+    }).lean();
+
+    // Load into pdfDocumentService (RAG runtime memory)
+    const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+    pdfService.clearDocuments();
+
+    let loadedCount = 0;
+    documents.forEach(doc => {
+      if (doc.content) {
+        pdfService.addDocument({
+          id: doc._id.toString(),
+          filename: doc.filename,
+          originalName: doc.originalName,
+          content: doc.content || '',
+          chunks: doc.chunks || [],
+          metadata: doc.metadata || {},
+          status: doc.status,
+          source: 'mongodb',
+          processedAt: doc.processedAt,
+          embeddings: doc.chunks?.some(chunk => chunk.embeddings?.length > 0) || false
+        });
+        loadedCount++;
+      }
+    });
+
+    console.log(`📥 Loaded ${loadedCount} documents from MongoDB to RAG memory`);
+
+    res.json({
+      success: true,
+      data: {
+        loaded: loadedCount,
+        totalProcessed: documents.length,
+        message: `Successfully loaded ${loadedCount} processed documents into RAG memory`,
+        memoryCount: pdfService.getAllDocuments().length
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 🔥 NEW: Check memory vs MongoDB sync status
+exports.getMemorySyncStatus = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    
+    // MongoDB documents
+    const mongoDocs = await Document.find({ uploadedBy: userId });
+    const processedDocs = mongoDocs.filter(d => d.status === 'processed');
+    
+    // Memory documents (RAG runtime)
+    const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+    const memoryDocs = pdfService.getAllDocuments();
+    
+    // Find mismatches
+    const missingInMemory = processedDocs.filter(mongoDoc => 
+      !memoryDocs.some(memDoc => memDoc.id === mongoDoc._id.toString())
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        mongodb: {
+          total: mongoDocs.length,
+          processed: processedDocs.length,
+          uploaded: mongoDocs.filter(d => d.status === 'uploaded').length,
+          failed: mongoDocs.filter(d => d.status === 'failed').length
+        },
+        memory: {
+          total: memoryDocs.length,
+          sources: memoryDocs.reduce((acc, doc) => {
+            acc[doc.source] = (acc[doc.source] || 0) + 1;
+            return acc;
+          }, {})
+        },
+        syncStatus: {
+          inSync: missingInMemory.length === 0,
+          missingInMemory: missingInMemory.length,
+          missingDocuments: missingInMemory.map(d => ({
+            id: d._id,
+            filename: d.filename,
+            status: d.status
+          }))
+        },
+        recommendations: missingInMemory.length > 0 ? [
+          `Call POST /api/documents/${missingInMemory[0]._id}/process to process documents`,
+          `Call POST /api/documents/load-to-memory to sync to RAG system`
+        ] : ['✅ System is fully synchronized']
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 🔥 NEW: Startup initialization function (for server.js)
+exports.initializeRAGDocuments = async () => {
+  try {
+    console.log('🚀 Initializing RAG document bridge...');
+    
+    // Get ALL processed documents from MongoDB
+    const documents = await Document.find({ status: 'processed' }).lean();
+    
+    // Load into memory service
+    const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+    pdfService.clearDocuments();
+    
+    let loadedCount = 0;
+    documents.forEach(doc => {
+      if (doc.content) {
+        pdfService.addDocument({
+          id: doc._id.toString(),
+          filename: doc.filename,
+          originalName: doc.originalName,
+          content: doc.content || '',
+          chunks: doc.chunks || [],
+          metadata: doc.metadata || {},
+          status: doc.status,
+          source: 'mongodb',
+          processedAt: doc.processedAt
+        });
+        loadedCount++;
+      }
+    });
+    
+    console.log(`✅ RAG bridge initialized: ${loadedCount} documents loaded`);
+    
+    return {
+      success: true,
+      loaded: loadedCount,
+      totalProcessed: documents.length,
+      message: `Loaded ${loadedCount} processed documents into RAG memory`
+    };
+  } catch (error) {
+    console.error('❌ Failed to initialize RAG documents:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+// ========== ORIGINAL CONTROLLER METHODS (UPDATED) ==========
+
 // Upload a single document
 exports.uploadDocument = async (req, res, next) => {
   try {
@@ -48,7 +205,11 @@ exports.uploadDocument = async (req, res, next) => {
           status: document.status,
           uploadedAt: document.uploadedAt
         },
-        message: 'Document uploaded successfully'
+        message: 'Document uploaded successfully',
+        nextSteps: [
+          `Process this document: POST /api/documents/${document._id}/process`,
+          `Load all processed documents to RAG: POST /api/documents/load-to-memory`
+        ]
       }
     });
   } catch (error) {
@@ -112,7 +273,11 @@ exports.uploadMultipleDocuments = async (req, res, next) => {
         results,
         total: req.files.length,
         successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
+        failed: results.filter(r => !r.success).length,
+        nextSteps: [
+          `Process documents: POST /api/documents/{id}/process for each`,
+          `Load to RAG: POST /api/documents/load-to-memory`
+        ]
       }
     });
   } catch (error) {
@@ -168,7 +333,7 @@ exports.processDocument = async (req, res, next) => {
         parseInt(process.env.CHUNK_OVERLAP) || 200
       );
 
-      // ⭐⭐ CRITICAL FIX: Generate enhanced legal metadata ⭐⭐
+      // Generate enhanced legal metadata
       const metadata = this.extractEnhancedLegalMetadata(
         cleanedText,
         document.originalName,
@@ -199,11 +364,11 @@ exports.processDocument = async (req, res, next) => {
         })
       );
 
-      // ⭐⭐ CRITICAL FIX: Update document with enhanced metadata ⭐⭐
+      // Update document with enhanced metadata
       document.content = cleanedText;
       document.chunks = chunksWithEmbeddings;
       document.metadata = {
-        ...metadata,  // Use enhanced metadata
+        ...metadata,
         summary: fileProcessor.generateSummary(cleanedText, 200),
         wordCount: cleanedText.split(/\s+/).length,
         charCount: cleanedText.length,
@@ -222,6 +387,26 @@ exports.processDocument = async (req, res, next) => {
 
       await document.save();
 
+      // 🔥 CRITICAL: Auto-load processed document into RAG memory
+      try {
+        const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+        pdfService.addDocument({
+          id: document._id.toString(),
+          filename: document.filename,
+          originalName: document.originalName,
+          content: document.content || '',
+          chunks: document.chunks || [],
+          metadata: document.metadata || {},
+          status: document.status,
+          source: 'mongodb',
+          processedAt: document.processedAt,
+          embeddings: true
+        });
+        console.log(`📄 Auto-loaded document ${document.filename} into RAG memory`);
+      } catch (loadError) {
+        console.warn(`⚠️ Could not auto-load document to memory:`, loadError.message);
+      }
+
       res.json({
         success: true,
         data: {
@@ -232,7 +417,8 @@ exports.processDocument = async (req, res, next) => {
             processedAt: document.processedAt,
             chunksCount: document.chunks.length,
             metadata: document.metadata,
-            processingStats: document.processingStats
+            processingStats: document.processingStats,
+            loadedToRAG: true
           }
         }
       });
@@ -287,18 +473,27 @@ exports.getAllDocuments = async (req, res, next) => {
 
     const total = await Document.countDocuments(query);
 
+    // Check which documents are in RAG memory
+    const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+    const memoryDocs = pdfService.getAllDocuments();
+
     // Add virtual fields
-    const enhancedDocuments = documents.map(doc => ({
-      ...doc,
-      totalChunks: doc.chunks?.length || 0,
-      isProcessed: doc.status === 'processed',
-      hasEmbeddings: doc.chunks?.some(chunk => chunk.embeddings?.length > 0) || false,
-      // Enhanced metadata access
-      jurisdiction: doc.metadata?.jurisdiction,
-      statute: doc.metadata?.statute,
-      documentType: doc.metadata?.documentType,
-      legalTopics: doc.metadata?.legalTopics || []
-    }));
+    const enhancedDocuments = documents.map(doc => {
+      const inMemory = memoryDocs.some(md => md.id === doc._id.toString());
+      
+      return {
+        ...doc,
+        totalChunks: doc.chunks?.length || 0,
+        isProcessed: doc.status === 'processed',
+        hasEmbeddings: doc.chunks?.some(chunk => chunk.embeddings?.length > 0) || false,
+        inRAGMemory: inMemory,
+        // Enhanced metadata access
+        jurisdiction: doc.metadata?.jurisdiction,
+        statute: doc.metadata?.statute,
+        documentType: doc.metadata?.documentType,
+        legalTopics: doc.metadata?.legalTopics || []
+      };
+    });
 
     res.json({
       success: true,
@@ -309,6 +504,10 @@ exports.getAllDocuments = async (req, res, next) => {
           limit: parseInt(limit),
           total,
           pages: Math.ceil(total / limit)
+        },
+        memoryStatus: {
+          totalInMemory: memoryDocs.length,
+          processedInMemory: memoryDocs.filter(d => d.status === 'processed').length
         },
         filters: {
           status,
@@ -344,12 +543,18 @@ exports.getDocument = async (req, res, next) => {
       lastAccessed: new Date()
     });
 
+    // Check if in RAG memory
+    const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+    const memoryDocs = pdfService.getAllDocuments();
+    const inMemory = memoryDocs.some(md => md.id === document._id.toString());
+
     // Add virtual fields
     const enhancedDocument = {
       ...document,
       totalChunks: document.chunks?.length || 0,
       isProcessed: document.status === 'processed',
       hasEmbeddings: document.chunks?.some(chunk => chunk.embeddings?.length > 0) || false,
+      inRAGMemory: inMemory,
       legalInfo: {
         jurisdiction: document.metadata?.jurisdiction,
         statute: document.metadata?.statute,
@@ -696,6 +901,19 @@ exports.deleteDocument = async (req, res, next) => {
       $pull: { documents: document._id }
     });
 
+    // Remove from RAG memory if present
+    try {
+      const pdfService = require('../services/ingestion/pdfDocumentService'); // FIXED: lowercase 'p'
+      const memoryDocs = pdfService.getAllDocuments();
+      const index = memoryDocs.findIndex(d => d.id === document._id.toString());
+      if (index !== -1) {
+        memoryDocs.splice(index, 1);
+        console.log(`🗑️ Removed document ${document.filename} from RAG memory`);
+      }
+    } catch (memoryError) {
+      console.warn('Could not remove from memory:', memoryError.message);
+    }
+
     // Delete document from database
     await Document.findByIdAndDelete(id);
 
@@ -713,7 +931,7 @@ exports.deleteDocument = async (req, res, next) => {
 
 // ========== ENHANCED LEGAL METADATA HELPER METHODS ==========
 
-// ⭐⭐ CRITICAL: Enhanced legal metadata extraction
+// Enhanced legal metadata extraction
 exports.extractEnhancedLegalMetadata = (content, originalName, filename) => {
   const contentLower = content.toLowerCase();
   const filenameLower = filename.toLowerCase();
