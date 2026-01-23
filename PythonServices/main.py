@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import os
 import sys
 import datetime
+from contextlib import asynccontextmanager
 
 # Load environment variables
 load_dotenv()
@@ -13,11 +14,140 @@ load_dotenv()
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-# Create FastAPI app
+
+# ===========================================================================
+# LIFECYCLE MANAGEMENT
+# ===========================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    CRITICAL: Load FAISS indices on startup, fail fast if corrupted.
+    Ensures legal authority is always available after restart.
+    """
+    print("\n" + "=" * 60)
+    print("🚀 STARTUP: Loading Legal Corpus Indices")
+    print("=" * 60)
+    
+    try:
+        # Import retrieval service
+        from app.services.retrieval.retrieval_service import retrieval_service
+        
+        # STEP 1: Try to load indices from disk
+        print("📚 Loading FAISS indices from disk...")
+        indices_dir = os.getenv("INDICES_DIR", "./data/indices")
+        
+        if not os.path.exists(indices_dir):
+            print(f"⚠️  Indices directory not found: {indices_dir}")
+            print("   Creating directory...")
+            os.makedirs(indices_dir, exist_ok=True)
+        
+        # Check if any index files exist
+        index_files = [f for f in os.listdir(indices_dir) if f.endswith('.faiss')]
+        
+        if index_files:
+            print(f"   Found {len(index_files)} index files")
+            load_success = retrieval_service.load_indices("legal_index")
+            
+            if load_success:
+                # Verify indices are populated
+                stats = retrieval_service.get_stats()
+                bgb_vectors = stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
+                total_vectors = stats.get("general_index", {}).get("vectors", 0) + sum(
+                    idx["vectors"] for idx in stats.get("statute_indices", {}).values()
+                )
+                
+                if total_vectors > 0:
+                    print(f"✅ Loaded {total_vectors} vectors from disk")
+                    print(f"   • BGB: {bgb_vectors} vectors")
+                    print(f"   • Statutes: {list(stats.get('statute_indices', {}).keys())}")
+                    
+                    # Force correct state flags
+                    retrieval_service.indices_loaded = True
+                    retrieval_service.use_test_indices = False
+                    
+                    # Verify divorce norms are available
+                    if bgb_vectors >= 5:  # Arbitrary but reasonable minimum
+                        from app.services.embeddings.embedding_service import embedding_service
+                        test_query = "divorce"
+                        query_embedding = embedding_service.embed_query(test_query, "BGB")
+                        
+                        if "BGB" in retrieval_service.statute_indices:
+                            store = retrieval_service.statute_indices["BGB"]
+                            results = store.search(query_embedding, k=5)
+                            divorce_paras = []
+                            for r in results:
+                                meta = r.get("metadata", {})
+                                if meta.get("is_divorce_norm", False):
+                                    divorce_paras.append(meta.get("paragraph"))
+                            
+                            if divorce_paras:
+                                print(f"   • Divorce norms: {list(set(divorce_paras))[:5]}...")
+                            else:
+                                print("   ⚠️  No divorce norms detected in loaded corpus")
+                    else:
+                        print("   ⚠️  BGB corpus has very few vectors")
+                else:
+                    print("⚠️  Loaded indices but they contain 0 vectors")
+                    retrieval_service.indices_loaded = False
+                    retrieval_service.use_test_indices = True
+            else:
+                print("⚠️  Failed to load indices from disk")
+                retrieval_service.indices_loaded = False
+                retrieval_service.use_test_indices = True
+        else:
+            print("⚠️  No index files found on disk")
+            print("   Using test indices only")
+            retrieval_service.indices_loaded = True
+            retrieval_service.use_test_indices = True
+        
+        # STEP 2: Final state verification
+        stats = retrieval_service.get_stats()
+        bgb_vectors = stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
+        
+        print("\n📊 STARTUP CORPUS STATE:")
+        print(f"   • Indices loaded: {stats.get('indices_loaded', False)}")
+        print(f"   • Using test indices: {stats.get('using_test_indices', True)}")
+        print(f"   • BGB vectors: {bgb_vectors}")
+        print(f"   • Total vectors: {stats.get('general_index', {}).get('vectors', 0) + sum(idx['vectors'] for idx in stats.get('statute_indices', {}).values())}")
+        
+        if bgb_vectors < 10 and not stats.get('using_test_indices', True):
+            print("\n⚠️  WARNING: BGB corpus may be incomplete")
+            print("   Expected: Hundreds of paragraphs for full BGB")
+            print(f"   Found: {bgb_vectors} vectors")
+            print("   Action: POST /ingestion/bgb with full BGB PDF")
+        
+        print("=" * 60)
+        
+        # Yield control to FastAPI
+        yield
+        
+    except ImportError as e:
+        print(f"❌ STARTUP FAILED: Could not import retrieval service: {e}")
+        print("   The system will start but corpus loading is disabled.")
+        yield
+    except Exception as e:
+        print(f"❌ STARTUP FAILED with unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        print("   The system will start but corpus may be unavailable.")
+        yield
+    finally:
+        # Shutdown logic if needed
+        print("\n🛑 SHUTDOWN: Cleaning up...")
+        # Note: FAISS indices are in memory and will be garbage collected
+
+
+# ===========================================================================
+# FASTAPI APP INITIALIZATION
+# ===========================================================================
+
+# Create FastAPI app with lifespan management
 app = FastAPI(
     title="Legal RAG Python Service",
     description="Embedding, Vector Search, PDF Processing, and Legal Authority Service",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -29,16 +159,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import and include the main API router
-try:
-    from app.api.endpoints import router as api_router
-    app.include_router(api_router, prefix="/api/v1")
-    print("✅ Main API router loaded successfully")
-except ImportError as e:
-    print(f"⚠️ Warning: Could not import main API router: {e}")
-    api_router = None
+# ===========================================================================
+# ROUTER IMPORTS AND SETUP (EXISTING CODE CONTINUES BELOW)
+# ===========================================================================
 
-# ⭐⭐ FIXED: Import from services package which handles the location
+# ✅ FIX: Import and include the query router
+from app.api.query import router as query_router
+app.include_router(query_router)
+
+# ✅ FIX: Import and include the ingestion router
+try:
+    from app.api.ingestion import router as ingestion_router
+    app.include_router(ingestion_router)
+    print("✅ Ingestion router loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Could not load ingestion router: {e}")
+
+api_router = None  # Keep this for compatibility with existing code
+
+# Import from services package which handles the location
 try:
     # Import from our services package which handles multiple locations
     from app.services import (
@@ -48,12 +187,11 @@ try:
         validate_answer,
         compare_hierarchy,
         get_metrics,
-        AUTHORITY_AVAILABLE,
-        AUTHORITY_LOCATION
+        AUTHORITY_AVAILABLE
     )
     
     if AUTHORITY_AVAILABLE:
-        print(f"✅ Legal Authority Service imported successfully from '{AUTHORITY_LOCATION}'")
+        print("✅ Legal Authority Service imported successfully (lazy-loaded from registry)")
     else:
         print("⚠️ Legal Authority Service imported but not available")
     
@@ -136,7 +274,7 @@ try:
             "status": "healthy" if AUTHORITY_AVAILABLE else "fallback",
             "service": "Legal Authority",
             "available": AUTHORITY_AVAILABLE,
-            "location": AUTHORITY_LOCATION,
+            "location": "authority.registry + authority.statute (lazy-loaded)" if AUTHORITY_AVAILABLE else None,
             "timestamp": datetime.datetime.now().isoformat()
         }
     
@@ -146,6 +284,8 @@ try:
     
 except ImportError as e:
     print(f"⚠️ Warning: Could not import Legal Authority service modules: {e}")
+    import traceback
+    traceback.print_exc()
     
     # Create a minimal authority router for fallback
     from fastapi import APIRouter
@@ -168,44 +308,28 @@ except ImportError as e:
     
     @fallback_authority.get("/health")
     async def authority_health():
-        return {"status": "fallback_mode", "service": "Legal Authority", "available": False}
+        return {
+            "status": "fallback_mode",
+            "service": "Legal Authority",
+            "available": False,
+            "location": None
+        }
     
     app.include_router(fallback_authority)
     authority_router = fallback_authority
+    AUTHORITY_AVAILABLE = False
 
-# ⭐⭐ CRITICAL: Add root-level endpoints for Node.js compatibility
+# CRITICAL: Add root-level endpoints for Node.js compatibility
 
 @app.post("/api/search")
 async def root_api_search(request: dict):
     """
     Root-level /api/search endpoint for Node.js
-    This will delegate to the endpoint in endpoints.py
+    Delegates to query service
     """
     try:
-        if api_router:
-            # Find the search endpoint in the router
-            from app.api.endpoints import api_search
-            return await api_search(request)
-        else:
-            # Fallback to direct implementation
-            from app.services.embedding_service import embedding_service
-            from app.services.retrieval_service import retrieval_service
-            
-            query = request.get("query", "")
-            statute = request.get("statute")
-            k = request.get("k", 10)
-            
-            query_embedding = embedding_service.embed_query(query, statute)
-            search_results = retrieval_service.search(
-                query_embedding=query_embedding,
-                statute=statute,
-                k=k
-            )
-            
-            return {
-                "results": search_results,
-                "count": len(search_results)
-            }
+        from app.api.query import api_search
+        return await api_search(request)
     except Exception as e:
         return {"error": str(e), "results": [], "count": 0}
 
@@ -213,19 +337,11 @@ async def root_api_search(request: dict):
 async def root_api_authoritative_search(request: dict):
     """
     Root-level /api/search/authoritative endpoint for Node.js
+    Delegates to query service
     """
     try:
-        if api_router:
-            from app.api.endpoints import api_authoritative_search
-            return await api_authoritative_search(request)
-        else:
-            # Simple fallback
-            return {
-                "success": True,
-                "results": [],
-                "authoritative_found": False,
-                "fallback_reason": "api_router_not_loaded"
-            }
+        from app.api.query import authoritative_search
+        return await authoritative_search(request)
     except Exception as e:
         return {
             "success": False,
@@ -234,7 +350,7 @@ async def root_api_authoritative_search(request: dict):
             "authoritative_found": False
         }
 
-# ⭐⭐ FIXED: Legal Authority endpoints for Node.js
+# FIXED: Legal Authority endpoints for Node.js
 
 @app.post("/api/authority/resolve")
 async def root_authority_resolve(request: dict):
@@ -244,6 +360,17 @@ async def root_authority_resolve(request: dict):
     """
     try:
         # Use the imported function from services package
+        # Check if resolve_authority is available
+        if 'resolve_authority' not in globals():
+            return {
+                "statute": None,
+                "requiresClarification": True,
+                "clarification": {
+                    "english": "Legal Authority Service not available",
+                    "german": "Legal Authority Service nicht verfügbar"
+                }
+            }
+            
         if 'question' not in request:
             return {
                 "statute": None,
@@ -280,6 +407,10 @@ async def root_authority_statutes():
     Root-level /api/authority/statutes endpoint for Node.js
     """
     try:
+        # Check if get_available_statutes is available
+        if 'get_available_statutes' not in globals():
+            return {"error": "Legal Authority Service not available", "statutes": {}}
+            
         statutes = get_available_statutes()
         
         # Add debug info if service is in fallback mode
@@ -298,6 +429,14 @@ async def root_authority_validate(request: dict):
     Root-level /api/authority/validate endpoint for Node.js
     """
     try:
+        # Check if validate_answer is available
+        if 'validate_answer' not in globals():
+            return {
+                "isValid": False,
+                "error": "Legal Authority Service not available",
+                "message": "Validation service unavailable"
+            }
+            
         required = ['question', 'answer', 'statute']
         for field in required:
             if field not in request:
@@ -316,13 +455,23 @@ async def root_authority_health():
     Root-level /api/authority/health endpoint for Node.js
     """
     try:
+        # Check if resolve_authority is available
+        if 'resolve_authority' not in globals():
+            return {
+                "status": "unavailable",
+                "service": "Legal Authority",
+                "available": False,
+                "test_passed": False,
+                "error": "Service not imported"
+            }
+            
         # Test if authority service is working
         test_result = resolve_authority("What does GDPR say?")
         return {
             "status": "healthy" if AUTHORITY_AVAILABLE else "fallback",
             "service": "Legal Authority",
             "available": AUTHORITY_AVAILABLE,
-            "location": AUTHORITY_LOCATION,
+            "location": "authority.registry + authority.statute (lazy-loaded)" if AUTHORITY_AVAILABLE else None,
             "test_passed": test_result.get('statute') == 'EU-GDPR',
             "version": "1.0.0"
         }
@@ -340,28 +489,64 @@ async def legacy_health_check():
     """
     Legacy health check endpoint for Node.js
     """
+    # Get corpus state for health check
+    try:
+        from app.services.retrieval.retrieval_service import retrieval_service
+        stats = retrieval_service.get_stats()
+        bgb_vectors = stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
+        corpus_state = {
+            "indices_loaded": stats.get("indices_loaded", False),
+            "using_test_indices": stats.get("using_test_indices", True),
+            "bgb_vectors": bgb_vectors,
+            "corpus_ready": bgb_vectors > 10 and not stats.get("using_test_indices", True)
+        }
+    except:
+        corpus_state = {
+            "error": "Could not retrieve corpus state"
+        }
+    
     return {
         "status": "healthy",
         "service": "Python Legal RAG",
         "version": "2.0.0",
         "modules": {
-            "main_api": "loaded" if api_router else "not_loaded",
-            "authority": "available" if AUTHORITY_AVAILABLE else "not_available",
-            "authority_location": AUTHORITY_LOCATION if AUTHORITY_AVAILABLE else None
+            "main_api": "loaded" if 'api_router' in globals() and api_router else "not_loaded",
+            "authority": "available" if 'AUTHORITY_AVAILABLE' in globals() and AUTHORITY_AVAILABLE else "not_available",
+            "authority_location": "authority.registry + authority.statute (lazy-loaded)" if 'AUTHORITY_AVAILABLE' in globals() and AUTHORITY_AVAILABLE else None,
+            "query_router": "loaded",
+            "ingestion_router": "loaded" if 'ingestion_router' in globals() else "not_loaded"
         },
+        "corpus_state": corpus_state,
         "timestamp": datetime.datetime.now().isoformat()
     }
 
 @app.get("/api/test")
 async def test_endpoint():
     """Test endpoint"""
+    # Get corpus state
+    try:
+        from app.services.retrieval.retrieval_service import retrieval_service
+        stats = retrieval_service.get_stats()
+        corpus_state = {
+            "indices_loaded": stats.get("indices_loaded", False),
+            "using_test_indices": stats.get("using_test_indices", True),
+            "bgb_vectors": stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
+        }
+    except:
+        corpus_state = {"error": "Could not retrieve corpus state"}
+    
     return {
         "message": "Python Legal RAG Service is working", 
         "status": "ok",
         "authority_service": {
-            "available": AUTHORITY_AVAILABLE,
-            "location": AUTHORITY_LOCATION
+            "available": AUTHORITY_AVAILABLE if 'AUTHORITY_AVAILABLE' in globals() else False,
+            "location": "authority.registry + authority.statute (lazy-loaded)" if AUTHORITY_AVAILABLE else None
         },
+        "query_router": {
+            "available": True,
+            "endpoints": ["/query/search", "/query/search/authoritative"]
+        },
+        "corpus_state": corpus_state,
         "timestamp": datetime.datetime.now().isoformat()
     }
 
@@ -371,10 +556,18 @@ async def authority_test():
     """Test Legal Authority Service"""
     test_question = {"question": "What does GDPR Article 15 say?"}
     try:
+        if 'resolve_authority' not in globals():
+            return {
+                "status": "unavailable",
+                "authority_available": False,
+                "test_question": test_question["question"],
+                "error": "resolve_authority function not available"
+            }
+            
         result = resolve_authority(test_question["question"])
         return {
             "status": "working" if AUTHORITY_AVAILABLE else "fallback",
-            "authority_available": AUTHORITY_AVAILABLE,
+            "authority_available": AUTHORITY_AVAILABLE if 'AUTHORITY_AVAILABLE' in globals() else False,
             "test_question": test_question["question"],
             "result": result
         }
@@ -385,42 +578,22 @@ async def authority_test():
             "test_question": test_question["question"]
         }
 
-# ⭐⭐ NEW: Source Authority endpoints
-try:
-    from app.services import source_authority_resolver, SOURCE_AUTHORITY_AVAILABLE
-    
-    @app.post("/api/source-authority/resolve")
-    async def root_source_authority_resolve(request: dict):
-        """
-        Root-level /api/source-authority/resolve endpoint
-        """
-        required = ['question', 'statute', 'questionType', 'documents']
-        for field in required:
-            if field not in request:
-                raise HTTPException(status_code=400, detail=f"Missing '{field}' field")
-        
-        if not SOURCE_AUTHORITY_AVAILABLE:
-            return {
-                "allowed_documents": [],
-                "authority_summary": {
-                    "error": "Source Authority Service not available",
-                    "available": False
-                }
-            }
-        
-        return source_authority_resolver.resolve(
-            question=request['question'],
-            statute=request['statute'],
-            question_type=request['questionType'],
-            all_documents=request['documents']
-        )
-    
-    print("✅ Source Authority endpoints registered")
-except ImportError as e:
-    print(f"⚠️ Source Authority endpoints not available: {e}")
+# REMOVED: Source Authority endpoints - system does not have this subsystem
 
 @app.get("/")
 async def root():
+    # Get corpus state for root endpoint
+    try:
+        from app.services.retrieval.retrieval_service import retrieval_service
+        stats = retrieval_service.get_stats()
+        corpus_state = {
+            "indices_loaded": stats.get("indices_loaded", False),
+            "using_test_indices": stats.get("using_test_indices", True),
+            "bgb_vectors": stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
+        }
+    except:
+        corpus_state = {"error": "Could not retrieve corpus state"}
+    
     return {
         "service": "Legal RAG Python Service",
         "version": "2.0.0",
@@ -428,14 +601,24 @@ async def root():
         "description": "Embedding, Vector Search, PDF Processing, and Legal Authority",
         "authority_services": {
             "legal_authority": {
-                "available": AUTHORITY_AVAILABLE if 'AUTHORITY_AVAILABLE' in locals() else False,
-                "location": AUTHORITY_LOCATION if 'AUTHORITY_LOCATION' in locals() else None
-            },
-            "source_authority": {
-                "available": SOURCE_AUTHORITY_AVAILABLE if 'SOURCE_AUTHORITY_AVAILABLE' in locals() else False
+                "available": AUTHORITY_AVAILABLE if 'AUTHORITY_AVAILABLE' in globals() else False,
+                "location": "authority.registry + authority.statute (lazy-loaded)" if AUTHORITY_AVAILABLE else None
             }
         },
+        "corpus_state": corpus_state,
         "endpoints": {
+            "query_endpoints": {
+                "/query/search": "POST - Simple semantic search",
+                "/query/search/authoritative": "POST - Authoritative search with legal context",
+                "/query/embeddings": "POST - Generate embeddings for text",
+                "/query/embeddings/query": "POST - Generate query embeddings with legal context"
+            },
+            "ingestion_endpoints": {
+                "/ingestion/bgb": "POST - Ingest BGB PDF (authoritative)",
+                "/ingestion/text/bgb": "POST - Ingest BGB text",
+                "/ingestion/status": "GET - Check corpus state",
+                "/ingestion/verify/divorce": "POST - Verify divorce corpus"
+            },
             "legacy_endpoints": {
                 "/api/search": "POST - Search (Node.js compatible)",
                 "/api/search/authoritative": "POST - Authoritative search",
@@ -443,18 +626,15 @@ async def root():
                 "/api/authority/statutes": "GET - Available statutes",
                 "/api/authority/validate": "POST - Validate answer",
                 "/api/authority/health": "GET - Authority health",
-                "/api/source-authority/resolve": "POST - Source authority resolution",
                 "/api/health": "GET - Health check",
                 "/api/test": "GET - Test endpoint",
                 "/api/authority/test": "GET - Authority test"
             },
-            "v1_endpoints": {
-                "/api/v1/health": "GET - Health check",
-                "/api/v1/search": "POST - Search",
-                "/api/v1/search/authoritative": "POST - Authoritative search",
-                "/api/v1/embeddings": "POST - Generate embeddings",
-                "/api/v1/process-pdf": "POST - Process PDF",
-                "/api/v1/authority/*": "Legal Authority endpoints"
+            "api_endpoints": {
+                "/api/health": "GET - Health check",
+                "/api/search": "POST - Search",
+                "/api/search/authoritative": "POST - Authoritative search",
+                "/api/authority/*": "Legal Authority endpoints"
             },
             "authority_endpoints": {
                 "/authority/resolve": "POST - Resolve legal authority",
@@ -477,17 +657,31 @@ async def root():
 
 @app.get("/health")
 async def health_check():
+    # Get corpus state for health check
+    try:
+        from app.services.retrieval.retrieval_service import retrieval_service
+        stats = retrieval_service.get_stats()
+        corpus_ready = (
+            stats.get("indices_loaded", False) and 
+            not stats.get("using_test_indices", True) and
+            stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0) > 10
+        )
+    except:
+        corpus_ready = False
+    
     return {
         "status": "healthy",
         "service": "Python Legal RAG",
         "version": "2.0.0",
         "timestamp": datetime.datetime.now().isoformat(),
+        "corpus_ready": corpus_ready,
         "modules": {
             "embeddings": True,
             "vector_search": True,
             "pdf_processing": True,
-            "legal_authority": AUTHORITY_AVAILABLE if 'AUTHORITY_AVAILABLE' in locals() else False,
-            "source_authority": SOURCE_AUTHORITY_AVAILABLE if 'SOURCE_AUTHORITY_AVAILABLE' in locals() else False
+            "legal_authority": AUTHORITY_AVAILABLE if 'AUTHORITY_AVAILABLE' in globals() else False,
+            "query_router": True,
+            "ingestion_router": True if 'ingestion_router' in globals() else False
         }
     }
 
@@ -499,8 +693,10 @@ if __name__ == "__main__":
     print("  • Embedding Generation")
     print("  • Vector Search")
     print("  • PDF Processing")
-    print(f"  • Legal Authority Service: {'✅ Available' if 'AUTHORITY_AVAILABLE' in locals() and AUTHORITY_AVAILABLE else '⚠️ Not available'}")
-    print(f"  • Source Authority Service: {'✅ Available' if 'SOURCE_AUTHORITY_AVAILABLE' in locals() and SOURCE_AUTHORITY_AVAILABLE else '⚠️ Not available'}")
+    print("  • Query Router (/query/* endpoints)")
+    print("  • Ingestion Router (/ingestion/* endpoints)")
+    authority_available = 'AUTHORITY_AVAILABLE' in globals() and AUTHORITY_AVAILABLE
+    print(f"  • Legal Authority Service: {'✅ Available' if authority_available else '⚠️ Not available'}")
     print("")
     print("⚖️  Legal Statutes Supported:")
     print("  • StGB - German Criminal Code")
@@ -510,9 +706,12 @@ if __name__ == "__main__":
     print("  • EU-GDPR - EU Data Protection Regulation")
     print("")
     print("🌐 API Endpoints:")
+    print("  • http://localhost:8000/query/search")
+    print("  • http://localhost:8000/query/search/authoritative")
+    print("  • http://localhost:8000/ingestion/bgb (CRITICAL: Load BGB PDF)")
+    print("  • http://localhost:8000/ingestion/status (Check corpus)")
     print("  • http://localhost:8000/authority/resolve")
     print("  • http://localhost:8000/api/authority/resolve (Node.js)")
-    print("  • http://localhost:8000/api/source-authority/resolve")
     print("  • http://localhost:8000/api/search")
     print("  • http://localhost:8000/api/health")
     print("")

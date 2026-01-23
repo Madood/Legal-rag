@@ -17,7 +17,7 @@ import multiprocessing
 sys.path.append(str(Path(__file__).parent.parent))
 
 from app.services.pdf_service import PDFService
-from app.services.embedding_service import EmbeddingService
+from PythonServices.app.services.embeddings.embedding_service import EmbeddingService
 
 # Configure logging
 logging.basicConfig(
