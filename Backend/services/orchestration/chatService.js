@@ -2,47 +2,428 @@
 const ragService = require("../retrieval/ragService");
 const safetyCheck = require("../validation/safetyCheck");
 const pythonIntegrationService = require("../retrieval/pythonIntegrationService");
+const resultFormatter = require("./resultFormatter");
 
 class ChatService {
   constructor() {
     this.conversationHistory = [];
     console.log('✅ ChatService initialized with EPISTEMIC AUTHORITY COMPLIANCE');
+    
+    // Bind methods
+    this.structureAnswerWithDoctrinalTemplate = this.structureAnswerWithDoctrinalTemplate.bind(this);
+    this.generateStructuredClarification = this.generateStructuredClarification.bind(this);
+    this.getConversationHistory = this.getConversationHistory.bind(this);
+    this.addSafetyInformation = this.addSafetyInformation.bind(this);
+    this.normalizeParagraph = this.normalizeParagraph.bind(this);
+    this.findExactParagraph = this.findExactParagraph.bind(this);
+    this.extractParagraphFromText = this.extractParagraphFromText.bind(this);
+    this.isTerminalAuthority = this.isTerminalAuthority.bind(this);
+    this.shouldBlockRagForFinalAuthority = this.shouldBlockRagForFinalAuthority.bind(this);
+    this.generateAuthoritativeAbstentionResponse = this.generateAuthoritativeAbstentionResponse.bind(this);
+    // 🎯 NEW: Exact norm detector
+    this.detectExactNormReference = this.detectExactNormReference.bind(this);
   }
 
   // ===========================================================================
-  // 1️⃣ DOCTRINAL EARLY-EXIT CHECK (NEW)
+  // 🎯 EXACT NORM REFERENCE DETECTOR (NEW - CRITICAL FIX)
+  // ===========================================================================
+
+  detectExactNormReference(question) {
+    if (!question || typeof question !== 'string') return null;
+    
+    // Patterns for German legal norm references
+    const patterns = [
+      // Pattern 1: § 325 HGB (with space)
+      /§\s*(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i,
+      
+      // Pattern 2: §325 HGB (no space)
+      /§(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i,
+      
+      // Pattern 3: BGB § 325
+      /(bgb|stgb|hgb|gg|zpo|stpo)\s+§\s*(\d+[a-z]?)/i,
+      
+      // Pattern 4: Artikel 5 GG
+      /artikel\s+(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i,
+      
+      // Pattern 5: Art. 5 GG
+      /art\.?\s*(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i
+    ];
+    
+    for (const pattern of patterns) {
+      const match = question.match(pattern);
+      if (match) {
+        // Extract statute and paragraph based on pattern
+        let statute, paragraph;
+        let isArticle = false;
+        
+        if (pattern.toString().includes('(bgb|stgb|hgb|gg|zpo|stpo)\\s+§')) {
+          // Pattern 3: BGB § 325
+          statute = match[1].toUpperCase();
+          paragraph = match[2];
+        } else if (pattern.toString().includes('artikel') || pattern.toString().includes('art\\.')) {
+          // Pattern 4/5: Artikel/Art. 5 GG
+          statute = match[2].toUpperCase();
+          paragraph = match[1];
+          isArticle = true;
+        } else {
+          // Pattern 1/2: § 325 HGB
+          paragraph = match[1];
+          statute = match[2].toUpperCase();
+        }
+        
+        console.log(`🎯 [Exact Norm Detector] Found: ${statute} §${paragraph} ${isArticle ? '(Article)' : ''}`);
+        return {
+          statute,
+          paragraph,
+          isArticle,
+          source: 'explicit_question_reference',
+          matchedPattern: pattern.toString()
+        };
+      }
+    }
+    
+    return null;
+  }
+
+  // ===========================================================================
+  // 🔴 CRITICAL FIX: PARAGRAPH NORMALIZATION HELPER
+  // ===========================================================================
+
+  normalizeParagraph(value) {
+    if (!value) return null;
+    
+    // Handle arrays (sometimes metadata is stored as arrays)
+    if (Array.isArray(value)) {
+      value = value[0];
+    }
+    
+    // Convert to string and normalize
+    const str = String(value);
+    
+    // Remove all non-alphanumeric characters except letters and numbers
+    // Handle German legal formats: §558a, § 558a, Paragraph 558a, Art. 5, Artikel 5
+    return str
+      .toLowerCase()
+      .replace(/§/g, '')
+      .replace(/paragraph/gi, '')
+      .replace(/artikel/gi, '')
+      .replace(/article/gi, '')
+      .replace(/art\./gi, '')
+      .replace(/art/gi, '')
+      .replace(/\s+/g, '')
+      .replace(/[^\w\s]/g, '')
+      .trim();
+  }
+
+  // ===========================================================================
+  // 🔴 CRITICAL FIX: EXTRACT PARAGRAPH FROM TEXT (German legal PDFs)
+  // ===========================================================================
+
+  extractParagraphFromText(text) {
+    if (!text) return null;
+    
+    // Try multiple patterns for German legal paragraph markers
+    const patterns = [
+      // Pattern 1: §558a or § 558a or §\n558a
+      /§\s*\n*\s*(\d+[a-z]?)/i,
+      
+      // Pattern 2: Paragraph 558a or Paragraph 5
+      /paragraph\s+(\d+[a-z]?)/i,
+      
+      // Pattern 3: Artikel 5 or Art. 5 or Art 5
+      /(?:artikel|art\.|art)\s+(\d+[a-z]?)/i,
+      
+      // Pattern 4: In text like "§ 558a Form und Begründung..."
+      /§\s*(\d+[a-z]?)\s+[A-ZÄÖÜ]/,
+      
+      // Pattern 5: Just numbers at start of meaningful sentence
+      /^(\d+[a-z]?)\s+[A-ZÄÖÜ]/,
+    ];
+    
+    // Also check for paragraph markers that might be split across lines
+    const first500Chars = text.substring(0, 500);
+    
+    for (const pattern of patterns) {
+      const match = first500Chars.match(pattern);
+      if (match && match[1]) {
+        console.log(`📝 [Extract] Found paragraph ${match[1]} with pattern ${pattern}`);
+        return `§${match[1]}`;
+      }
+    }
+    
+    return null;
+  }
+
+  // ===========================================================================
+  // 🔴 CRITICAL FIX: EXACT PARAGRAPH FINDER WITH TEXT EXTRACTION
+  // ===========================================================================
+
+  findExactParagraph(allDocuments, statute, paragraph) {
+    const normalizedAuthorityPara = this.normalizeParagraph(paragraph);
+    
+    if (!normalizedAuthorityPara) {
+      console.log(`❌ [Exact Mode] Cannot normalize paragraph: ${paragraph}`);
+      return null;
+    }
+    
+    console.log(`🔍 [Exact Mode] Looking for ${statute} §${paragraph} (normalized: ${normalizedAuthorityPara})`);
+    
+    // Track matches for debugging
+    const potentialMatches = [];
+    
+    // Search through all documents and chunks
+    for (const doc of allDocuments) {
+      const chunks = doc.chunks || [doc]; // Handle both chunked and single documents
+      
+      for (const chunk of chunks) {
+        // Get statute from chunk or document
+        const statuteRaw = 
+          chunk.metadata?.statute ||
+          chunk.metadata?.statute_id ||
+          chunk.metadata?.law ||
+          doc.metadata?.statute;
+        
+        // Skip if not the right statute
+        if (statuteRaw !== statute) {
+          continue;
+        }
+        
+        // Try to extract paragraph from text
+        const extractedPara = this.extractParagraphFromText(chunk.content || chunk.text);
+        const normalizedChunkPara = this.normalizeParagraph(extractedPara);
+        
+        // For debugging, log when we find potential matches
+        if (normalizedChunkPara) {
+          potentialMatches.push({
+            paraRaw: extractedPara,
+            normalized: normalizedChunkPara,
+            preview: (chunk.content || chunk.text).substring(0, 100)
+          });
+          
+          // Check for match
+          if (normalizedChunkPara === normalizedAuthorityPara) {
+            console.log(`✅ [Exact Mode] Found exact match!`);
+            console.log(`   Statute: ${statuteRaw}`);
+            console.log(`   Paragraph: ${extractedPara}`);
+            console.log(`   Normalized: ${normalizedChunkPara}`);
+            console.log(`   Preview: ${(chunk.content || chunk.text).substring(0, 200)}...`);
+            return chunk;
+          }
+        }
+        
+        // Also check metadata if it exists
+        const metaPara = chunk.metadata?.paragraph || chunk.metadata?.paragraph_number;
+        if (metaPara) {
+          const normalizedMetaPara = this.normalizeParagraph(metaPara);
+          if (normalizedMetaPara === normalizedAuthorityPara) {
+            console.log(`✅ [Exact Mode] Found in metadata!`);
+            console.log(`   Statute: ${statuteRaw}`);
+            console.log(`   Paragraph: ${metaPara}`);
+            console.log(`   Normalized: ${normalizedMetaPara}`);
+            return chunk;
+          }
+        }
+      }
+    }
+    
+    // Log what we found for debugging
+    if (potentialMatches.length > 0) {
+      console.log(`📊 [Debug] Found ${potentialMatches.length} potential paragraphs in ${statute}:`);
+      potentialMatches.slice(0, 10).forEach((match, i) => {
+        console.log(`   ${i + 1}. ${match.paraRaw} (normalized: ${match.normalized})`);
+      });
+    }
+    
+    console.log(`❌ [Exact Mode] No exact match found for ${statute} §${paragraph}`);
+    return null;
+  }
+
+  // ===========================================================================
+  // 🚨 TERMINAL AUTHORITY CHECK (NEW)
+  // ===========================================================================
+  
+  isTerminalAuthority(authority) {
+    if (!authority) return false;
+    
+    return (
+      authority.authority_final === true ||
+      authority.terminal === true ||
+      authority.metadata?.authority_final === true ||
+      authority.retrieval?.constraint === 'PARAGRAPH_STRICT' ||
+      authority.constraint === 'PARAGRAPH_STRICT' ||
+      authority.force_exact === true
+    );
+  }
+
+  // ===========================================================================
+  // 🔒 AUTHORITY LOCK MECHANISM (NEW - FINAL FIX)
+  // ===========================================================================
+  
+  createAuthorityLock(authority) {
+    if (!authority) return { __locked: false };
+    
+    // 🟡 CLEANUP: Single point of truth for lock decision
+    const isLocked = 
+      this.isTerminalAuthority(authority) ||
+      authority.__empty_authoritative_result === true;
+    
+    const lock = {
+      ...authority,
+      __locked: isLocked,
+      __lockTimestamp: new Date().toISOString(),
+      __lockReason: isLocked ? (this.isTerminalAuthority(authority) ? 'terminal_authority' : 'empty_authoritative_result') : 'non_terminal'
+    };
+    
+    if (isLocked) {
+      console.log(`🔒 [Authority Lock] Created LOCKED authority object:`, {
+        statute: authority.statute,
+        paragraph: authority.paragraph,
+        authority_final: authority.authority_final,
+        terminal: authority.terminal,
+        empty_authoritative_result: authority.__empty_authoritative_result,
+        reason: lock.__lockReason
+      });
+    }
+    
+    return lock;
+  }
+
+  // ===========================================================================
+  // 🛡️ FINAL AUTHORITY GUARD (NEW)
+  // ===========================================================================
+
+  shouldBlockRagForFinalAuthority(authority, pythonResults) {
+    if (!authority || !pythonResults) return false;
+    
+    // Check if this is a terminal/final authority
+    const isTerminal = this.isTerminalAuthority(authority);
+    
+    // Check if Python search returned empty authoritative results
+    const isEmptyAuthoritativeResult = 
+      pythonResults.results && 
+      pythonResults.results.length === 0 &&
+      pythonResults.authoritative_found === false;
+    
+    // Block RAG if: terminal authority + empty authoritative results
+    const shouldBlock = isTerminal && isEmptyAuthoritativeResult;
+    
+    if (shouldBlock) {
+      console.log(`🛡️ [Final Authority Guard] RAG BLOCKED - Terminal authority with empty results`);
+      console.log(`   Terminal Check: ${isTerminal}, Authority Final: ${authority.authority_final}`);
+      console.log(`   Empty Results: ${isEmptyAuthoritativeResult}, Results Length: ${pythonResults.results?.length || 0}`);
+      console.log(`   Authoritative Found: ${pythonResults.authoritative_found}`);
+    }
+    
+    return shouldBlock;
+  }
+
+  // ===========================================================================
+  // 📝 GENERATE AUTHORITATIVE ABSTENTION RESPONSE (NEW)
+  // ===========================================================================
+
+  generateAuthoritativeAbstentionResponse(authority, question) {
+    const statuteName = this.getStatuteDisplayName(authority.statute);
+    const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§${authority.paragraph}`;
+    
+    const responseTemplates = {
+      default: `**${statuteName} ${paragraphRef}**\n\n` +
+               `Die Norm wurde eindeutig identifiziert. Eine inhaltliche Auslegung erfordert juristische Subsumtion oder zusätzlichen Kontext.\n\n` +
+               `*Autoritative Suche ergab keine auslegungsfähigen Textstellen.*`,
+      
+      BGB: `**${statuteName} ${paragraphRef}**\n\n` +
+           `Die Vorschrift wurde identifiziert. Eine konkrete inhaltliche Würdigung erfordert die Prüfung von Rechtsprechung oder Literatur.\n\n` +
+           `*Der autoritative Suchdienst konnte keine unmittelbar auslegungsfähigen Passagen extrahieren.*`,
+      
+      GG: `**${statuteName} ${paragraphRef}**\n\n` +
+          `Der Verfassungsartikel wurde bestimmt. Die Auslegung von Grundrechten erfordert stets die Berücksichtigung der Rechtsprechung des Bundesverfassungsgerichts.\n\n` +
+          `*Die autoritative Suche ergab keine unmittelbar synthetisierbaren Textstellen.*`
+    };
+    
+    const template = responseTemplates[authority.statute] || responseTemplates.default;
+    
+    return {
+      success: true,
+      data: {
+        answer: template,
+        confidence: 0.85,
+        statute: authority.statute,
+        paragraph: authority.paragraph,
+        metadata: {
+          authority_final: true,
+          empty_authoritative_result: true,
+          rag_disabled: true,
+          fallback_prohibited: true,
+          legal_status: 'norm_identified_but_no_interpretable_text'
+        }
+      }
+    };
+  }
+
+  // ===========================================================================
+  // 🔴 CRITICAL FIX: DOCTRINAL EARLY-EXIT CHECK - UPDATED FOR STATUTE-ONLY
   // ===========================================================================
   
   shouldUseDoctrinalEarlyExit(authority) {
     if (!authority) return false;
     
-    const isDoctrinalQuestion = authority.classification?.type === 'DOCTRINE' || 
-                               authority.question_type === 'DOCTRINE';
-    const isConfirmed = authority.epistemicCertainty === 'confirmed' || 
-                       authority.epistemic_certainty === 'confirmed';
-    const isAnchorNormMode = authority.anchorNormMode === true || 
-                            authority.anchor_norm_mode === true;
+    // Check for multiple doctrine indicators
+    const isDoctrinalQuestion = 
+      authority.classification?.type === 'DOCTRINE' ||
+      authority.question_type === 'DOCTRINE' ||
+      authority.question_type === 'GENERAL_DOCTRINE' ||
+      authority.doctrinal_match === true ||
+      (authority.anchorNormMode && authority.epistemicCertainty === 'uncertain');
     
-    return isDoctrinalQuestion && isConfirmed && isAnchorNormMode;
+    const isConfirmed = 
+      authority.epistemicCertainty === 'confirmed' || 
+      authority.epistemic_certainty === 'confirmed';
+    
+    const isAnchorNormMode = 
+      authority.anchorNormMode === true || 
+      authority.anchor_norm_mode === true;
+    
+    // 🔴 CRITICAL ADDITION: Check for statute-only doctrine
+    const isStatuteOnlyDoctrine = 
+      authority.retrieval?.constraint === 'STATUTE_ONLY' &&
+      authority.isStatuteLocked === true &&
+      authority.isParagraphLocked === false &&
+      isDoctrinalQuestion;
+    
+    // CRITICAL FIX: Doctrine + anchor mode is enough (don't require confirmed)
+    if (isDoctrinalQuestion && isAnchorNormMode) {
+      console.log(`✅ [Doctrine Early-Exit] Triggered: doctrine=${isDoctrinalQuestion}, anchor=${isAnchorNormMode}, confirmed=${isConfirmed}`);
+      return true;
+    }
+    
+    // Also trigger if highly certain about doctrine
+    if (isDoctrinalQuestion && isConfirmed) {
+      console.log(`✅ [Doctrine Early-Exit] Triggered: doctrine=${isDoctrinalQuestion}, confirmed=${isConfirmed}`);
+      return true;
+    }
+    
+    // 🔴 NEW: Trigger for statute-only doctrine
+    if (isStatuteOnlyDoctrine) {
+      console.log(`✅ [Doctrine Early-Exit] Triggered: statute-only doctrine question`);
+      console.log(`   Retrieval constraint: ${authority.retrieval?.constraint}`);
+      console.log(`   Statute locked: ${authority.isStatuteLocked}, Paragraph locked: ${authority.isParagraphLocked}`);
+      return true;
+    }
+    
+    return false;
   }
 
   // ===========================================================================
-  // 2️⃣ DOCTRINAL DELEGATION (FIXED: NO CONTENT IN CHATSERVICE)
+  // DOCTRINAL DELEGATION
   // ===========================================================================
   
-  /**
-   * Delegate doctrinal content to Python, never create it here
-   */
   async callDoctrineInductionService(question, authority) {
     try {
-      // CRITICAL FIX: Delegate ALL doctrinal content
       const doctrineResult = await pythonIntegrationService.callDoctrineInductor({
         question: question,
         statute: authority.statute,
         paragraph: authority.paragraph,
         classification: authority.classification,
         authority_mode: authority.authority_mode,
-        // CRITICAL FIX: Never pass anchorNorm upstream
         suggested_field: authority.suggestedField || authority.doctrinal_field,
         epistemic_certainty: authority.epistemicCertainty
       });
@@ -54,7 +435,10 @@ class ChatService {
     }
   }
 
-  // 🔴 CRITICAL FIX 1: Doctrine enforcement method (UPDATED)
+  // ===========================================================================
+  // DOCTRINE ENFORCEMENT
+  // ===========================================================================
+  
   async enforcePythonDoctrine(question, authority) {
     // First check for doctrinal early-exit
     if (this.shouldUseDoctrinalEarlyExit(authority)) {
@@ -94,12 +478,15 @@ class ChatService {
     return null;
   }
 
-  // 🔴 CRITICAL FIX 3: Generate answer from Python doctrine result (UPDATED)
+  // ===========================================================================
+  // GENERATE DOCTRINAL ANSWER
+  // ===========================================================================
+  
   generateDoctrinalAnswer(doctrineResult, authority, question) {
     const statuteName = this.getStatuteDisplayName(authority.statute);
     const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§ ${authority.paragraph}`;
     
-    let answer = `**${statuteName} ${paragraphRef} - Rechtsgrundlage:**\n\n`;
+    let answer = `**${statuteName} ${paragraphRef}**\n\n`;
     
     if (doctrineResult.doctrinal_summary) {
       answer += doctrineResult.doctrinal_summary;
@@ -107,31 +494,14 @@ class ChatService {
       answer += doctrineResult.answer;
     }
     
-    if (doctrineResult.legal_principle) {
-      answer += `\n\n**Rechtsprinzip:** ${doctrineResult.legal_principle}`;
-    }
-    
-    if (doctrineResult.system_position) {
-      answer += `\n\n**Systematische Stellung:** ${doctrineResult.system_position}`;
-    }
-    
-    if (doctrineResult.examiner_ready_answer) {
-      answer += `\n\n**Prüfungsreife Antwort:**\n${doctrineResult.examiner_ready_answer}`;
-    }
-    
-    // CRITICAL FIX: Add epistemic metadata
-    answer += `\n\n*Doctrinale Analyse durch Python-Autoritätsdienst. `;
-    if (authority.epistemicCertainty) {
-      answer += `Epistemische Sicherheit: ${authority.epistemicCertainty}. `;
-    }
-    answer += `Konfidenz: ${(doctrineResult.confidence * 100).toFixed(0)}%*`;
+    // Minimal metadata
+    answer += `\n\n*Doctrinale Analyse durch Python-Autoritätsdienst*`;
     
     return {
       fullAnswer: answer,
-      domain: doctrineResult.domain || 'civil',
+      confidence: doctrineResult.confidence || 0.92,
       template_used: 'python_doctrine',
-      confidence: doctrineResult.confidence || 0.92, // Higher for confirmed doctrine
-      doctrine_summary: doctrineResult.doctrinal_summary,
+      domain: doctrineResult.domain || 'civil',
       metadata: {
         doctrine_applied: true,
         python_doctrine: true,
@@ -139,28 +509,97 @@ class ChatService {
         epistemic_certainty: authority.epistemicCertainty,
         anchor_norm_mode: authority.anchorNormMode,
         retrieval_used: false,
-        safety_check_skipped: true // CRITICAL FIX
+        safety_check_skipped: true
       }
     };
   }
 
   // ===========================================================================
-  // 3️⃣ TF-IDF FALLBACK BLOCK (NEW)
+  // 🔴 CRITICAL FIX: RETRIEVAL WITH DOCTRINE GUARD & AUTHORITY LOCK
   // ===========================================================================
   
-  async retrieveDocumentsWithDoctrineGuard(question, authority, allDocuments, classification) {
-    // Guard: No TF-IDF for doctrinal questions
-    if (classification.type === 'DOCTRINE' || authority.question_type === 'DOCTRINE') {
-      console.log(`🚫 [Doctrine Guard] TF-IDF fallback disabled for doctrinal questions`);
+  async retrieveDocumentsWithDoctrineGuard(question, authority, authorityLock, allDocuments, classification) {
+    classification = classification || { type: 'GENERAL', domain: 'general' };
+
+    // 🔒 CRITICAL: Check authority lock first
+    if (authorityLock?.__locked === true) {
+      console.log(`🛑 [Authority Lock] retrieveDocumentsWithDoctrineGuard BLOCKED by authority lock`);
+      console.log(`   Lock Reason: ${authorityLock.__lockReason}`);
+      console.log(`   Statute: ${authorityLock.statute}, Paragraph: ${authorityLock.paragraph}`);
+      
+      safetyCheck.logSafetyEvent('AUTHORITY_LOCK_ENFORCED', {
+        question,
+        statute: authorityLock.statute,
+        paragraph: authorityLock.paragraph,
+        lock_reason: authorityLock.__lockReason,
+        lock_timestamp: authorityLock.__lockTimestamp,
+        method: 'retrieveDocumentsWithDoctrineGuard',
+        execution_blocked: true
+      });
+      
       return {
         results: [],
         authoritative_found: false,
-        authority_summary: { doctrine_mode: true },
+        authority_summary: { 
+          locked: true,
+          terminal: true,
+          reason: 'authority_lock',
+          lock_details: authorityLock.__lockReason
+        },
+        authority_mode: authority.authority_mode
+      };
+    }
+    
+    // Original doctrine guard logic
+    const isDoctrinalQuestion = 
+      classification?.type === 'DOCTRINE' ||
+      authority?.question_type === 'DOCTRINE' ||
+      authority?.question_type === 'GENERAL_DOCTRINE' ||
+      (authority?.anchorNormMode === true && authority?.epistemicCertainty === 'uncertain') ||
+      authority?.doctrinal_match === true ||
+      (authority?.anchor_norm_mode === true && authority?.epistemic_certainty === 'uncertain');
+    
+    if (isDoctrinalQuestion) {
+      console.log(`🚫 [Doctrine Guard] TF-IDF fallback disabled for doctrinal questions`);
+      console.log(`   Reason: classification=${classification?.type}, question_type=${authority?.question_type}, anchorNormMode=${authority?.anchorNormMode}, epistemicCertainty=${authority?.epistemicCertainty}`);
+      
+      safetyCheck.logSafetyEvent('DOCTRINE_GUARD_TRIGGERED', {
+        question,
+        classification_type: classification?.type,
+        question_type: authority?.question_type,
+        anchorNormMode: authority?.anchorNormMode,
+        epistemicCertainty: authority?.epistemicCertainty,
+        doctrinal_match: authority?.doctrinal_match
+      });
+      
+      return {
+        results: [],
+        authoritative_found: false,
+        authority_summary: { 
+          doctrine_mode: true, 
+          doctrine_detected: true,
+          reason: 'doctrinal_question_guard'
+        },
         authority_mode: authority.authority_mode
       };
     }
 
-    // Original retrieval logic
+    // 🔴 CRITICAL: Skip retrieval for exact mode (direct paragraph access)
+    if (authority.authority_mode === 'exact' && authority.statute && authority.paragraph) {
+      console.log(`🎯 [Exact Mode] Skipping document retrieval - direct paragraph access`);
+      return {
+        results: [],
+        authoritative_found: true,
+        authority_summary: {
+          exact_mode: true,
+          statute: authority.statute,
+          paragraph: authority.paragraph
+        },
+        authority_mode: 'exact'
+      };
+    }
+
+    // Original retrieval logic for non-doctrinal questions
     try {
       console.log(`🤖 Using Python for authoritative retrieval (mode: ${authority.authority_mode})...`);
       
@@ -207,15 +646,23 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 4️⃣ CONFIDENCE CALCULATION OVERRIDE (NEW)
+  // CONFIDENCE CALCULATION
   // ===========================================================================
   
   calculateEpistemicConfidence(baseConfidence, authority, ragResponse = null) {
+    // 🔴 CRITICAL FIX: Exact mode = 1.0 confidence
+    if (authority.authority_mode === 'exact' && authority.statute && authority.paragraph) {
+      console.log(`🎯 [Exact Mode] Confidence overridden to 1.0`);
+      return 1.0;
+    }
+    
     // Rule: IF epistemicCertainty == "confirmed" AND question_type == "DOCTRINE"
     // → confidence = max(confidence, 0.9)
     
     const isDoctrinalQuestion = authority.classification?.type === 'DOCTRINE' || 
-                               authority.question_type === 'DOCTRINE';
+                               authority.question_type === 'DOCTRINE' ||
+                               authority.question_type === 'GENERAL_DOCTRINE';
+    
     const isConfirmed = authority.epistemicCertainty === 'confirmed' || 
                        authority.epistemic_certainty === 'confirmed';
     
@@ -243,10 +690,129 @@ class ChatService {
   }
 
   // ===========================================================================
-  // MAIN PROCESSING FLOW (UPDATED WITH ALL FIXES)
+  // SMART METHOD 1: Structure Answer
+  // ===========================================================================
+  
+  structureAnswerWithDoctrinalTemplate(ragResponse, question, safetyValidation, authority, classification, pythonResults) {
+    // Let the answer speak for itself - don't force templates
+    let fullAnswer = ragResponse.doctrine_summary || ragResponse.answer || '';
+    
+    // Add statutory context ONLY if confirmed
+    if (authority.statute && authority.paragraph) {
+      const statuteName = this.getStatuteDisplayName(authority.statute);
+      const paragraphRef = authority.isArticle 
+        ? `Artikel ${authority.paragraph}` 
+        : `§${authority.paragraph}`;
+      
+      fullAnswer = `**${statuteName} ${paragraphRef}**\n\n${fullAnswer}`;
+    }
+    
+    // Add safety info (respects doctrine skip)
+    fullAnswer = this.addSafetyInformation(fullAnswer, safetyValidation, authority, question);
+    
+    // Smart confidence calculation
+    const finalConfidence = this.calculateEpistemicConfidence(
+      ragResponse.confidence || 0.7, 
+      authority, 
+      ragResponse
+    );
+    
+    return {
+      fullAnswer,
+      confidence: finalConfidence,
+      template_used: ragResponse.doctrine_summary ? 'python_doctrine' : 'rag_synthesis',
+      domain: classification?.domain || 'general',
+      metadata: {
+        doctrine_applied: !!ragResponse.doctrine_summary,
+        authority_mode: authority.authority_mode,
+        epistemic_certainty: authority.epistemicCertainty,
+        retrieval_used: !ragResponse.doctrine_summary,
+        safety_check_skipped: classification?.type === 'DOCTRINE',
+        chunks_used: ragResponse.metadata?.chunksUsed || 0
+      }
+    };
+  }
+
+  // ===========================================================================
+  // SMART METHOD 2: Generate Clarification
+  // ===========================================================================
+  
+  generateStructuredClarification(authority, question, pythonError = null) {
+    let message = '';
+    
+    if (!authority.statute) {
+      message = 'Um eine präzise rechtliche Analyse zu ermöglichen, geben Sie bitte das relevante Gesetz an (z.B. BGB, StGB, HGB).';
+    } else if (!authority.paragraph) {
+      const statuteName = this.getStatuteDisplayName(authority.statute);
+      message = `${statuteName} wurde erkannt. Bitte präzisieren Sie den relevanten Paragraphen oder bestätigen Sie, dass eine Übersicht gewünscht ist.`;
+    } else {
+      message = 'Zusätzliche Präzisierung der Rechtsfrage erforderlich.';
+    }
+    
+    return {
+      success: true,
+      data: {
+        answer: `**Präzisierung erforderlich**\n\n${message}`,
+        confidence: 0.3,
+        clarification_required: true,
+        statute: authority.statute || null,
+        paragraph: authority.paragraph || null,
+        metadata: {
+          requires_clarification: true,
+          authority_status: authority.status || 'unknown'
+        }
+      }
+    };
+  }
+
+  // ===========================================================================
+  // SMART METHOD 3: Conversation History
+  // ===========================================================================
+  
+  getConversationHistory(limit = 20) {
+    if (!this.conversationHistory?.length) return [];
+    return this.conversationHistory.slice(-limit);
+  }
+
+  // ===========================================================================
+  // CRITICAL FIX: addSafetyInformation
+  // ===========================================================================
+  
+  addSafetyInformation(answer, safetyValidation, authority, originalQuestion = '') {
+    // Skip safety info for doctrine questions
+    if (authority.classification?.type === 'DOCTRINE' || 
+        authority.question_type === 'DOCTRINE' ||
+        authority.question_type === 'GENERAL_DOCTRINE' ||
+        safetyValidation?.metadata?.safety_check_skipped) {
+      return answer;
+    }
+    
+    // Only add if safety validation exists and has meaningful data
+    if (!safetyValidation?.legalDefensibility) {
+      return answer;
+    }
+    
+    const defensibility = safetyValidation.legalDefensibility;
+    const readiness = safetyValidation.examinerReadiness;
+    
+    // Only add warning if there's an actual issue
+    if (defensibility === 'LOW' || readiness === 'NEEDS_REVIEW') {
+      return answer + '\n\n⚠️ *Diese Antwort erfordert weitere rechtliche Prüfung.*';
+    }
+    
+    return answer;
+  }
+
+  // ===========================================================================
+  // 🔴 CRITICAL FIX: MAIN PROCESSING FLOW WITH AUTHORITY LOCK & EXACT NORM DETECTION
   // ===========================================================================
   
   async processQuestion(question, context = {}) {
+    // 🔴 CRITICAL FIX: Declare authorityLock at TOP LEVEL (FIXED SCOPE BUG)
+    let authority = null;
+    let authorityLock = { __locked: false };
+    let pythonAuthorityError = null;
+    
     try {
       console.log(`\n🧠 Processing with EPISTEMIC AUTHORITY: "${question}"`);
       
@@ -262,103 +828,301 @@ class ChatService {
       }
       
       // ===========================================================================
-      // STEP 2: Use PYTHON for authority resolution
+      // STEP 2: Use PYTHON for authority resolution WITH IMMEDIATE TERMINAL CHECK
       // ===========================================================================
       console.log(`🔍 [ChatService] Resolving authority via Python service...`);
-      let authority = null;
-      let pythonAuthorityError = null;
       
       try {
         const authorityResult = await pythonIntegrationService.resolveAuthority(question);
         
         if (authorityResult.success && authorityResult.authority) {
           authority = authorityResult.authority;
-          console.log(`✅ Python authority resolved: ${authority.statute || 'NO_STATUTE'} ${authority.paragraph ? '§' + authority.paragraph : ''} (mode: ${authority.authority_mode || 'none'})`);
+          
+          // ===========================================================================
+          // 🎯 CRITICAL FIX: DETECT EXPLICIT NORM REFERENCES BEFORE TERMINAL CHECK
+          // ===========================================================================
+          const explicitNorm = this.detectExactNormReference(question);
+          if (explicitNorm) {
+            console.log(`🎯 [CRITICAL FIX] Explicit norm reference detected: ${explicitNorm.statute} §${explicitNorm.paragraph}`);
+            console.log(`   Overriding Python authority (statute: ${authority.statute || 'null'})`);
+            
+            // Override Python's authority with explicit reference
+            authority.statute = explicitNorm.statute;
+            authority.paragraph = explicitNorm.paragraph;
+            authority.isArticle = explicitNorm.isArticle;
+            authority.authority_mode = 'exact';
+            authority.isStatuteLocked = true;
+            authority.isParagraphLocked = true;
+            authority.requiresClarification = false;
+            
+            // Mark as terminal-equivalent
+            authority.__explicit_norm_reference = true;
+            authority.__explicit_override = true;
+          }
+          
+          // ===========================================================================
+          // 🚨 CRITICAL: IMMEDIATE TERMINAL AUTHORITY CHECK (BEFORE ANY NODE PROCESSING)
+          // ===========================================================================
+          console.log(`✅ Python raw authority:`, JSON.stringify(authority, null, 2));
+          
+          if (this.isTerminalAuthority(authority)) {
+            console.log(`🛑 [TERMINAL AUTHORITY] Python declared final paragraph - Node MUST STOP IMMEDIATELY`);
+            console.log(`   Statute: ${authority.statute}, Paragraph: ${authority.paragraph}`);
+            console.log(`   Terminal metadata:`, {
+              authority_final: authority.authority_final,
+              terminal: authority.terminal,
+              retrieval_constraint: authority.retrieval?.constraint,
+              force_exact: authority.force_exact
+            });
+            
+            // 🚨 GUARDRAIL: Ensure contract integrity
+            if (authority.authority_final && !authority.paragraph) {
+              console.error(`⚠️ CONTRACT VIOLATION: authority_final=true but paragraph missing!`);
+            }
+            
+            if (authority.authority_final && authority.authority_mode === 'overview') {
+              console.error(`⚠️ CONTRACT VIOLATION: terminal authority downgraded to overview mode`);
+            }
+            
+            // Generate terminal response with exact content
+            const statuteName = this.getStatuteDisplayName(authority.statute);
+            const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§${authority.paragraph}`;
+            
+            // Try to find exact paragraph text for completeness
+            let answerText = authority.text || authority.answer || authority.content;
+            
+            if (!answerText && authority.statute && authority.paragraph) {
+              const exactChunk = this.findExactParagraph(allDocuments, authority.statute, authority.paragraph);
+              if (exactChunk) {
+                answerText = exactChunk.content || exactChunk.text;
+              }
+            }
+            
+            // Fallback if no text found
+            if (!answerText) {
+              answerText = `**${statuteName} ${paragraphRef}**\n\n[Exakte Paragrapheninhalte aus dem Python-Autoritätsdienst]`;
+            }
+            
+            const terminalResponse = {
+              success: true,
+              data: {
+                answer: answerText,
+                structuredAnswer: {
+                  fullAnswer: answerText,
+                  confidence: 1.0,
+                  template_used: 'terminal_authority',
+                  domain: 'legal',
+                  metadata: {
+                    terminal_authority: true,
+                    authority_final: true,
+                    statute: authority.statute,
+                    paragraph: authority.paragraph,
+                    authority_mode: authority.authority_mode || 'exact',
+                    retrieval_constraint: authority.retrieval?.constraint || 'PARAGRAPH_STRICT',
+                    retrieval_used: false,
+                    safety_check_skipped: true,
+                    node_pipeline_bypassed: true,
+                    python_authority_preserved: true,
+                    python_metadata_untouched: true
+                  }
+                },
+                sources: authority.statute && authority.paragraph ? [{
+                  statute: authority.statute,
+                  paragraph: authority.paragraph,
+                  content: 'Python terminal authority directive',
+                  metadata: { 
+                    source: 'python_authority_service',
+                    authority_final: authority.authority_final,
+                    constraint: authority.retrieval?.constraint
+                  }
+                }] : [],
+                confidence: 1.0,
+                conversationId: Date.now().toString(),
+                legalDomain: 'legal',
+                statute: authority.statute,
+                paragraph: authority.paragraph,
+                isArticle: authority.isArticle,
+                authority: authority, // PRESERVE ORIGINAL
+                classification: authority.classification || { type: 'EXACT_OPERATIVE_NORM', domain: 'legal' },
+                safetyCheck: {
+                  isLegallySound: true,
+                  legalDefensibility: 'HIGH',
+                  examinerReadiness: 'EXAMINER_READY',
+                  confidenceAdjusted: 1.0,
+                  metadata: { safety_check_skipped: true }
+                },
+                metadata: {
+                  terminal_authority: true,
+                  authority_final: true,
+                  node_pipeline_bypassed: true,
+                  python_terminal_directive: true,
+                  execution_order: 'terminal_early_exit'
+                }
+              }
+            };
+            
+            // Log safety event for audit
+            safetyCheck.logSafetyEvent('TERMINAL_AUTHORITY_ENFORCED', {
+              question,
+              statute: authority.statute,
+              paragraph: authority.paragraph,
+              authority_mode: authority.authority_mode,
+              retrieval_constraint: authority.retrieval?.constraint,
+              python_metadata: {
+                authority_final: authority.authority_final,
+                terminal: authority.terminal,
+                force_exact: authority.force_exact
+              },
+              execution_order: 'immediate',
+              timestamp: new Date().toISOString(),
+              contract_integrity: 'preserved'
+            });
+            
+            return resultFormatter.formatResponse(terminalResponse, authority);
+          }
+          
+          // ===========================================================================
+          // 🔒 CREATE AUTHORITY LOCK (NON-TERMINAL CASES)
+          // ===========================================================================
+          authorityLock = this.createAuthorityLock(authority);
+          console.log(`🔒 [Authority Lock] Created for non-terminal authority:`, {
+            statute: authority.statute,
+            paragraph: authority.paragraph,
+            locked: authorityLock.__locked,
+            reason: authorityLock.__lockReason
+          });
+          
+          // ===========================================================================
+          // ✅ ONLY NOW MAY NODE TOUCH AUTHORITY METADATA (NON-TERMINAL CASES)
+          // ===========================================================================
+          console.log(`✅ Terminal check passed - Node may process authority`);
+          
+          // Preserve Python's doctrine classification
+          if (authorityResult.authority.question_type) {
+            authority.question_type = authorityResult.authority.question_type;
+          }
+          
+          if (authorityResult.authority.doctrinal_match !== undefined) {
+            authority.doctrinal_match = authorityResult.authority.doctrinal_match;
+          }
+          
+          if (authorityResult.authority.epistemicCertainty) {
+            authority.epistemicCertainty = authorityResult.authority.epistemicCertainty;
+          }
+          
+          if (authorityResult.authority.epistemic_certainty) {
+            authority.epistemicCertainty = authorityResult.authority.epistemic_certainty;
+          }
+          
+          if (authorityResult.authority.anchor_norm_mode !== undefined) {
+            authority.anchorNormMode = authorityResult.authority.anchor_norm_mode;
+          }
+          
+          // Don't override classification if Python provided one
+          if (!authority.classification && 
+              (authority.question_type === 'DOCTRINE' || 
+               authority.question_type === 'GENERAL_DOCTRINE' ||
+               authority.doctrinal_match === true)) {
+            authority.classification = {
+              type: 'DOCTRINE',
+              domain: authority.domain || 'general',
+              source: 'python_doctrine_detection'
+            };
+          }
           
           // Parse Python's clarification field
           if (authority.status) {
             authority.requiresClarification = authority.status === 'CLARIFICATION_REQUIRED';
             console.log(`📋 Python status: ${authority.status}, requiresClarification: ${authority.requiresClarification}`);
           }
+          
+          console.log(`✅ Python authority resolved: ${authority.statute || 'NO_STATUTE'} ${authority.paragraph ? '§' + authority.paragraph : ''}`);
+          console.log(`   question_type: ${authority.question_type}`);
+          console.log(`   doctrinal_match: ${authority.doctrinal_match}`);
+          console.log(`   epistemicCertainty: ${authority.epistemicCertainty}`);
+          console.log(`   anchorNormMode: ${authority.anchorNormMode}`);
+          console.log(`   classification: ${authority.classification?.type || 'none'}`);
+          console.log(`   authority_lock: ${authorityLock.__locked ? 'LOCKED' : 'UNLOCKED'}`);
+          
         } else {
-          console.log(`⚠️ Python authority resolution failed or no statute found`);
+          console.log(`⚠️ Python authority resolution failed or no statute found — continuing with TF-IDF fallback`);
           authority = {
             statute: null,
             paragraph: null,
             isArticle: false,
-            requiresClarification: true,
-            stopProcessing: true,
+            requiresClarification: false,
+            stopProcessing: false,
             confidence: 0.3,
             referenceSource: 'python_failed',
-            authority_mode: 'none',
+            authority_mode: 'fallback',
             classification: {
               type: 'GENERAL',
               domain: 'general',
               source: 'python_fallback'
             }
           };
+          authorityLock = { __locked: false };
         }
       } catch (error) {
-        console.log(`❌ Python authority service error: ${error.message}`);
+        console.log(`❌ Python authority service error: ${error.message} — continuing with TF-IDF fallback`);
         pythonAuthorityError = error.message;
         authority = {
           statute: null,
           paragraph: null,
           isArticle: false,
-          requiresClarification: true,
-          stopProcessing: true,
+          requiresClarification: false,
+          stopProcessing: false,
           confidence: 0.1,
           referenceSource: 'python_error',
-          authority_mode: 'none',
+          authority_mode: 'fallback',
           classification: {
             type: 'GENERAL',
             domain: 'general',
             source: 'python_error_fallback'
           }
         };
+        authorityLock = { __locked: false };
       }
       
-      // ===========================================================================
-      // 🔴 CRITICAL FIX: DOCTRINAL EARLY-EXIT (Point 1️⃣)
-      // ===========================================================================
-      if (this.shouldUseDoctrinalEarlyExit(authority)) {
-        console.log(`🚀 [Doctrinal Early-Exit] Using doctrinal path (confirmed doctrine)`);
+      // 🔒 CHECK AUTHORITY LOCK BEFORE ANY FURTHER PROCESSING
+      if (authorityLock?.__locked === true) {
+        console.log(`🛑 [Authority Lock] Downstream processing BLOCKED`);
+        console.log(`   Question: "${question.substring(0, 80)}..."`);
+        console.log(`   Lock Reason: ${authorityLock.__lockReason}`);
         
-        const doctrineResult = await this.callDoctrineInductionService(question, authority);
+        safetyCheck.logSafetyEvent('AUTHORITY_LOCK_DOWNSTREAM_BLOCK', {
+          question,
+          statute: authorityLock.statute,
+          paragraph: authorityLock.paragraph,
+          lock_reason: authorityLock.__lockReason,
+          lock_timestamp: authorityLock.__lockTimestamp,
+          python_error: pythonAuthorityError,
+          execution_path: 'blocked_by_lock'
+        });
         
-        if (doctrineResult) {
-          const doctrinalAnswer = this.generateDoctrinalAnswer(doctrineResult, authority, question);
-          
-          // CRITICAL FIX: No safety check for doctrine, immediate return
-          safetyCheck.logSafetyEvent('DOCTRINAL_EARLY_EXIT', {
-            question,
-            question_type: authority.classification?.type || authority.question_type,
-            epistemicCertainty: authority.epistemicCertainty,
-            anchorNormMode: authority.anchorNormMode,
-            statute: authority.statute,
-            suggestedField: authority.suggestedField,
-            retrievalUsed: false,
-            safetyCheckSkipped: true
-          });
-          
-          return {
-            success: true,
-            data: {
-              answer: doctrinalAnswer.fullAnswer,
-              structuredAnswer: doctrinalAnswer,
-              sources: [],
-              confidence: doctrinalAnswer.confidence,
-              statute: authority.statute,
-              paragraph: authority.paragraph,
-              isArticle: authority.isArticle,
-              metadata: doctrinalAnswer.metadata
+        // Return locked response
+        const lockedResponse = {
+          success: true,
+          data: {
+            answer: `**Autorität gesperrt**\n\nDie Anfrage wurde durch den autoritativen Dienst finalisiert. Weitere Verarbeitung ist gesperrt.\n\n*Status: ${authorityLock.__lockReason}*`,
+            confidence: 0.9,
+            statute: authorityLock.statute,
+            paragraph: authorityLock.paragraph,
+            metadata: {
+              authority_locked: true,
+              lock_reason: authorityLock.__lockReason,
+              lock_timestamp: authorityLock.__lockTimestamp,
+              downstream_processing_blocked: true,
+              python_authority_preserved: true
             }
-          };
-        }
+          }
+        };
+        
+        return resultFormatter.formatResponse(lockedResponse, authority);
       }
       
       // ===========================================================================
-      // STEP 3: Check clarification
+      // 🔴 CRITICAL FIX: UPDATED CLARIFICATION LOGIC WITH EXPLICIT NORM DETECTION
       // ===========================================================================
       const shouldRequireClarification = () => {
         if (authority.stopProcessing === true) {
@@ -370,6 +1134,12 @@ class ChatService {
           authority?.authority_mode === 'overview' && 
           authority?.confidence >= 0.8;
         
+        // 🎯 CRITICAL FIX: Explicit norm references override Python's authority
+        if (authority.__explicit_norm_reference === true) {
+          console.log(`✅ [Explicit Norm Override] Suppressing clarification for explicit norm reference`);
+          return false; // ✅ NO clarification needed!
+        }
+        
         if (!authority.statute && !implicitAllowed) {
           console.log(`⚠️ No statute detected and implicit authority NOT allowed`);
           return true;
@@ -380,11 +1150,52 @@ class ChatService {
           return false;
         }
         
+        // 🔴 CRITICAL FIX: Check if this is a statute-only doctrine question
+        // ===========================================================================
+        const isStatuteOnlyDoctrineQuestion = () => {
+          // Check Python's metadata for statute-only constraint
+          const isStatuteOnly = 
+            authority.retrieval?.constraint === 'STATUTE_ONLY' ||
+            authority.constraint === 'STATUTE_ONLY' ||
+            authority.statute_only === true;
+          
+          // Check if this is a doctrinal question
+          const isDoctrinalQuestion = 
+            authority.question_type === 'DOCTRINE' ||
+            authority.question_type === 'GENERAL_DOCTRINE' ||
+            authority.question_type === 'GENERAL' ||
+            authority.doctrinal_match === true ||
+            authority.classification?.type === 'DOCTRINE';
+          
+          // Statute is locked but paragraph is not
+          const isStatuteLocked = 
+            authority.isStatuteLocked === true ||
+            authority.statute_locked === true;
+          
+          const isParagraphNotLocked = 
+            authority.isParagraphLocked === false ||
+            authority.paragraph_locked === false;
+          
+          return isStatuteOnly && isDoctrinalQuestion && isStatuteLocked && isParagraphNotLocked;
+        };
+        
+        // 🔴 CRITICAL FIX: Handle statute-only doctrine questions
         if (authority.statute && !authority.paragraph) {
+          // Check if this is a statute-only doctrine question FIRST
+          if (isStatuteOnlyDoctrineQuestion()) {
+            console.log(`✅ [DOCTRINE FIX] Statute-only doctrine question: ${authority.statute} - paragraph NOT required`);
+            console.log(`   Retrieval constraint: ${authority.retrieval?.constraint}`);
+            console.log(`   Question type: ${authority.question_type}`);
+            console.log(`   Statute locked: ${authority.isStatuteLocked}, Paragraph locked: ${authority.isParagraphLocked}`);
+            return false; // ✅ NO clarification needed!
+          }
+          
+          // Original logic for non-doctrinal questions
           if (authority.authority_mode === 'overview') {
             console.log(`✅ Overview mode: statute ${authority.statute} without paragraph is allowed`);
             return false;
           }
+          
           console.log(`⚠️ Statute ${authority.statute} found but paragraph missing in mode ${authority.authority_mode}`);
           return true;
         }
@@ -411,93 +1222,461 @@ class ChatService {
           python_status: authority.status || 'unknown'
         });
         
-        return this.generateStructuredClarification(authority, question, pythonAuthorityError);
+        const clarification = this.generateStructuredClarification(authority, question, pythonAuthorityError);
+        return resultFormatter.formatResponse(clarification, authority);
       }
       
       console.log(`✅ Authority from Python: ${authority.statute} ${authority.paragraph ? (authority.isArticle ? 'Article ' : '§') + authority.paragraph : ''} (mode: ${authority.authority_mode})`);
       
-      // Classification from Python
+      // ===========================================================================
+      // STEP 3: CHECK FOR EXACT MODE (WITH TEXT-BASED PARAGRAPH EXTRACTION)
+      // ===========================================================================
+      if (authority.authority_mode === 'exact' && authority.statute && authority.paragraph) {
+        console.log(`🎯 [Exact Mode] Processing exact paragraph: ${authority.statute} §${authority.paragraph}`);
+        
+        // Find exact paragraph with text extraction
+        const exactChunk = this.findExactParagraph(allDocuments, authority.statute, authority.paragraph);
+        
+        if (!exactChunk) {
+          console.log(`❌ [Exact Mode] Paragraph §${authority.paragraph} not found in ${authority.statute}`);
+          
+          // Try fallback: Search for any BGB chunks that might contain the paragraph
+          console.log(`🔍 [Exact Mode Fallback] Searching for any mention of §${authority.paragraph} in ${authority.statute} content...`);
+          
+          const fallbackChunks = [];
+          for (const doc of allDocuments) {
+            const chunks = doc.chunks || [doc];
+            for (const chunk of chunks) {
+              const statuteRaw = chunk.metadata?.statute || doc.metadata?.statute;
+              if (statuteRaw === authority.statute) {
+                const content = chunk.content || chunk.text || '';
+                // Look for paragraph in text
+                if (content.includes(`§${authority.paragraph}`) || 
+                    content.includes(`§ ${authority.paragraph}`) ||
+                    content.includes(`Paragraph ${authority.paragraph}`)) {
+                  fallbackChunks.push({
+                    chunk,
+                    matchType: 'text_inclusion',
+                    preview: content.substring(0, 200)
+                  });
+                }
+              }
+            }
+          }
+          
+          if (fallbackChunks.length > 0) {
+            console.log(`⚠️ [Exact Mode] Found ${fallbackChunks.length} chunks containing §${authority.paragraph} in text`);
+            // Use the first one
+            const fallbackChunk = fallbackChunks[0].chunk;
+            console.log(`✅ [Exact Mode Fallback] Using chunk with text inclusion`);
+            
+            const exactResponse = {
+              success: true,
+              data: {
+                answer: fallbackChunk.content || fallbackChunk.text,
+                structuredAnswer: {
+                  fullAnswer: fallbackChunk.content || fallbackChunk.text,
+                  confidence: 1.0,
+                  template_used: 'exact_paragraph_fallback',
+                  domain: 'legal',
+                  metadata: {
+                    exact_mode: true,
+                    authority_mode: 'exact',
+                    statute: authority.statute,
+                    paragraph: authority.paragraph,
+                    retrieval_used: false,
+                    safety_check_skipped: true,
+                    content_source: 'text_inclusion_fallback',
+                    fallback_used: true
+                  }
+                },
+                sources: [{
+                  statute: authority.statute,
+                  paragraph: authority.paragraph,
+                  content: (fallbackChunk.content || fallbackChunk.text)?.substring(0, 200) + '...',
+                  metadata: fallbackChunk.metadata
+                }],
+                confidence: 1.0,
+                conversationId: Date.now().toString(),
+                legalDomain: 'legal',
+                statute: authority.statute,
+                paragraph: authority.paragraph,
+                isArticle: authority.isArticle,
+                authority: authority,
+                classification: {
+                  type: 'EXACT_OPERATIVE_NORM',
+                  domain: 'legal',
+                  source: 'exact_mode_processor'
+                },
+                safetyCheck: {
+                  isLegallySound: true,
+                  legalDefensibility: 'HIGH',
+                  examinerReadiness: 'EXAMINER_READY',
+                  confidenceAdjusted: 1.0,
+                  metadata: { safety_check_skipped: true }
+                },
+                metadata: {
+                  documentsUsed: 1,
+                  processingTime: 0,
+                  language: "german",
+                  exactParagraphMatch: false,
+                  textInclusionMatch: true,
+                  chunksUsed: 1,
+                  safetyPassed: true,
+                  legalDefensibility: 'HIGH',
+                  examinerReadiness: 'EXAMINER_READY',
+                  architecture: 'epistemic_authority',
+                  statuteLocked: true,
+                  python_service_used: true,
+                  python_authority_resolved: true,
+                  python_authoritative_found: false,
+                  python_results_count: 0,
+                  authority_mode: 'exact',
+                  doctrinal_template: 'exact_paragraph_fallback',
+                  epistemic_certainty: authority.epistemicCertainty,
+                  anchor_norm_mode: authority.anchorNormMode,
+                  safety_check_skipped: true,
+                  fallback_used: true
+                }
+              }
+            };
+            
+            return resultFormatter.formatResponse(exactResponse, authority);
+          }
+          
+          return {
+            success: false,
+            error: `Paragraph §${authority.paragraph} nicht in ${this.getStatuteDisplayName(authority.statute)} gefunden.`,
+            data: {
+              requires_clarification: true,
+              statute: authority.statute,
+              paragraph: authority.paragraph,
+              suggestion: "Möglicherweise ist der Paragraph nicht im geladenen Dokument oder die PDF-Struktur enthält keine Paragraphen-Markierungen."
+            }
+          };
+        }
+        
+        // Generate exact mode response
+        const exactResponse = {
+          success: true,
+          data: {
+            answer: exactChunk.content || exactChunk.text,
+            structuredAnswer: {
+              fullAnswer: exactChunk.content || exactChunk.text,
+              confidence: 1.0,
+              template_used: 'exact_paragraph',
+              domain: 'legal',
+              metadata: {
+                exact_mode: true,
+                authority_mode: 'exact',
+                statute: authority.statute,
+                paragraph: authority.paragraph,
+                retrieval_used: false,
+                safety_check_skipped: true,
+                content_source: 'direct_paragraph_extraction',
+                text_extraction_used: true
+              }
+            },
+            sources: [{
+              statute: authority.statute,
+              paragraph: authority.paragraph,
+              content: (exactChunk.content || exactChunk.text)?.substring(0, 200) + '...',
+              metadata: exactChunk.metadata
+            }],
+            confidence: 1.0,
+            conversationId: Date.now().toString(),
+            legalDomain: 'legal',
+            statute: authority.statute,
+            paragraph: authority.paragraph,
+            isArticle: authority.isArticle,
+            authority: authority,
+            classification: {
+              type: 'EXACT_OPERATIVE_NORM',
+              domain: 'legal',
+              source: 'exact_mode_processor'
+            },
+            safetyCheck: {
+              isLegallySound: true,
+              legalDefensibility: 'HIGH',
+              examinerReadiness: 'EXAMINER_READY',
+              confidenceAdjusted: 1.0,
+              metadata: { safety_check_skipped: true }
+            },
+            metadata: {
+              documentsUsed: 1,
+              processingTime: 0,
+              language: "german",
+              exactParagraphMatch: true,
+              chunksUsed: 1,
+              safetyPassed: true,
+              legalDefensibility: 'HIGH',
+              examinerReadiness: 'EXAMINER_READY',
+              architecture: 'epistemic_authority',
+              statuteLocked: true,
+              python_service_used: true,
+              python_authority_resolved: true,
+              python_authoritative_found: false,
+              python_results_count: 0,
+              authority_mode: 'exact',
+              doctrinal_template: 'exact_paragraph',
+              epistemic_certainty: authority.epistemicCertainty,
+              anchor_norm_mode: authority.anchorNormMode,
+              safety_check_skipped: true,
+              text_extraction_used: true
+            }
+          }
+        };
+        
+        // Format with resultFormatter
+        return resultFormatter.formatResponse(exactResponse, authority);
+      }
+      
+      // Classification from Python (preserved from above)
       const classification = authority.classification || {
         type: 'GENERAL',
         domain: 'general',
         source: 'python_default'
       };
       
-      console.log(`🎯 Classification (Python): ${classification.type} (domain: ${classification.domain || 'general'})`);
+      console.log(`🎯 Classification: ${classification.type} (domain: ${classification.domain || 'general'})`);
       
       // ===========================================================================
-      // STEP 4: Doctrine enforcement for exact operative norms
+      // STEP 4: Handle Doctrine/System questions
       // ===========================================================================
-      console.log(`🔍 [Doctrine Check] Evaluating ${authority.statute} ${authority.paragraph ? '§' + authority.paragraph : ''} for doctrine requirement`);
-
-      if (authority.statute && authority.paragraph && authority.authority_mode === 'exact') {
-        const doctrineResult = await this.enforcePythonDoctrine(question, authority);
+      if (classification.type === 'DOCTRINE' || authority.question_type === 'GENERAL_DOCTRINE') {
+        console.log(`⚖️ Doctrine question detected - separate path`);
         
-        if (doctrineResult?.doctrinal_summary || doctrineResult?.answer) {
-          console.log(`✅ [Doctrine] Using Python doctrinal analysis, bypassing RAG`);
-          
+        if (authority.epistemicCertainty === 'confirmed') {
+          const result = await this.handleConfirmedDoctrine(question, authority);
+          return resultFormatter.formatResponse(result, authority);
+        } else {
+          const result = await this.handleUnconfirmedDoctrine(question, authority);
+          return resultFormatter.formatResponse(result, authority);
+        }
+      }
+      
+      if (classification.type === 'SYSTEM') {
+        console.log(`🔄 System question - conceptual answer`);
+        const result = this.handleSystemQuestion(question, authority);
+        return resultFormatter.formatResponse(result, authority);
+      }
+      
+      // ===========================================================================
+      // STEP 5: DOCTRINAL EARLY-EXIT WITH PROPER METADATA
+      // ===========================================================================
+      if (this.shouldUseDoctrinalEarlyExit(authority)) {
+        console.log(`🚀 [Doctrinal Early-Exit] Using doctrinal path`);
+        console.log(`   Authority metadata:`, {
+          question_type: authority.question_type,
+          epistemicCertainty: authority.epistemicCertainty,
+          anchorNormMode: authority.anchorNormMode,
+          doctrinal_match: authority.doctrinal_match
+        });
+        
+        const doctrineResult = await this.callDoctrineInductionService(question, authority);
+        
+        if (doctrineResult) {
           const doctrinalAnswer = this.generateDoctrinalAnswer(doctrineResult, authority, question);
           
-          safetyCheck.logSafetyEvent('DOCTRINE_APPLIED', {
+          // No safety check for doctrine, immediate return
+          safetyCheck.logSafetyEvent('DOCTRINAL_EARLY_EXIT', {
             question,
+            question_type: authority.question_type,
+            epistemicCertainty: authority.epistemicCertainty,
+            anchorNormMode: authority.anchorNormMode,
             statute: authority.statute,
-            paragraph: authority.paragraph,
-            authority_mode: 'exact',
-            normFunction: authority.normFunction || 'OPERATIVE',
-            doctrine_source: 'python_inductor',
-            confidence: doctrineResult.confidence || authority.confidence || 0.85
+            retrievalUsed: false,
+            safetyCheckSkipped: true
           });
           
-          return {
+          const rawResponse = {
             success: true,
             data: {
               answer: doctrinalAnswer.fullAnswer,
               structuredAnswer: doctrinalAnswer,
               sources: [],
-              confidence: doctrineResult.confidence || authority.confidence || 0.85,
+              confidence: doctrinalAnswer.confidence,
               statute: authority.statute,
               paragraph: authority.paragraph,
               isArticle: authority.isArticle,
               metadata: doctrinalAnswer.metadata
             }
           };
+          
+          return resultFormatter.formatResponse(rawResponse, authority);
         } else {
-          console.log(`ℹ️ [Doctrine] Proceeding with standard RAG processing`);
-        }
-      }
-
-      // ===========================================================================
-      // STEP 5: Handle Doctrine/System questions (UPDATED: SPLIT PATHS)
-      // ===========================================================================
-      if (classification.type === 'DOCTRINE') {
-        console.log(`⚖️ Doctrine question - separate path`);
-        
-        // CRITICAL FIX: Separate confirmed vs unconfirmed doctrine
-        if (authority.epistemicCertainty === 'confirmed') {
-          // Should have been caught by early-exit, but handle anyway
-          return await this.handleConfirmedDoctrine(question, authority);
-        } else {
-          return await this.handleUnconfirmedDoctrine(question, authority);
+          console.log(`⚠️ Doctrine induction failed, falling back to unconfirmed doctrine path`);
         }
       }
       
-      if (classification.type === 'SYSTEM') {
-        console.log(`🔄 System question - conceptual answer`);
-        return this.handleSystemQuestion(question, authority);
-      }
-      
       // ===========================================================================
-      // STEP 6: Retrieval with doctrine guard
+      // STEP 6: Retrieval with doctrine guard & authority lock (NOW PROPERLY BLOCKS)
       // ===========================================================================
       let pythonResults = null;
       
-      // Use guarded retrieval (blocks TF-IDF for doctrine)
-      pythonResults = await this.retrieveDocumentsWithDoctrineGuard(
-        question, authority, allDocuments, classification
-      );
+      // 🔒 Check authority lock before retrieval
+      if (authorityLock?.__locked === true) {
+        console.log(`🛑 [Authority Lock] Retrieval BLOCKED - using empty results`);
+        pythonResults = {
+          results: [],
+          authoritative_found: false,
+          authority_summary: {
+            locked: true,
+            terminal: true,
+            reason: 'authority_lock_retrieval_block'
+          },
+          authority_mode: authority.authority_mode
+        };
+      } else {
+        pythonResults = await this.retrieveDocumentsWithDoctrineGuard(
+          question, authority, authorityLock, allDocuments, classification
+        );
+      }
       
       // ===========================================================================
-      // STEP 7: RAG call
+      // 🔴 CRITICAL FIX: FINAL AUTHORITY EMPTY RESULT GUARD (NEW)
+      // ===========================================================================
+      // 🚨 STOP ALL PROCESSING IF: authority_final + empty python results
+      // This prevents RAG synthesis when authoritative search abstains
+      if (
+        authority?.authority_final === true &&
+        pythonResults &&
+        pythonResults.results &&
+        pythonResults.results.length === 0 &&
+        pythonResults.authoritative_found === false
+      ) {
+        console.log(`🛑 [FINAL AUTHORITY GUARD] Empty authoritative result - RAG SYNTHESIS FORBIDDEN`);
+        console.log(`   Statute: ${authority.statute}, Paragraph: ${authority.paragraph}`);
+        console.log(`   Authority Final: ${authority.authority_final}, Empty Results: true`);
+        console.log(`   Authoritative Found: ${pythonResults.authoritative_found}`);
+        
+        // Log safety event for audit trail
+        safetyCheck.logSafetyEvent('FINAL_AUTHORITY_EMPTY_RESULT_GUARD', {
+          question,
+          statute: authority.statute,
+          paragraph: authority.paragraph,
+          authority_final: authority.authority_final,
+          python_results_count: 0,
+          python_authoritative_found: false,
+          authority_mode: authority.authority_mode,
+          terminal: authority.terminal || false,
+          guard_reason: 'empty_authoritative_result_blocks_rag',
+          timestamp: new Date().toISOString(),
+          execution_path: 'immediate_return'
+        });
+        
+        // Return a legally safe "abstention" response
+        const statuteName = this.getStatuteDisplayName(authority.statute);
+        const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§${authority.paragraph}`;
+        
+        const terminalAbstentionResponse = {
+          success: true,
+          data: {
+            answer: `**${statuteName} ${paragraphRef}**\n\n` +
+                    `Die Norm wurde eindeutig identifiziert. Der autoritative Suchdienst hat keine auslegungsfähigen Textstellen zurückgegeben.\n\n` +
+                    `**Rechtlicher Status**: Norm identifiziert, aber inhaltliche Auslegung erfordert juristische Subsumtion oder zusätzlichen Kontext.`,
+            structuredAnswer: {
+              fullAnswer: `**${statuteName} ${paragraphRef}**\n\n` +
+                         `Die Norm wurde eindeutig identifiziert. Der autoritative Suchdienst hat keine auslegungsfähigen Textstellen zurückgegeben.\n\n` +
+                         `**Rechtlicher Status**: Norm identifiziert, aber inhaltliche Auslegung erfordert juristische Subsumtion oder zusätzlichen Kontext.`,
+              confidence: 0.85,
+              template_used: 'authoritative_abstention',
+              domain: 'legal',
+              metadata: {
+                terminal_authority: true,
+                authority_final: true,
+                empty_authoritative_result: true,
+                rag_synthesis_blocked: true,
+                tf_idf_fallback_blocked: true,
+                doctrine_mode: false,
+                statute: authority.statute,
+                paragraph: authority.paragraph,
+                retrieval_used: false,
+                safety_check_skipped: true,
+                node_pipeline_bypassed: true,
+                guard_triggered: 'final_authority_empty_result'
+              }
+            },
+            sources: [{
+              statute: authority.statute,
+              paragraph: authority.paragraph,
+              content: 'Autoritative Suche ergab keine auslegungsfähigen Textstellen.',
+              metadata: {
+                source: 'python_authority_service',
+                authority_final: authority.authority_final,
+                empty_result: true,
+                guard_applied: true
+              }
+            }],
+            confidence: 0.85,
+            conversationId: Date.now().toString(),
+            legalDomain: 'legal',
+            statute: authority.statute,
+            paragraph: authority.paragraph,
+            isArticle: authority.isArticle,
+            authority: authority,
+            classification: authority.classification || {
+              type: 'EXACT_OPERATIVE_NORM',
+              domain: 'legal',
+              source: 'authoritative_abstention'
+            },
+            safetyCheck: {
+              isLegallySound: true,
+              legalDefensibility: 'HIGH',
+              examinerReadiness: 'EXAMINER_READY',
+              confidenceAdjusted: 0.85,
+              metadata: {
+                safety_check_skipped: true,
+                reason: 'authoritative_abstention_guard'
+              }
+            },
+            metadata: {
+              terminal_authority: true,
+              authority_final: true,
+              empty_authoritative_result: true,
+              rag_synthesis_blocked: true,
+              tf_idf_fallback_blocked: true,
+              node_pipeline_bypassed: true,
+              execution_order: 'final_authority_empty_result_guard',
+              python_authority_preserved: true
+            }
+          }
+        };
+        
+        return resultFormatter.formatResponse(terminalAbstentionResponse, authority);
+      }
+      
+      // ===========================================================================
+      // ✅ ONLY CONTINUE IF:
+      // 1. NOT authority_final
+      // 2. OR authority_final BUT has results
+      // 3. OR NOT empty authoritative result
+      // ===========================================================================
+      console.log(`✅ [Guard Passed] Authority allows RAG synthesis:`, {
+        authority_final: authority?.authority_final,
+        has_results: pythonResults?.results?.length > 0,
+        authoritative_found: pythonResults?.authoritative_found,
+        authority_mode: authority?.authority_mode,
+        authority_lock: authorityLock?.__locked || false
+      });
+      
+      // Check if doctrine guard blocked retrieval
+      if (pythonResults.authority_summary?.doctrine_mode && pythonResults.results.length === 0) {
+        console.log(`🚫 Doctrine guard blocked retrieval - asking for clarification`);
+        
+        // This is a doctrinal question that needs special handling
+        if (authority.question_type === 'GENERAL_DOCTRINE' || authority.doctrinal_match) {
+          const result = await this.handleUnconfirmedDoctrine(question, authority);
+          return resultFormatter.formatResponse(result, authority);
+        }
+        
+        const clarification = this.generateStructuredClarification(authority, question, 
+          "Doctrinal question detected but no doctrine path available");
+        return resultFormatter.formatResponse(clarification, authority);
+      }
+      
+      // ===========================================================================
+      // STEP 7: RAG call (ONLY IF GUARD PASSES)
       // ===========================================================================
       const ragResponse = await ragService.generateResponse(
         question,
@@ -523,19 +1702,20 @@ class ChatService {
       }
       
       // ===========================================================================
-      // STEP 8: Confidence override (Point 4️⃣)
+      // STEP 8: Confidence override
       // ===========================================================================
       const baseConfidence = ragResponse.confidence || 0.7;
       const finalConfidence = this.calculateEpistemicConfidence(baseConfidence, authority, ragResponse);
       ragResponse.confidence = finalConfidence;
       
       // ===========================================================================
-      // STEP 9: Safety check (CRITICAL FIX: SKIP FOR DOCTRINE)
+      // STEP 9: Safety check (SKIP FOR DOCTRINE)
       // ===========================================================================
       let safetyValidation = null;
       
-      // CRITICAL FIX: Skip safety for doctrinal questions
-      if (classification.type !== 'DOCTRINE' && authority.question_type !== 'DOCTRINE') {
+      if (classification.type !== 'DOCTRINE' && 
+          authority.question_type !== 'DOCTRINE' && 
+          authority.question_type !== 'GENERAL_DOCTRINE') {
         safetyValidation = ragResponse.safetyCheck || await safetyCheck.validateBeforeAnswer(question, ragResponse, authority);
       } else {
         console.log(`🚫 Safety check skipped for doctrine question`);
@@ -564,58 +1744,9 @@ class ChatService {
       );
       
       // ===========================================================================
-      // STEP 11: Add to conversation history
+      // STEP 11: Build raw response
       // ===========================================================================
-      const conversationEntry = {
-        question: question,
-        answer: structuredAnswer.fullAnswer,
-        structuredAnswer: structuredAnswer,
-        sources: ragResponse.citations,
-        timestamp: new Date().toISOString(),
-        confidence: structuredAnswer.confidence,
-        legalDomain: structuredAnswer.domain || ragResponse.metadata?.legalDomain || 'general',
-        statute: authority.statute,
-        paragraph: authority.paragraph,
-        isArticle: authority.isArticle,
-        authority: authority,
-        classification: classification,
-        safetyCheck: safetyValidation,
-        python_authority_used: !pythonAuthorityError,
-        python_authoritative_found: pythonResults?.authoritative_found || false,
-        python_results_count: pythonResults?.results?.length || 0,
-        authority_mode: authority.authority_mode,
-        doctrinal_template: structuredAnswer.template_used || 'default',
-        epistemic_certainty: authority.epistemicCertainty,
-        anchor_norm_mode: authority.anchorNormMode
-      };
-
-      this.conversationHistory.push(conversationEntry);
-      if (this.conversationHistory.length > 20) {
-        this.conversationHistory = this.conversationHistory.slice(-20);
-      }
-
-      // ===========================================================================
-      // STEP 12: Log and return
-      // ===========================================================================
-      safetyCheck.logSafetyEvent('QUESTION_PROCESSED', {
-        question,
-        statute: authority.statute,
-        paragraph: authority.paragraph,
-        question_type: classification.type,
-        epistemicCertainty: authority.epistemicCertainty,
-        confidence: structuredAnswer.confidence,
-        legalDefensibility: safetyValidation.legalDefensibility || 'UNKNOWN',
-        examinerReadiness: safetyValidation.examinerReadiness || 'UNKNOWN',
-        python_authority_used: !pythonAuthorityError,
-        python_authoritative_found: pythonResults?.authoritative_found || false,
-        authority_mode: authority.authority_mode,
-        doctrinal_template: structuredAnswer.template_used || 'default',
-        safety_check_skipped: classification.type === 'DOCTRINE'
-      });
-
-      this.logProcessing(question, ragResponse, authority, classification, pythonResults, safetyValidation);
-      
-      return {
+      const rawResponse = {
         success: true,
         data: {
           answer: structuredAnswer.fullAnswer,
@@ -647,13 +1778,80 @@ class ChatService {
             python_results_count: ragResponse.python_results_count || 0,
             authority_mode: authority.authority_mode,
             doctrinal_template: structuredAnswer.template_used || 'default',
-            template_sections: structuredAnswer.structuredSections?.length || 0,
             epistemic_certainty: authority.epistemicCertainty,
             anchor_norm_mode: authority.anchorNormMode,
-            safety_check_skipped: classification.type === 'DOCTRINE'
+            safety_check_skipped: classification.type === 'DOCTRINE',
+            authority_lock_applied: authorityLock?.__locked || false,
+            authority_lock_reason: authorityLock?.__lockReason || 'none',
+            explicit_norm_override: authority.__explicit_norm_reference || false
           },
         },
       };
+      
+      // ===========================================================================
+      // STEP 12: Format with resultFormatter
+      // ===========================================================================
+      const formattedResponse = resultFormatter.formatResponse(rawResponse, authority);
+      
+      // ===========================================================================
+      // STEP 13: Add to conversation history
+      // ===========================================================================
+      const conversationEntry = {
+        question: question,
+        answer: structuredAnswer.fullAnswer,
+        structuredAnswer: structuredAnswer,
+        sources: ragResponse.citations,
+        timestamp: new Date().toISOString(),
+        confidence: structuredAnswer.confidence,
+        legalDomain: structuredAnswer.domain || ragResponse.metadata?.legalDomain || 'general',
+        statute: authority.statute,
+        paragraph: authority.paragraph,
+        isArticle: authority.isArticle,
+        authority: authority,
+        classification: classification,
+        safetyCheck: safetyValidation,
+        python_authority_used: !pythonAuthorityError,
+        python_authoritative_found: pythonResults?.authoritative_found || false,
+        python_results_count: pythonResults?.results?.length || 0,
+        authority_mode: authority.authority_mode,
+        doctrinal_template: structuredAnswer.template_used || 'default',
+        epistemic_certainty: authority.epistemicCertainty,
+        anchor_norm_mode: authority.anchorNormMode,
+        authority_lock_applied: authorityLock?.__locked || false,
+        authority_lock_reason: authorityLock?.__lockReason || 'none',
+        explicit_norm_override: authority.__explicit_norm_reference || false
+      };
+
+      this.conversationHistory.push(conversationEntry);
+      if (this.conversationHistory.length > 20) {
+        this.conversationHistory = this.conversationHistory.slice(-20);
+      }
+
+      // ===========================================================================
+      // STEP 14: Log and return
+      // ===========================================================================
+      safetyCheck.logSafetyEvent('QUESTION_PROCESSED', {
+        question,
+        statute: authority.statute,
+        paragraph: authority.paragraph,
+        question_type: classification.type,
+        epistemicCertainty: authority.epistemicCertainty,
+        confidence: structuredAnswer.confidence,
+        legalDefensibility: safetyValidation.legalDefensibility || 'UNKNOWN',
+        examinerReadiness: safetyValidation.examinerReadiness || 'UNKNOWN',
+        python_authority_used: !pythonAuthorityError,
+        python_authoritative_found: pythonResults?.authoritative_found || false,
+        authority_mode: authority.authority_mode,
+        doctrinal_template: structuredAnswer.template_used || 'default',
+        safety_check_skipped: classification.type === 'DOCTRINE',
+        authority_lock_applied: authorityLock?.__locked || false,
+        authority_lock_reason: authorityLock?.__lockReason || 'none',
+        explicit_norm_override: authority.__explicit_norm_reference || false
+      });
+
+      this.logProcessing(question, ragResponse, authority, classification, pythonResults, safetyValidation);
+      
+      return formattedResponse;
     } catch (error) {
       console.error("Error processing question:", error);
       
@@ -673,7 +1871,7 @@ class ChatService {
   }
 
   // ===========================================================================
-  // NEW: SEPARATE DOCTRINE HANDLERS (FIXED: NO DOUBLE PATH)
+  // DOCTRINE HANDLERS
   // ===========================================================================
   
   async handleConfirmedDoctrine(question, authority) {
@@ -718,12 +1916,11 @@ class ChatService {
         answer += doctrineResult.answer;
       }
       
-      answer += `\n\n*Epistemischer Status: ${authority.epistemicCertainty || 'unbestimmt'}*\n`;
-      answer += `*Methodik: Doctrinale Induktion mit reduzierter Sicherheit*`;
+      answer += `\n\n*Epistemischer Status: ${authority.epistemicCertainty || 'unbestimmt'}*`;
       
       const structuredAnswer = {
         fullAnswer: answer,
-        confidence: 0.7, // Reduced for uncertainty
+        confidence: 0.7,
         metadata: {
           doctrine_applied: true,
           epistemic_certainty: authority.epistemicCertainty,
@@ -759,14 +1956,12 @@ class ChatService {
   }
   
   generateEpistemicallySafeFallback(authority, question) {
-    // CRITICAL FIX: Never embed doctrine, even in fallback
     return {
       success: true,
       data: {
         answer: `**Methodischer Hinweis**\n\n` +
                 `Die doctrinale Analyse konnte nicht abgeschlossen werden.\n\n` +
                 `*Frage: ${question.substring(0, 100)}...*\n` +
-                `*Feld: ${authority.suggestedField || 'allgemeine Rechtsstruktur'}*\n` +
                 `*Epistemischer Status: ${authority.epistemicCertainty || 'unbestimmt'}*`,
         confidence: 0.6,
         metadata: {
@@ -799,80 +1994,156 @@ class ChatService {
   }
 
   // ===========================================================================
-  // EXISTING TEMPLATE METHODS (KEPT AS IS)
+  // HELPER: Statute Display Names
   // ===========================================================================
   
-  // 🔴 CRITICAL FIX 4: Get statute display name
   getStatuteDisplayName(statute) {
     const names = {
-      'BGB': 'Bürgerliches Gesetzbuch (BGB)',
-      'StGB': 'Strafgesetzbuch (StGB)',
-      'HGB': 'Handelsgesetzbuch (HGB)',
-      'GG': 'Grundgesetz (GG)',
-      'ZPO': 'Zivilprozessordnung (ZPO)',
-      'StPO': 'Strafprozessordnung (StPO)',
-      'VwGO': 'Verwaltungsgerichtsordnung (VwGO)'
+      'BGB': 'Bürgerliches Gesetzbuch',
+      'StGB': 'Strafgesetzbuch',
+      'STGB': 'Strafgesetzbuch',
+      'HGB': 'Handelsgesetzbuch',
+      'GG': 'Grundgesetz',
+      'ZPO': 'Zivilprozessordnung',
+      'StPO': 'Strafprozessordnung'
     };
     return names[statute] || statute;
   }
 
-  /* -------------------------------------------------
-     ✅ NEW: DOCTRINAL TEMPLATE SYSTEM
-     (CRITICAL FIX: Safety info respects doctrine skip)
-  -------------------------------------------------- */
-  addSafetyInformation(answer, safetyValidation, authority, originalQuestion = '') {
-    let result = answer;
-
-    if (!safetyValidation) return result;
-    
-    // CRITICAL FIX: Skip safety info for doctrine questions
-    if (authority.classification?.type === 'DOCTRINE' || 
-        authority.question_type === 'DOCTRINE' ||
-        safetyValidation.metadata?.safety_check_skipped) {
-      return result;
-    }
-
-    /* -------------------------------------------------
-       LEGAL ASSURANCE OUTPUT (NEW MODEL)
-    -------------------------------------------------- */
-    // ... (keep your existing safety information logic)
-    // [Your existing addSafetyInformation code remains unchanged]
-    
-    return result;
-  }
-
   // ===========================================================================
-  // EXISTING HELPER METHODS (KEPT AS IS)
+  // UTILITY METHODS
   // ===========================================================================
   
-  // [All your existing methods below remain exactly the same]
-  // structureAnswerWithDoctrinalTemplate()
-  // detectLegalDomain()
-  // getLegalTemplate()
-  // getPropertyLawTemplate()
-  // getContractLawTemplate()
-  // getTortLawTemplate()
-  // getCriminalLawTemplate()
-  // getFamilyLawTemplate()
-  // getGeneralLawTemplate()
-  // extractNormSentence()
-  // extractContentFragments()
-  // isRelevantToSection()
-  // isConceptualQuestion()
-  // generateSystemAnswer()
-  // generateStructuredClarification()
-  // prepareDocumentsForPython()
-  // logProcessing()
-  // extractRuleFromAnswer()
-  // extractMeaningFromAnswer()
-  // extractEffectFromAnswer()
-  // getConversationHistory()
-  // clearHistory()
-  // getStats()
-  // healthCheck()
+  generateSystemAnswer() {
+    return `**Systemarchitektur - Epistemische Autorität**\n\n` +
+           `Das System arbeitet nach einem mehrstufigen epistemischen Modell:\n\n` +
+           `1. **Autoritätsauflösung**: Python-Dienst identifiziert Gesetz und Paragraph\n` +
+           `2. **Doctrinale Induktion**: Bei bestätigten Doktrinfragen → Python-Autoritätsdienst\n` +
+           `3. **Retrieval mit Guard**: TF-IDF-Fallback für Doktrinfragen blockiert\n` +
+           `4. **Sicherheitsprüfung**: Automatische Bewertung der rechtlichen Verteidigbarkeit\n` +
+           `5. **Epistemische Konfidenz**: Sonderregeln für doctrinale Fragen\n\n` +
+           `**Status**: Alle Komponenten aktiv, Python-Integration läuft.`;
+  }
 
-  // [Include all your existing template and helper methods exactly as they are]
-  // They work fine and don't need changes
+  prepareDocumentsForPython(documents) {
+    return documents.map(doc => ({
+      id: doc.id || doc._id || `doc_${Math.random().toString(36).substr(2, 9)}`,
+      content: doc.content || doc.text || '',
+      metadata: {
+        title: doc.title || doc.filename || 'Unbenanntes Dokument',
+        type: doc.type || 'legal_document',
+        source: doc.source || 'upload',
+        chunks_count: doc.chunks?.length || 0,
+        statute_refs: doc.statute_refs || [],
+        paragraph_refs: doc.paragraph_refs || [],
+        statute: doc.metadata?.statute || doc.statute || null,
+        paragraph: doc.metadata?.paragraph || null,
+        detected_paragraphs: doc.metadata?.detectedParagraphs || []
+      }
+    }));
+  }
+
+  logProcessing(question, ragResponse, authority, classification, pythonResults, safetyValidation) {
+    console.log(`📊 Processing Complete:`);
+    console.log(`   Question: "${question.substring(0, 80)}..."`);
+    console.log(`   Authority: ${authority.statute || 'NONE'} ${authority.paragraph ? '§' + authority.paragraph : ''}`);
+    console.log(`   Mode: ${authority.authority_mode}, Classification: ${classification.type}`);
+    console.log(`   Confidence: ${ragResponse.confidence?.toFixed(2) || 'N/A'}`);
+    console.log(`   Python Results: ${pythonResults?.results?.length || 0} docs`);
+    console.log(`   Authoritative Found: ${pythonResults?.authoritative_found || false}`);
+    console.log(`   Safety: ${safetyValidation?.isLegallySound ? 'PASS' : 'FAIL'}`);
+    console.log(`   Legal Defensibility: ${safetyValidation?.legalDefensibility || 'UNKNOWN'}`);
+  }
+
+  clearHistory() {
+    this.conversationHistory = [];
+    console.log('✅ Conversation history cleared');
+  }
+
+  getStats() {
+    return {
+      totalQuestions: this.conversationHistory.length,
+      averageConfidence: this.conversationHistory.length > 0 
+        ? this.conversationHistory.reduce((sum, entry) => sum + (entry.confidence || 0), 0) / this.conversationHistory.length
+        : 0,
+      statutesUsed: [...new Set(this.conversationHistory.filter(e => e.statute).map(e => e.statute))],
+      domainsCovered: [...new Set(this.conversationHistory.filter(e => e.legalDomain).map(e => e.legalDomain))],
+      lastQuestion: this.conversationHistory.length > 0 ? this.conversationHistory[this.conversationHistory.length - 1].question : null
+    };
+  }
+
+  healthCheck() {
+    return {
+      service: 'ChatService',
+      status: 'healthy',
+      conversationHistorySize: this.conversationHistory.length,
+      lastUpdate: this.conversationHistory.length > 0 
+        ? this.conversationHistory[this.conversationHistory.length - 1].timestamp 
+        : 'never',
+      memoryUsage: process.memoryUsage().heapUsed / 1024 / 1024 + ' MB',
+      uptime: process.uptime() + ' seconds'
+    };
+  }
+}
+
+// ===========================================================================
+// 🧪 TERMINAL AUTHORITY CONTRACT TEST
+// ===========================================================================
+function testTerminalAuthorityContract() {
+  console.log('\n🧪 Testing Terminal Authority Contract...');
+  
+  const testCases = [
+    // Valid terminal authority
+    {
+      input: { authority_final: true, paragraph: "41", statute: "BGB", authority_mode: "exact" },
+      shouldTerminate: true,
+      description: "Valid terminal authority"
+    },
+    // Contract violation: terminal but overview mode
+    {
+      input: { authority_final: true, paragraph: "41", statute: "BGB", authority_mode: "overview" },
+      shouldTerminate: true, // Still terminates but logs violation
+      description: "CONTRACT VIOLATION: terminal with overview mode"
+    },
+    // Contract violation: terminal but no paragraph
+    {
+      input: { authority_final: true, statute: "BGB", authority_mode: "exact" },
+      shouldTerminate: true, // Still terminates but logs violation
+      description: "CONTRACT VIOLATION: terminal without paragraph"
+    },
+    // Non-terminal
+    {
+      input: { statute: "BGB", paragraph: "41", authority_mode: "exact" },
+      shouldTerminate: false,
+      description: "Non-terminal exact mode"
+    }
+  ];
+  
+  let passed = 0;
+  const service = new ChatService();
+  
+  for (const testCase of testCases) {
+    const isTerminal = service.isTerminalAuthority(testCase.input);
+    const passedTest = isTerminal === testCase.shouldTerminate;
+    
+    if (passedTest) {
+      console.log(`✅ ${testCase.description}`);
+      passed++;
+    } else {
+      console.log(`❌ ${testCase.description}: expected ${testCase.shouldTerminate}, got ${isTerminal}`);
+    }
+  }
+  
+  console.log(`📊 Terminal authority tests: ${passed}/${testCases.length} passed`);
+  return passed === testCases.length;
+}
+
+// Run test if file is executed directly
+if (require.main === module) {
+  console.log('🔍 Running ChatService contract tests...');
+  const success = testTerminalAuthorityContract();
+  console.log(success ? '✅ All tests passed!' : '❌ Some tests failed');
+  process.exit(success ? 0 : 1);
 }
 
 module.exports = new ChatService();

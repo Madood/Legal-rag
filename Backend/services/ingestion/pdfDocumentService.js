@@ -34,8 +34,15 @@ class PdfDocumentService {
         // Temporary debug: Show what's in the PDF
         console.log(`📄 First 200 chars of ${path.basename(filePath)}: ${text.substring(0, 200).replace(/\n/g, ' ')}`);
 
-        const chunks = this.createChunks(text);
+        // ✅ FIXED: DETECT STATUTE FIRST, THEN CHUNK ACCORDINGLY
         const statute = this.detectStatute(text, filePath);
+
+        let chunks;
+        if (["BGB", "STGB", "HGB"].includes(statute)) {
+          chunks = this.splitByParagraph(text, statute);
+        } else {
+          chunks = this.createChunks(text);
+        }
 
         this.documents.push({
           id: path.basename(filePath, '.pdf'),
@@ -79,7 +86,7 @@ class PdfDocumentService {
       return "BGB";
     }
     if (filename.includes("stgb") || lowerPath.includes("/stgb/")) {
-      return "StGB";
+      return "STGB";
     }
     if (filename.includes("gg") || lowerPath.includes("/gg/")) {
       return "GG";
@@ -96,7 +103,7 @@ class PdfDocumentService {
     }
     
     if (lowerText.includes("strafgesetzbuch") || lowerText.includes(" stgb ")) {
-      return "StGB";
+      return "STGB";
     }
     
     if (lowerText.includes("bürgerliches gesetzbuch") || 
@@ -117,6 +124,31 @@ class PdfDocumentService {
     }
 
     return "UNKNOWN";
+  }
+
+  // ✅ FIXED: RENAMED AND GENERALIZED - Split by exact paragraph boundaries for §-based statutes
+  splitByParagraph(text, statute) {
+    const regex = /§\s*\d+[a-z]?\b[\s\S]*?(?=\n?\s*§\s*\d+[a-z]?\b|$)/g;
+    const matches = text.match(regex) || [];
+
+    return matches
+      .map((block, index) => {
+        const paraMatch = block.match(/§\s*(\d+[a-z]?)/);
+        if (!paraMatch) return null;
+
+        return {
+          content: block.trim(),
+          chunk_index: index,
+          metadata: {
+            statute,
+            paragraph: paraMatch[1].toLowerCase(),
+            isNormParagraph: true,
+            startsWithParagraph: true,
+            wordCount: block.split(/\s+/).length
+          }
+        };
+      })
+      .filter(Boolean);
   }
 
   createChunks(text) {
@@ -140,7 +172,7 @@ class PdfDocumentService {
     
     const patterns = {
       BGB: /§\s*(\d+[a-z]?)\b/gi,
-      StGB: /§\s*(\d+[a-z]?)\b/gi,
+      STGB: /§\s*(\d+[a-z]?)\b/gi,
       GG: /Artikel\s*(\d+[a-z]?(?:\s*Abs\.?\s*\d+)?)\b/gi,
       HGB: /§\s*(\d+[a-z]?)\b/gi,
       "EU-GDPR": /Artikel\s*(\d+)\b/gi
