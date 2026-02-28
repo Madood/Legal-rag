@@ -14,10 +14,12 @@ from app.services import (
     resolve_authority,
     validate_answer,
     compare_hierarchy,
-    AUTHORITY_AVAILABLE
+    AUTHORITY_AVAILABLE,
+    get_doctrine_explanation,
 )
 from app.services.embeddings.embedding_service import embedding_service
 from app.services.retrieval.retrieval_service import retrieval_service
+from app.services.retrieval.doctrine_guard import DOCTRINE_LOOKUP, SETTLED_DOCTRINES
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -179,50 +181,28 @@ async def search(request: dict) -> Dict[str, Any]:
     """
     Simple search endpoint for Node.js compatibility.
     Called by pythonIntegrationService.js
+    
+    🔥 FIX: Just delegate to authoritative_search - it handles corpus validation
     """
     try:
+        print("\n[API] /query/search (legacy)")
+        
         # Extract parameters
         query = request.get("query", "")
         statute = request.get("statute")
         k = request.get("k", 10)
         
-        print(f"\n[Query Search] Query: {query[:50]}...")
-        print(f"  Statute: {statute}, k: {k}")
+        print(f"  Query: {query[:50]}..., Statute: {statute}, k: {k}")
         
-        # CRITICAL FIX: Validate REAL corpus is ready - NO FALLBACK
-        corpus_state = _validate_corpus_ready()
-        
-        # Generate embedding for query
-        query_embedding = embedding_service.embed_query(query, statute)
-        
-        # Delegate to retrieval service
-        search_results = retrieval_service.search(
-            query_embedding=query_embedding,
-            statute=statute,
-            k=k
-        )
-        
-        print(f"  Found {len(search_results)} results")
-        
-        # CRITICAL FIX: Enforce minimum results for statute-specific queries
-        if statute:
-            try:
-                _enforce_minimum_results(statute, search_results, min_count=1)
-            except HTTPException:
-                # For non-authoritative search, we'll return empty but log warning
-                print(f"⚠️  No results found for statute {statute}")
-        
-        response = {
-            "results": search_results,
-            "count": len(search_results),
-            "statute": statute,
-            "corpus_state": {
-                "has_real_corpus": corpus_state["has_real_corpus"],
-                "total_vectors": corpus_state["total_vectors"]
+        # 🔥 FIX: Just delegate - authoritative_search handles corpus validation
+        result = await authoritative_search({
+            "query": {
+                "text": query,
+                "statute": statute
             }
-        }
+        })
         
-        return response
+        return result
         
     except HTTPException:
         raise
@@ -235,41 +215,6 @@ async def search(request: dict) -> Dict[str, Any]:
                 "message": str(e)
             }
         )
-
-
-@router.post("/api/search")
-async def api_search(request: dict) -> Dict[str, Any]:
-    """
-    Another legacy endpoint for Node.js compatibility.
-    Handles multiple request formats.
-    """
-    try:
-        # Handle different request formats
-        if "query" in request and isinstance(request["query"], str):
-            # Direct format
-            return await search(request)
-        else:
-            # Fallback to v1 search format
-            query_text = request.get("query", {}).get("text", "") if isinstance(request.get("query"), dict) else ""
-            statute = request.get("statute") or (request.get("query", {}).get("statute") 
-                      if isinstance(request.get("query"), dict) else None)
-            
-            if query_text:
-                return await search({
-                    "query": query_text,
-                    "statute": statute,
-                    "k": 10
-                })
-        
-        return {"results": [], "count": 0}
-        
-    except Exception as e:
-        print(f"  ❌ Error in /api/search: {str(e)}")
-        return {
-            "results": [], 
-            "count": 0,
-            "error": str(e)
-        }
 
 
 # ===========================================================================
@@ -293,29 +238,53 @@ async def authoritative_search(request: dict) -> Dict[str, Any]:
             if "query" in request and isinstance(request["query"], dict):
                 # New format: query is a dict with text
                 query_text = request.get("query", {}).get("text", "")
+                question_type = request.get("query", {}).get("type", "GENERAL")
                 statute = request.get("query", {}).get("statute")
                 k = request.get("k", 10)
-            else:
-                # Legacy format
-                query_text = request.get("query", "")
+            elif "query" in request:
+                # Format 2: Flattened format (legacy)
+                query_text = str(request.get("query", ""))
+                question_type = request.get("question_type", "GENERAL")
                 statute = request.get("statute")
                 k = request.get("k", 10)
+            elif "text" in request:
+                # Format 3: Direct text parameter
+                query_text = request.get("text", "")
+                question_type = request.get("question_type", "GENERAL")
+                statute = request.get("statute")
+                k = request.get("k", 10)
+            else:
+                query_text = ""
+                question_type = "GENERAL"
+                statute = None
+                k = 10
         else:
             query_text = ""
+            question_type = "GENERAL"
             statute = None
             k = 10
         
+        if not query_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "missing_query",
+                    "message": "Query text is required"
+                }
+            )
+        
         print(f"  Query: {query_text[:80]}...")
-        print(f"  Statute: {statute}, k: {k}")
+        print(f"  Type: {question_type}, Statute: {statute}, k: {k}")
         
         # Use the authoritative retrieval contract
         if AUTHORITY_AVAILABLE and query_text.strip():
             try:
-                # This is the new authoritative retrieval path
+                # 🔥 FIX: Call with correct parameters including available_documents
+                # Pass None for available_documents to use the full corpus
                 authoritative_result = retrieval_service.resolve_authority_and_retrieve(
                     query=query_text,
-                    question_type="GENERAL",
-                    available_documents=None
+                    question_type=question_type,
+                    available_documents=None  # Use full corpus
                 )
                 
                 # Extract results
@@ -332,13 +301,32 @@ async def authoritative_search(request: dict) -> Dict[str, Any]:
                         "requires_clarification": True,
                         "clarification": authoritative_result.get("clarification"),
                         "statute": authority_metadata.get("statute"),
-                        "authoritative_found": False
+                        "authoritative_found": False,
+                        "corpus_state": corpus_state
                     }
                 
-                # CRITICAL FIX: Enforce minimum results for authoritative search
+                # 🔥🔥🔥 CRITICAL FIX: AUTHORITATIVE SEARCH CANNOT RETURN 404 🔥🔥🔥
+                # Authority FINAL = norm exists. Empty results ≠ missing norm.
                 resolved_statute = authority_metadata.get("statute")
-                if resolved_statute:
-                    _enforce_minimum_results(resolved_statute, search_results, min_count=1)
+                
+                # AUTHORITATIVE RULE: If authority is FINAL, NEVER raise 404.
+                # Empty results are a VALID authoritative outcome.
+                if not search_results:
+                    print(f"  ⚠️  Authority final but no chunks found - returning empty results (NOT 404)")
+                    return {
+                        "results": [],
+                        "count": 0,
+                        "statute": resolved_statute,
+                        "authoritative_found": False,
+                        "authority_metadata": authority_metadata,
+                        "requires_clarification": False,
+                        "corpus_state": corpus_state,
+                        "_debug": {
+                            "authority_final": True,
+                            "paragraph_strict": True,
+                            "reason": "authority_passed_but_no_chunks_propagated"
+                        }
+                    }
                 
                 # Prepare response with authority metadata
                 response = {
@@ -348,7 +336,13 @@ async def authoritative_search(request: dict) -> Dict[str, Any]:
                     "authoritative_found": any(r.get("is_authoritative", False) for r in search_results),
                     "authority_metadata": authority_metadata,
                     "requires_clarification": False,
-                    "corpus_state": corpus_state
+                    "corpus_state": corpus_state,
+                    "_request_metadata": {
+                        "query_received": query_text[:100],
+                        "question_type": question_type,
+                        "statute_requested": statute,
+                        "timestamp": datetime.now().isoformat()
+                    }
                 }
                 
                 print(f"  Found {len(search_results)} authoritative results")
@@ -395,6 +389,83 @@ async def authoritative_search(request: dict) -> Dict[str, Any]:
                 "requires_real_corpus": True
             }
         )
+
+
+# ===========================================================================
+# DOCTRINE ENDPOINT
+# ===========================================================================
+
+@router.post("/doctrine")
+async def doctrine_explanation(request: dict) -> Dict[str, Any]:
+    """
+    Doctrine explanation endpoint for doctrinal questions.
+    Called by Node.js pythonIntegrationService.callDoctrineInductor().
+    Never raises 404 — always returns a valid response.
+    """
+    question = request.get("question", "")
+    statute = request.get("statute")
+    paragraph = request.get("paragraph")
+    classification = request.get("classification", {})
+    suggested_field = request.get("suggested_field", "")
+    epistemic_certainty = request.get("epistemic_certainty", "uncertain")
+
+    print(f"\n[Doctrine] Request: field='{suggested_field}', statute={statute}")
+
+    # Step 1: Try to match suggested_field against known doctrines
+    field_lower = (suggested_field or "").lower().strip()
+    matched_doctrine = None
+    doctrine_metadata = None
+
+    for term in SETTLED_DOCTRINES:
+        if term in field_lower or field_lower in term:
+            matched_doctrine = term
+            doctrine_metadata = DOCTRINE_LOOKUP.get(term, {})
+            break
+
+    if matched_doctrine:
+        print(f"  Matched doctrine: {matched_doctrine}")
+        canonical_id = doctrine_metadata.get("canonical_id", matched_doctrine.upper())
+        explanation_result = get_doctrine_explanation(matched_doctrine)
+
+        if explanation_result:
+            explanation_text = explanation_result.get("explanation", "")
+            domain = explanation_result.get("domain", "general")
+            sources = explanation_result.get("sources", [])
+        else:
+            explanation_text = f"Das {canonical_id} ist ein anerkannter Rechtsgrundsatz des deutschen Rechts."
+            domain = "general"
+            sources = doctrine_metadata.get("constitutional_basis") or doctrine_metadata.get("statutory_basis") or []
+
+        return {
+            "doctrinal_summary": explanation_text,
+            "answer": explanation_text,
+            "confidence": 0.92,
+            "domain": domain,
+            "canonical_doctrine": canonical_id,
+            "constitutional_basis": doctrine_metadata.get("constitutional_basis"),
+            "statutory_basis": doctrine_metadata.get("statutory_basis"),
+            "sources": sources,
+            "doctrine_found": True,
+        }
+
+    # Step 2: No match — return generic response based on statute and suggested_field
+    print(f"  No settled doctrine matched, returning generic response")
+    statute_name = statute or "dem deutschen Recht"
+    field_display = suggested_field or classification.get("domain", "allgemeine Rechtsfragen")
+    generic_summary = (
+        f"Die Frage betrifft den Bereich '{field_display}' im {statute_name}. "
+        f"Eine spezifische Doktrin konnte nicht eindeutig zugeordnet werden. "
+        f"Bitte konsultieren Sie die einschlägigen Normen und die rechtswissenschaftliche Literatur."
+    )
+
+    return {
+        "doctrinal_summary": generic_summary,
+        "answer": generic_summary,
+        "confidence": 0.5,
+        "domain": field_display,
+        "canonical_doctrine": None,
+        "doctrine_found": False,
+    }
 
 
 # ===========================================================================
@@ -528,3 +599,49 @@ async def validate_query(request: dict) -> Dict[str, Any]:
             "error": "validation_error",
             "message": str(e)
         }
+
+
+@router.get("/health")
+async def health_check() -> Dict[str, Any]:
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "query-api",
+        "authority_available": AUTHORITY_AVAILABLE,
+        "corpus_ready": retrieval_service.get_stats()["has_real_corpus"],
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@router.get("/status")
+async def get_status() -> Dict[str, Any]:
+    """Status endpoint for Node.js integration"""
+    stats = retrieval_service.get_stats()
+    
+    return {
+        "ready": stats["has_real_corpus"],
+        "has_real_corpus": stats["has_real_corpus"],
+        "authority_available": AUTHORITY_AVAILABLE,
+        "statute_indices": list(stats.get("statute_indices", {}).keys()),
+        "total_vectors": stats["total_vectors"],
+        "corpus_state": stats["corpus_state"],
+        "endpoints": {
+            "authoritative_search": "/api/query/search/authoritative",
+            "search": "/api/query/search",
+            "health": "/api/query/health"
+        },
+        "contract": {
+            "authoritative_search_format": {
+                "query": {
+                    "text": "string (required)",
+                    "type": "string (optional, default: GENERAL)",
+                    "statute": "string (optional)"
+                }
+            },
+            "legacy_search_format": {
+                "query": "string (required)",
+                "statute": "string (optional)",
+                "k": "number (optional, default: 10)"
+            }
+        }
+    }
