@@ -165,12 +165,12 @@ app.add_middleware(
 
 # ✅ FIX: Import and include the query router
 from app.api.query import router as query_router
-app.include_router(query_router)
+app.include_router(query_router, prefix="/api")
 
 # ✅ FIX: Import and include the ingestion router
 try:
     from app.api.ingestion import router as ingestion_router
-    app.include_router(ingestion_router)
+    app.include_router(ingestion_router, prefix="/api")
     print("✅ Ingestion router loaded successfully")
 except ImportError as e:
     print(f"⚠️ Could not load ingestion router: {e}")
@@ -279,7 +279,7 @@ try:
         }
     
     # Include the router
-    app.include_router(authority_router)
+    app.include_router(authority_router, prefix="/api")
     print("✅ Legal Authority router created and loaded successfully")
     
 except ImportError as e:
@@ -315,7 +315,7 @@ except ImportError as e:
             "location": None
         }
     
-    app.include_router(fallback_authority)
+    app.include_router(fallback_authority, prefix="/api")
     authority_router = fallback_authority
     AUTHORITY_AVAILABLE = False
 
