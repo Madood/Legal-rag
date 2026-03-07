@@ -6,6 +6,25 @@ const natural = require('natural');
 const stopword = require('stopword');
 const { de } = require('stopword');
 
+// Allowed base directories for file operations
+const ALLOWED_DIRS = [
+  path.resolve('./documents'),
+  path.resolve('./uploads'),
+];
+
+/**
+ * Validate that a file path is within an allowed directory.
+ * Throws if path traversal is detected.
+ */
+function validateFilePath(filePath) {
+  const resolved = path.resolve(filePath);
+  const allowed = ALLOWED_DIRS.some(dir => resolved.startsWith(dir + path.sep) || resolved === dir);
+  if (!allowed) {
+    throw new Error(`Path traversal attempt blocked: ${filePath}`);
+  }
+  return resolved;
+}
+
 class FileProcessor {
   constructor() {
     this.tokenizer = new natural.WordTokenizer();
@@ -14,16 +33,18 @@ class FileProcessor {
 
   // Extract text from different file types
   async extractText(filePath, fileType) {
+    // Validate path before any file operation
+    const safePath = validateFilePath(filePath);
     try {
       switch (fileType.toLowerCase()) {
         case 'pdf':
-          return await this.extractFromPDF(filePath);
+          return await this.extractFromPDF(safePath);
         case 'doc':
         case 'docx':
-          return await this.extractFromDOCX(filePath);
+          return await this.extractFromDOCX(safePath);
         case 'txt':
         case 'md':
-          return await this.extractFromText(filePath);
+          return await this.extractFromText(safePath);
         default:
           throw new Error(`Unsupported file type: ${fileType}`);
       }

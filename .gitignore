@@ -61,3 +61,6 @@ PythonServices/data/indices/
 *.pkl
 *.faiss
 
+# Claude Code tool-specific files
+.claude/
+

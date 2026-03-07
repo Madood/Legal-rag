@@ -9,7 +9,6 @@ import chromadb
 from chromadb.config import Settings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
-import pickle
 import os
 import json
 import hashlib
@@ -407,41 +406,41 @@ class FAISSStore(BaseVectorStore):
         faiss_path = os.path.join(save_dir, "index.faiss")
         faiss.write_index(self.index, faiss_path)
         
-        # Save metadata
-        metadata_path = os.path.join(save_dir, "metadata.pkl")
-        with open(metadata_path, 'wb') as f:
-            pickle.dump({
-                "id_to_metadata": self.id_to_metadata,
-                "id_to_content": self.id_to_content,
+        # Save metadata as JSON (safe alternative to pickle)
+        metadata_path = os.path.join(save_dir, "metadata.json")
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                "id_to_metadata": {str(k): v for k, v in self.id_to_metadata.items()},
+                "id_to_content": {str(k): v for k, v in self.id_to_content.items()},
                 "next_id": self.next_id,
                 "dimension": self.dimension
             }, f)
-        
+
         logger.info(f"Saved FAISS index to {save_dir}")
         return save_dir
-    
+
     def load(self, path: Optional[str] = None) -> bool:
         """Load FAISS index from disk"""
         load_dir = path or os.path.join(self.index_path, self.collection_name)
         faiss_path = os.path.join(load_dir, "index.faiss")
-        metadata_path = os.path.join(load_dir, "metadata.pkl")
-        
+        metadata_path = os.path.join(load_dir, "metadata.json")
+
         if not os.path.exists(faiss_path) or not os.path.exists(metadata_path):
             logger.warning(f"FAISS index files not found at {load_dir}")
             return False
-        
+
         try:
             # Load FAISS index
             self.index = faiss.read_index(faiss_path)
-            
-            # Load metadata
-            with open(metadata_path, 'rb') as f:
-                data = pickle.load(f)
-                self.id_to_metadata = data["id_to_metadata"]
-                self.id_to_content = data["id_to_content"]
+
+            # Load metadata from JSON (safe, no code execution)
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.id_to_metadata = {int(k): v for k, v in data["id_to_metadata"].items()}
+                self.id_to_content = {int(k): v for k, v in data["id_to_content"].items()}
                 self.next_id = data["next_id"]
                 self.dimension = data["dimension"]
-            
+
             logger.info(f"Loaded FAISS index from {load_dir}")
             return True
         except Exception as e:

@@ -3,7 +3,7 @@ Query execution endpoints - semantic and authoritative search.
 Orchestrates retrieval but contains no retrieval logic itself.
 Maintains backward compatibility with Node.js integration.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from typing import List, Optional, Dict, Any
 import numpy as np
 from datetime import datetime
@@ -20,6 +20,7 @@ from app.services import (
 from app.services.embeddings.embedding_service import embedding_service
 from app.services.retrieval.retrieval_service import retrieval_service
 from app.services.retrieval.doctrine_guard import DOCTRINE_LOOKUP, SETTLED_DOCTRINES
+from app.services.doctrine_induction.ai_fallback import get_ai_doctrine_explanation
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -222,11 +223,18 @@ async def search(request: dict) -> Dict[str, Any]:
 # ===========================================================================
 
 @router.post("/search/authoritative")
-async def authoritative_search(request: dict) -> Dict[str, Any]:
+async def authoritative_search(
+    request: dict,
+    x_language: Optional[str] = Header(None, alias="x-language"),
+) -> Dict[str, Any]:
     """
     Authoritative search endpoint for Node.js pythonIntegrationService.
     Uses authority resolution to improve search.
     """
+    # Map UI language code to language string expected by services
+    _lang_code = x_language or "de"
+    language = "german" if _lang_code == "de" else "english"
+    print(f"  Language: {language} (from header: {_lang_code})")
     try:
         print(f"\n[Authoritative Search] Request received")
         
@@ -396,12 +404,18 @@ async def authoritative_search(request: dict) -> Dict[str, Any]:
 # ===========================================================================
 
 @router.post("/doctrine")
-async def doctrine_explanation(request: dict) -> Dict[str, Any]:
+async def doctrine_explanation(
+    request: dict,
+    x_language: Optional[str] = Header(None, alias="x-language"),
+) -> Dict[str, Any]:
     """
     Doctrine explanation endpoint for doctrinal questions.
     Called by Node.js pythonIntegrationService.callDoctrineInductor().
     Never raises 404 — always returns a valid response.
     """
+    _lang_code = x_language or "de"
+    language = "german" if _lang_code == "de" else "english"
+
     question = request.get("question", "")
     statute = request.get("statute")
     paragraph = request.get("paragraph")
@@ -417,7 +431,7 @@ async def doctrine_explanation(request: dict) -> Dict[str, Any]:
     doctrine_metadata = None
 
     for term in SETTLED_DOCTRINES:
-        if term in field_lower or field_lower in term:
+        if field_lower and (term in field_lower or field_lower in term):
             matched_doctrine = term
             doctrine_metadata = DOCTRINE_LOOKUP.get(term, {})
             break
@@ -425,16 +439,24 @@ async def doctrine_explanation(request: dict) -> Dict[str, Any]:
     if matched_doctrine:
         print(f"  Matched doctrine: {matched_doctrine}")
         canonical_id = doctrine_metadata.get("canonical_id", matched_doctrine.upper())
-        explanation_result = get_doctrine_explanation(matched_doctrine)
+        explanation_result = get_doctrine_explanation(matched_doctrine, language=language)
 
         if explanation_result:
             explanation_text = explanation_result.get("explanation", "")
             domain = explanation_result.get("domain", "general")
             sources = explanation_result.get("sources", [])
         else:
-            explanation_text = f"Das {canonical_id} ist ein anerkannter Rechtsgrundsatz des deutschen Rechts."
-            domain = "general"
-            sources = doctrine_metadata.get("constitutional_basis") or doctrine_metadata.get("statutory_basis") or []
+            # Hardcoded dict has no entry — try AI fallback (DeepSeek → Gemini)
+            ai_result = await get_ai_doctrine_explanation(matched_doctrine, language=language)
+            if ai_result:
+                explanation_text = ai_result["explanation"]
+                domain = ai_result.get("domain", "ai_generated")
+                sources = doctrine_metadata.get("constitutional_basis") or doctrine_metadata.get("statutory_basis") or []
+            else:
+                # Both AI providers failed — use static German placeholder
+                explanation_text = f"Das {canonical_id} ist ein anerkannter Rechtsgrundsatz des deutschen Rechts."
+                domain = "general"
+                sources = doctrine_metadata.get("constitutional_basis") or doctrine_metadata.get("statutory_basis") or []
 
         return {
             "doctrinal_summary": explanation_text,
@@ -450,13 +472,22 @@ async def doctrine_explanation(request: dict) -> Dict[str, Any]:
 
     # Step 2: No match — return generic response based on statute and suggested_field
     print(f"  No settled doctrine matched, returning generic response")
-    statute_name = statute or "dem deutschen Recht"
-    field_display = suggested_field or classification.get("domain", "allgemeine Rechtsfragen")
-    generic_summary = (
-        f"Die Frage betrifft den Bereich '{field_display}' im {statute_name}. "
-        f"Eine spezifische Doktrin konnte nicht eindeutig zugeordnet werden. "
-        f"Bitte konsultieren Sie die einschlägigen Normen und die rechtswissenschaftliche Literatur."
-    )
+    if language == "english":
+        statute_name = statute or "German law"
+        field_display = suggested_field or classification.get("domain", "general legal questions")
+        generic_summary = (
+            f"The question concerns the area '{field_display}' under {statute_name}. "
+            f"No specific doctrine could be clearly identified. "
+            f"Please consult the relevant statutory provisions and legal literature."
+        )
+    else:
+        statute_name = statute or "dem deutschen Recht"
+        field_display = suggested_field or classification.get("domain", "allgemeine Rechtsfragen")
+        generic_summary = (
+            f"Die Frage betrifft den Bereich '{field_display}' im {statute_name}. "
+            f"Eine spezifische Doktrin konnte nicht eindeutig zugeordnet werden. "
+            f"Bitte konsultieren Sie die einschlägigen Normen und die rechtswissenschaftliche Literatur."
+        )
 
     return {
         "doctrinal_summary": generic_summary,

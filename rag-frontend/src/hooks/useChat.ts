@@ -97,18 +97,23 @@ export function useChat(options: UseChatOptions = {}) {
         throw new Error(response.error || 'Failed to get response');
       }
     } catch (error: any) {
+      const status = error?.response?.status;
+      // 402 (token exhausted) and 401 (auth) should bubble up to the caller
+      if (status === 402 || status === 401) {
+        setIsLoading(false);
+        throw error;
+      }
       const errorMessage = error.message || 'An error occurred while processing your question';
       setError(error);
       onError?.(errorMessage);
-      
-      // Add error message to chat
+
       const errorMessageObj: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
         content: `Sorry, I encountered an error: ${errorMessage}. Please try again.`,
         timestamp: new Date(),
       };
-      
+
       setMessages(prev => [...prev, errorMessageObj]);
       return null;
     } finally {

@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 import tempfile
 import os
 import re
+import json
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple
 import logging
 import numpy as np
@@ -16,6 +18,76 @@ from app.services.retrieval.retrieval_service import retrieval_service
 
 router = APIRouter(prefix="/ingestion", tags=["ingestion"])
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Ingestion metadata (paragraph counts + timestamps, persisted to disk)
+# ---------------------------------------------------------------------------
+_INDICES_DIR = os.environ.get("INDICES_DIR", "./data/indices")
+_META_FILE = os.path.join(_INDICES_DIR, "ingestion_meta.json")
+
+
+def _load_ingestion_meta() -> Dict[str, Any]:
+    """Load per-statute ingestion metadata from disk."""
+    try:
+        if os.path.exists(_META_FILE):
+            with open(_META_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as exc:
+        logger.warning(f"Could not read ingestion_meta.json: {exc}")
+    return {}
+
+
+def _save_ingestion_meta(statute: str, paragraphs: int) -> None:
+    """Persist ingestion timestamp and paragraph count for *statute*."""
+    try:
+        meta = _load_ingestion_meta()
+        meta[statute] = {
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "paragraphs": paragraphs,
+        }
+        os.makedirs(_INDICES_DIR, exist_ok=True)
+        with open(_META_FILE, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+    except Exception as exc:
+        logger.warning(f"Could not save ingestion_meta.json: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Content-cleaning helpers (applied during ingestion, not at query time)
+# ---------------------------------------------------------------------------
+_PAGE_MARKER_RE = re.compile(r'\[Page \d+\]', re.IGNORECASE)
+_BOILERPLATE_RE = re.compile(
+    r'(Ein Service des Bundesministerium|Service provided by the Federal Ministry'
+    r'|Seite\s+\d+\s+von\s+\d+|gesetze-im-internet\.de|Bundesministerium.*Justiz'
+    r'|Zurück zum Inhaltsverzeichnis|PDF generated on)',
+    re.IGNORECASE,
+)
+_AMENDMENT_RE = re.compile(
+    r'(\(\+\+\+'                                           # (+++ lines
+    r'|G v\.\s+\d{1,2}\.\d{1,2}\.\d{4}\s+I\s+\d'         # G v. DD.MM.YYYY I NNN
+    r'|mWv\s+\d{1,2}\.\d{1,2}\.\d{4}'                     # mWv DD.MM.YYYY
+    r'|gem\.\s+Art\.\s+\d'                                 # gem. Art. NNN
+    r'|idF\s+d\.\s+(?:Art\.|G\s+v\.)'                     # idF d. Art. / idF d. G v.
+    r')',
+    re.IGNORECASE,
+)
+_TOC_RE = re.compile(
+    r'(^Inhaltsverzeichnis$|^Quellen$|^Literatur$|^\s*\.{4,})',
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _is_noise_line(line: str) -> bool:
+    """Return True if *line* should be excluded from any paragraph chunk."""
+    if _PAGE_MARKER_RE.search(line):
+        return True
+    if _BOILERPLATE_RE.search(line):
+        return True
+    if _AMENDMENT_RE.search(line):
+        return True
+    if _TOC_RE.search(line):
+        return True
+    return False
 
 
 def _extract_bgb_paragraphs_from_text(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
@@ -51,12 +123,13 @@ def _extract_bgb_paragraphs_from_text(text: str) -> Tuple[List[Dict[str, Any]], 
                 )
                 paragraphs.append(paragraph_doc)
                 paragraph_counter += 1
-            
+
             # Extract new paragraph number
             para_number = paragraph_match.group(1)
             current_paragraph = para_number
-            current_content = [line]
-            
+            # Strip noise from the header line itself before seeding content
+            current_content = [] if _is_noise_line(line) else [line]
+
             # Check if this is a divorce paragraph
             try:
                 para_num_int = int(re.match(r'\d+', para_number).group())
@@ -65,10 +138,11 @@ def _extract_bgb_paragraphs_from_text(text: str) -> Tuple[List[Dict[str, Any]], 
                     pass  # Will be tagged in _create_paragraph_document
             except:
                 pass
-                
+
         elif current_paragraph:
-            # Continue current paragraph
-            current_content.append(line)
+            # Continue current paragraph — skip noise lines
+            if not _is_noise_line(line):
+                current_content.append(line)
     
     # Don't forget the last paragraph
     if current_paragraph and current_content:
@@ -105,12 +179,19 @@ def _create_paragraph_document(paragraph_number: str, content: str, line_number:
     except:
         pass
     
+    # Normalise paragraph base (strips "Abs.", sub-letters, § symbol)
+    import re as _re
+    _para_base = _re.match(r'(\d+)', paragraph_number)
+    para_base = _para_base.group(1) if _para_base else paragraph_number
+
     return {
         "id": f"BGB_{paragraph_number}",
         "content": content,
         "statute": "BGB",
         "paragraph": paragraph_number,
+        "paragraph_base": para_base,         # FIX 4: required for exact matching
         "is_normative": True,
+        "is_real_legal_content": True,       # FIX 4: required for relevance checks
         "document_type": "statutory",
         "authority_score": 1.0,
         "norm_type": "civil_norm",
@@ -281,10 +362,11 @@ async def ingest_bgb_pdf(
         # STEP 5: Save indices to disk
         print("💾 Saving indices to disk...")
         save_success = retrieval_service.save_indices("legal_index")
-        
+        _save_ingestion_meta("BGB", len(paragraphs))
+
         if not save_success:
             logger.warning("Indices could not be saved to disk (Windows FAISS limitation)")
-        
+
         # STEP 6: Verify ingestion
         print("✅ Verifying ingestion...")
         stats_after = retrieval_service.get_stats()
@@ -340,6 +422,238 @@ async def ingest_bgb_pdf(
         )
     finally:
         # Clean up temp file
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+SUPPORTED_STATUTES = {
+    "BGB", "STGB", "HGB", "GG", "EU-GDPR",
+    # Extended set
+    "ZPO", "STPO", "GMBHG", "AKTG", "INSO", "ARBGG",
+}
+
+# Minimum paragraph count per statute
+STATUTE_MIN_PARAGRAPHS = {
+    "BGB":    200,
+    "STGB":    50,
+    "HGB":     50,
+    "GG":      20,
+    "EU-GDPR":  5,
+    "ZPO":     50,
+    "STPO":    30,
+    "GMBHG":   15,
+    "AKTG":    30,
+    "INSO":    20,
+    "ARBGG":   15,
+}
+
+
+def _create_statute_document(statute: str, paragraph_number: str,
+                             content: str, line_number: int) -> Dict[str, Any]:
+    """Create a structured paragraph document for any statute."""
+    canon = statute.upper()
+    return {
+        "id": f"{canon}_{paragraph_number}",
+        "content": content,
+        "statute": canon,
+        "paragraph": paragraph_number,
+        "paragraph_base": paragraph_number,
+        "is_normative": True,
+        "is_real_legal_content": True,
+        "document_type": "statutory",
+        "authority_score": 1.0,
+        "norm_type": "criminal_norm" if canon == "STGB" else "civil_norm",
+        "authority_level": "statutory",
+        "filename": f"{canon}.pdf",
+        "line_number": line_number,
+        "word_count": len(content.split()),
+    }
+
+
+def _extract_statute_paragraphs(text: str, statute: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Extract §-based paragraphs from any German statute text.
+    Works for BGB, StGB, HGB, GG, EU-GDPR (Articles use 'Art.' pattern for GG).
+    """
+    canon = statute.upper()
+    paragraphs: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    lines = text.split('\n')
+    current_para: str | None = None
+    current_content: list = []
+    count = 0
+
+    # GG uses "Art." or "Artikel"; all others use "§"
+    if canon == "GG":
+        para_re = re.compile(r'^Art(?:ikel)?\.?\s*(\d+[a-z]?)\b', re.IGNORECASE)
+    else:
+        para_re = re.compile(r'^§\s*(\d+[a-z]?)(?:\s+Abs?\.?\s*\d+)?')
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        m = para_re.search(line)
+        if m:
+            if current_para and current_content:
+                paragraphs.append(_create_statute_document(
+                    statute=canon,
+                    paragraph_number=current_para,
+                    content=' '.join(current_content),
+                    line_number=i,
+                ))
+                count += 1
+            current_para = m.group(1)
+            # Strip noise from the header line itself before seeding content
+            current_content = [] if _is_noise_line(line) else [line]
+        elif current_para:
+            # Skip page markers, boilerplate, and amendment metadata lines
+            if not _is_noise_line(line):
+                current_content.append(line)
+
+    # Flush last paragraph
+    if current_para and current_content:
+        paragraphs.append(_create_statute_document(
+            statute=canon,
+            paragraph_number=current_para,
+            content=' '.join(current_content),
+            line_number=len(lines),
+        ))
+        count += 1
+
+    min_expected = STATUTE_MIN_PARAGRAPHS.get(canon, 10)
+    if count < min_expected:
+        warnings.append(
+            f"Low paragraph count ({count}) for {canon}. "
+            f"Expected at least {min_expected}. Check PDF extraction quality."
+        )
+
+    return paragraphs, warnings
+
+
+@router.post("/{statute}")
+async def ingest_statute_pdf(
+    statute: str,
+    file: UploadFile = File(...),
+    force_reingest: bool = False,
+) -> Dict[str, Any]:
+    """
+    Generic statute ingestion: uploads a PDF and indexes every § (or Art.) as an
+    authoritative norm document in FAISS.
+
+    Works for: BGB, STGB, HGB, GG, EU-GDPR.
+    Saves a per-statute index to disk (e.g. stgb_index.faiss) so it is
+    auto-loaded on the next startup.
+
+    Usage:
+        curl -X POST "http://localhost:8000/api/ingestion/STGB" \\
+             -F "file=@/path/to/stgb.pdf"
+    """
+    canon = statute.upper()
+    if canon not in SUPPORTED_STATUTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported statute '{canon}'. Supported: {sorted(SUPPORTED_STATUTES)}"
+        )
+
+    print(f"\n🚀 STARTING INGESTION: {canon} ({file.filename})")
+    print("=" * 60)
+
+    # Check existing vector count
+    stats_before = retrieval_service.get_stats()
+    vectors_before = stats_before.get("statute_indices", {}).get(canon, {}).get("vectors", 0)
+
+    if vectors_before > STATUTE_MIN_PARAGRAPHS.get(canon, 10) and not force_reingest:
+        return {
+            "status": "skipped",
+            "statute": canon,
+            "message": f"{canon} already has {vectors_before} vectors. Use force_reingest=true to re-ingest.",
+            "existing_vectors": vectors_before,
+        }
+
+    # Save upload to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    try:
+        # Step 1: Extract raw text
+        print(f"📄 Extracting text from {file.filename}...")
+        raw_text = _extract_pdf_text(tmp_path)
+        if not raw_text or len(raw_text) < 500:
+            raise HTTPException(status_code=400, detail="PDF contains too little extractable text.")
+        print(f"   Extracted {len(raw_text):,} characters")
+
+        # Step 2: Extract paragraphs
+        print(f"📖 Extracting {canon} paragraphs...")
+        paragraphs, warnings = _extract_statute_paragraphs(raw_text, canon)
+        for w in warnings:
+            print(f"   ⚠️  {w}")
+
+        if not paragraphs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No paragraphs found in {canon} PDF. Ensure it contains § symbols."
+            )
+        print(f"   Found {len(paragraphs)} paragraphs")
+
+        # Step 3: Generate embeddings
+        print("🔧 Generating embeddings...")
+        texts = [p["content"] for p in paragraphs]
+        embeddings_list = embedding_service.embed_batch(texts)
+        embeddings_np = np.asarray(embeddings_list, dtype="float32")
+        print(f"   Shape: {embeddings_np.shape}")
+
+        # Validate dimension
+        expected_dim = embedding_service.model.get_sentence_embedding_dimension()
+        if embeddings_np.size > 0 and embeddings_np.shape[1] != expected_dim:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Embedding dimension mismatch: {embeddings_np.shape[1]} != {expected_dim}"
+            )
+
+        # Step 4: Index documents
+        print(f"📝 Indexing as authoritative {canon} norms...")
+        retrieval_service.index_documents(
+            documents=paragraphs,
+            statute=canon,
+            embeddings=embeddings_np,
+        )
+
+        # Step 5: Save statute-specific index to disk
+        print("💾 Saving index to disk...")
+        save_success = retrieval_service.save_statute_indices(canon)
+        retrieval_service.indices_loaded = True
+        _save_ingestion_meta(canon, len(paragraphs))
+
+        # Step 6: Verify
+        stats_after = retrieval_service.get_stats()
+        vectors_after = stats_after.get("statute_indices", {}).get(canon, {}).get("vectors", 0)
+
+        print("=" * 60)
+        print(f"🎉 {canon} INGESTION COMPLETE")
+        print(f"   Before: {vectors_before} vectors  →  After: {vectors_after} vectors")
+        print(f"   Saved to disk: {save_success}")
+
+        return {
+            "status": "success",
+            "statute": canon,
+            "filename": file.filename,
+            "paragraphs_extracted": len(paragraphs),
+            "vectors_before": vectors_before,
+            "vectors_after": vectors_after,
+            "vectors_added": vectors_after - vectors_before,
+            "saved_to_disk": save_success,
+            "sample_paragraphs": [p["paragraph"] for p in paragraphs[:10]],
+            "extraction_warnings": warnings,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"{canon} ingestion failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"{canon} ingestion failed: {str(e)}")
+    finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
@@ -444,46 +758,29 @@ async def ingest_bgb_text(
 async def get_ingestion_status() -> Dict[str, Any]:
     """
     Check current ingestion status.
-    Returns whether real BGB corpus is loaded.
+    Returns per-statute vector counts, paragraph counts, and ingestion timestamps.
     """
     stats = retrieval_service.get_stats()
-    bgb_vectors = stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
-    
-    # Check for divorce norms
-    divorce_norms_available = False
-    if bgb_vectors > 0:
-        # Quick check if we have any divorce norms
-        try:
-            from app.services.embeddings.embedding_service import embedding_service
-            test_query = "divorce"
-            query_embedding = embedding_service.embed_query(test_query, "BGB")
-            
-            if "BGB" in retrieval_service.statute_indices:
-                store = retrieval_service.statute_indices["BGB"]
-                if store.index and store.index.ntotal > 0:
-                    results = store.search(query_embedding, k=5)
-                    for result in results:
-                        metadata = result.get("metadata", {})
-                        if metadata.get("is_divorce_norm", False):
-                            divorce_norms_available = True
-                            break
-        except:
-            pass
-    
-    return {
-        "bgb_loaded": bgb_vectors > 200,
-        "bgb_vectors": bgb_vectors,
-        "has_real_corpus": stats.get("has_real_corpus", False),
-        "indices_loaded": stats.get("indices_loaded", False),
-        "divorce_norms_available": divorce_norms_available,
-        "statute_indices": list(stats.get("statute_indices", {}).keys()),
-        "total_vectors": stats.get("total_vectors", 0),
-        "required_action": "ingest_bgb_pdf" if bgb_vectors <= 200 else "ready",
-        "integrity_checks": {
-            "embedding_dimension_verified": bgb_vectors > 0,
-            "paragraph_level_indexing": True,
-            "authority_metadata_present": True
+    meta = _load_ingestion_meta()
+
+    # Build enriched statute_indices dict (vectors + paragraphs + ingested_at)
+    raw_indices: Dict[str, Any] = stats.get("statute_indices", {})
+    enriched: Dict[str, Any] = {}
+    for statute, info in raw_indices.items():
+        vectors = info.get("vectors", 0)
+        # Metadata may be keyed by the exact case stored at ingestion time
+        statute_meta = meta.get(statute) or meta.get(statute.upper()) or {}
+        enriched[statute] = {
+            "vectors": vectors,
+            "paragraphs": statute_meta.get("paragraphs", vectors),
+            "ingested_at": statute_meta.get("ingested_at"),
         }
+
+    return {
+        "indices_loaded": stats.get("indices_loaded", False),
+        "has_real_corpus": stats.get("has_real_corpus", False),
+        "statute_indices": enriched,
+        "total_vectors": stats.get("total_vectors", 0),
     }
 
 

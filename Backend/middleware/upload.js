@@ -22,7 +22,10 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024,
+    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB max
+    files: 5,
+    fields: 10,
+    fieldSize: 1024 * 1024, // 1MB per field
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
@@ -31,11 +34,11 @@ const upload = multer({
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "text/plain",
     ];
-    
+
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Invalid file type"), false);
+      cb(new Error("Invalid file type. Only PDF, Word, and text files are allowed."), false);
     }
   },
 });

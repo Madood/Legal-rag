@@ -9,7 +9,10 @@ import {
   DropdownMenuLabel,
 } from '../../ui/dropdown-menu';
 import { Button } from '../../ui/button';
-import { useEffect, useState } from 'react';
+import { useTranslation } from '../../../i18n';
+import { LanguageSelector } from './LanguageSelector';
+import { TokenCounter } from '../../TokenCounter';
+import { useAuth } from '../../../context/AuthContext';
 import './Header.css';
 
 interface HeaderProps {
@@ -20,23 +23,19 @@ interface HeaderProps {
 export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [isGuest, setIsGuest] = useState(false);
-
-  useEffect(() => {
-    const userType = localStorage.getItem('userType');
-    setIsGuest(userType === 'guest');
-  }, []);
+  const { t } = useTranslation();
+  const { user, logout } = useAuth();
+  const isGuest = user?.isGuest ?? false;
 
   const handleLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userType');
+    logout();
     navigate('/');
   };
 
   const navItems = [
-    { path: '/chat', label: 'Chat', icon: MessageSquare },
-    { path: '/documents', label: 'Documents', icon: FileText },
-    { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+    { path: '/chat', label: t('nav.chat'), icon: MessageSquare },
+    { path: '/documents', label: t('nav.documents'), icon: FileText },
+    { path: '/analytics', label: t('nav.analytics'), icon: BarChart3 },
   ];
 
   return (
@@ -48,11 +47,11 @@ export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
         </div>
         <div>
           <h1 className="logo-title">LegalRAG</h1>
-          <p className="logo-subtitle">Rechtsdokument Analyse</p>
+          <p className="logo-subtitle">{t('nav.logoSubtitle')}</p>
         </div>
         {isGuest && (
           <div className="guest-badge">
-            <span className="guest-text">Gast-Modus</span>
+            <span className="guest-text">{t('nav.guestMode')}</span>
           </div>
         )}
       </div>
@@ -77,6 +76,8 @@ export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
 
       {/* User Menu */}
       <div className="header-actions">
+        <TokenCounter />
+        <LanguageSelector />
         <Button
           variant="ghost"
           size="icon"
@@ -99,13 +100,13 @@ export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
               <div className="user-info">
                 {isGuest ? (
                   <>
-                    <p className="user-name">Gast-Benutzer</p>
-                    <p className="user-email">Eingeschränkter Zugriff</p>
+                    <p className="user-name">{t('nav.guestUser')}</p>
+                    <p className="user-email">{t('nav.limitedAccess')}</p>
                   </>
                 ) : (
                   <>
-                    <p className="user-name">Dr. Schmidt</p>
-                    <p className="user-email">m.schmidt@legal.de</p>
+                    <p className="user-name">{user?.username || 'User'}</p>
+                    <p className="user-email">{user?.email || ''}</p>
                   </>
                 )}
               </div>
@@ -114,27 +115,27 @@ export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
             {isGuest ? (
               <DropdownMenuItem onClick={() => navigate('/login')} className="menu-item">
                 <LogIn className="menu-icon" />
-                <span>Anmelden für volle Features</span>
+                <span>{t('nav.loginForFullFeatures')}</span>
               </DropdownMenuItem>
             ) : (
               <>
                 <DropdownMenuItem onClick={() => navigate('/profile')} className="menu-item">
                   <UserCircle className="menu-icon" />
-                  <span>Mein Profil</span>
+                  <span>{t('nav.myProfile')}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate('/settings')} className="menu-item">
                   <Settings className="menu-icon" />
-                  <span>Einstellungen</span>
+                  <span>{t('nav.settings')}</span>
                 </DropdownMenuItem>
               </>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={handleLogout} 
+            <DropdownMenuItem
+              onClick={handleLogout}
               className="logout-item"
             >
               <LogOut className="menu-icon" />
-              <span>{isGuest ? 'Gast-Modus beenden' : 'Abmelden'}</span>
+              <span>{isGuest ? t('nav.endGuestMode') : t('nav.logout')}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

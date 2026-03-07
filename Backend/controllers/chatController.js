@@ -329,12 +329,15 @@ exports.streamResponse = async (req, res, next) => {
 exports.getChatHistory = async (req, res, next) => {
   try {
     const userId = req.user._id;
-    const { 
-      page = 1, 
+    const {
+      page = 1,
       limit = 20,
-      sortBy = 'updatedAt',
       sortOrder = 'desc'
     } = req.query;
+
+    // Whitelist allowed sort fields to prevent NoSQL injection
+    const ALLOWED_SORT_FIELDS = ['updatedAt', 'createdAt', 'title'];
+    const sortBy = ALLOWED_SORT_FIELDS.includes(req.query.sortBy) ? req.query.sortBy : 'updatedAt';
 
     // Build sort
     const sort = {};

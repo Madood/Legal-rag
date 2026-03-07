@@ -1,66 +1,63 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Scale, Eye, EyeOff } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
 import './signup.css';
-
-interface FormData {
-  name: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  agreeToTerms: boolean;
-}
 
 export function Signup() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { register } = useAuth();
+  const defaultTier = (location.state as any)?.tier || 'pro';
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [formData, setFormData] = useState<FormData>({
+  const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     confirmPassword: '',
     agreeToTerms: false,
   });
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const isDark = localStorage.getItem('darkMode') === 'true';
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    document.documentElement.classList.toggle('dark', isDark);
   }, []);
-
-  const handleSignup = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (formData.password !== formData.confirmPassword) {
-      alert('Passwörter stimmen nicht überein');
-      return;
-    }
-
-    if (!formData.agreeToTerms) {
-      alert('Bitte akzeptieren Sie die Nutzungsbedingungen');
-      return;
-    }
-
-    localStorage.setItem('isAuthenticated', 'true');
-    localStorage.setItem('userType', 'authenticated');
-    navigate('/chat');
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { id, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [id]: type === 'checkbox' ? checked : value
-    }));
+    setFormData((prev) => ({ ...prev, [id]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwörter stimmen nicht überein');
+      return;
+    }
+    if (!formData.agreeToTerms) {
+      setError('Bitte akzeptieren Sie die Nutzungsbedingungen');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await register(formData.name, formData.email, formData.password, defaultTier);
+      navigate('/chat');
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Registrierung fehlgeschlagen.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="signup-container">
-      {/* Left Side - Image */}
       <div className="signup-hero-section">
         <div className="hero-content">
           <Scale className="hero-icon" />
@@ -71,7 +68,6 @@ export function Signup() {
         </div>
       </div>
 
-      {/* Right Side - Form */}
       <div className="signup-form-section">
         <div className="signup-form-wrapper">
           <Link to="/" className="logo-link">
@@ -83,16 +79,18 @@ export function Signup() {
 
           <div className="welcome-section">
             <h1 className="welcome-title">Konto erstellen</h1>
-            <p className="welcome-subtitle">
-              Beginnen Sie Ihre kostenlose Testphase
-            </p>
+            <p className="welcome-subtitle">Beginnen Sie Ihre kostenlose Testphase</p>
           </div>
+
+          {error && (
+            <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-600 dark:text-red-400">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleSignup} className="signup-form">
             <div className="form-group">
-              <label htmlFor="name" className="form-label">
-                Vollständiger Name
-              </label>
+              <label htmlFor="name" className="form-label">Vollständiger Name</label>
               <input
                 id="name"
                 type="text"
@@ -105,9 +103,7 @@ export function Signup() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="email" className="form-label">
-                E-Mail-Adresse
-              </label>
+              <label htmlFor="email" className="form-label">E-Mail-Adresse</label>
               <input
                 id="email"
                 type="email"
@@ -120,9 +116,7 @@ export function Signup() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="password" className="form-label">
-                Passwort
-              </label>
+              <label htmlFor="password" className="form-label">Passwort</label>
               <div className="password-input-wrapper">
                 <input
                   id="password"
@@ -134,20 +128,14 @@ export function Signup() {
                   minLength={8}
                   className="form-input password-input"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="password-toggle"
-                >
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="password-toggle">
                   {showPassword ? <EyeOff className="icon-sm" /> : <Eye className="icon-sm" />}
                 </button>
               </div>
             </div>
 
             <div className="form-group">
-              <label htmlFor="confirmPassword" className="form-label">
-                Passwort bestätigen
-              </label>
+              <label htmlFor="confirmPassword" className="form-label">Passwort bestätigen</label>
               <div className="password-input-wrapper">
                 <input
                   id="confirmPassword"
@@ -158,11 +146,7 @@ export function Signup() {
                   required
                   className="form-input password-input"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="password-toggle"
-                >
+                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="password-toggle">
                   {showConfirmPassword ? <EyeOff className="icon-sm" /> : <Eye className="icon-sm" />}
                 </button>
               </div>
@@ -178,29 +162,20 @@ export function Signup() {
               />
               <label htmlFor="agreeToTerms" className="terms-label">
                 Ich akzeptiere die{' '}
-                <a href="#" className="terms-link">
-                  Nutzungsbedingungen
-                </a>{' '}
+                <a href="#" className="terms-link">Nutzungsbedingungen</a>{' '}
                 und{' '}
-                <a href="#" className="terms-link">
-                  Datenschutzrichtlinien
-                </a>
+                <a href="#" className="terms-link">Datenschutzrichtlinien</a>
               </label>
             </div>
 
-            <button
-              type="submit"
-              className="signup-button"
-            >
-              Konto erstellen
+            <button type="submit" disabled={isSubmitting} className="signup-button">
+              {isSubmitting ? 'Konto wird erstellt...' : 'Konto erstellen'}
             </button>
           </form>
 
           <p className="login-link">
             Haben Sie bereits ein Konto?{' '}
-            <Link to="/login" className="login-text">
-              Anmelden
-            </Link>
+            <Link to="/login" className="login-text">Anmelden</Link>
           </p>
         </div>
       </div>

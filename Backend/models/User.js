@@ -1,5 +1,5 @@
-﻿const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const UserSchema = new mongoose.Schema(
   {
@@ -23,28 +23,54 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
-      default: "user",
+      enum: ['user', 'admin'],
+      default: 'user',
     },
+    isGuest: {
+      type: Boolean,
+      default: false,
+    },
+    tier: {
+      type: String,
+      enum: ['guest', 'pro', 'business'],
+      default: 'guest',
+    },
+    tokens: {
+      balance: { type: Number, default: 0 },
+      used: { type: Number, default: 0 },
+      resetAt: { type: Date, default: null },
+    },
+    sessionTokensUsed: { type: Number, default: 0 },
+    sessionId: { type: String, default: null },
   },
   { timestamps: true }
 );
 
 // Hash password before saving
-UserSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
+// Mongoose 9: async pre-hooks do NOT receive `next` — just return/throw
+UserSchema.pre('save', async function () {
+  if (!this.isModified('password')) return;
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
-// Compare password method
 UserSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.models.User || mongoose.model("User", UserSchema);
+// Set token balance according to tier limits from env
+UserSchema.methods.setTierTokens = function () {
+  const limits = {
+    guest: parseInt(process.env.GUEST_TOKENS || '30', 10),
+    pro: parseInt(process.env.PRO_TOKENS || '300', 10),
+    business: parseInt(process.env.BUSINESS_TOKENS || '700', 10),
+  };
+  this.tokens.balance = limits[this.tier] ?? 30;
+  this.tokens.used = 0;
+  this.tokens.resetAt =
+    this.tier === 'guest'
+      ? null
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days for paid tiers
+};
+
+module.exports = mongoose.models.User || mongoose.model('User', UserSchema);

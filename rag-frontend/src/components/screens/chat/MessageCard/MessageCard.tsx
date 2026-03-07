@@ -4,6 +4,7 @@ import { Badge } from '../../../ui/badge';
 import { Button } from '../../../ui/button';
 import { SourceVerificationModal } from '../../verification/VerificationModal';
 import { useState } from 'react';
+import { useTranslation } from '../../../../i18n';
 import './MessageCard.css';
 
 interface Citation {
@@ -30,6 +31,7 @@ interface MessageCardProps {
 
 export function MessageCard({ message, onCitationClick }: MessageCardProps) {
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  const { t } = useTranslation();
 
   if (message.type === 'user') {
     return (
@@ -95,7 +97,7 @@ export function MessageCard({ message, onCitationClick }: MessageCardProps) {
                 <div className="citations-header">
                   <BookOpen className="citations-icon" />
                   <span className="citations-title">
-                    Quellen ({message.citations.length})
+                    {t('message.sources')} ({message.citations.length})
                   </span>
                 </div>
                 <div className="citations-list">
@@ -119,11 +121,11 @@ export function MessageCard({ message, onCitationClick }: MessageCardProps) {
                                 : 'confidence-low'
                             }`}
                           >
-                            {(citation.confidence * 100).toFixed(0)}%
+                            {isNaN(citation.confidence) || citation.confidence == null ? '—' : `${(citation.confidence * 100).toFixed(0)}%`}
                           </Badge>
                         </div>
                         <p className="citation-source">
-                          {citation.documentName} · Seite {citation.page}
+                          {citation.documentName} · {t('message.page')} {citation.page}
                         </p>
                       </div>
                       <div className="citation-footer">

@@ -591,7 +591,23 @@ def resolve_authority(question: str) -> Dict[str, Any]:
     result['requiresClarification'] = authority_state['requiresClarification']
     result['anchorNormMode'] = authority_state['anchorNormMode']
     result['suggestedField'] = authority_state.get('suggestedField')
-    
+
+    # Detect cross-statute comparison: StGB §§ 223-229 vs BGB § 823 for Körperverletzung.
+    # _simple_lock_statute picks StGB first (because 'stgb' appears early in the question),
+    # so suggestedField is never set by the doctrine fallback. Override it here when both
+    # statutes and a Körperverletzung keyword appear in the same question.
+    if result['suggestedField'] is None and result['statute'] == 'StGB':
+        _lower_q = question.lower()
+        if 'bgb' in _lower_q:
+            _koerper_keywords = ['körperverletzung', 'koerperverletzung', 'körperliche verletzung']
+            if any(k in _lower_q for k in _koerper_keywords):
+                result['suggestedField'] = 'koerperverletzung'
+                result['doctrinal_match'] = True
+                result['anchorNormMode'] = True
+                result['question_type'] = 'DOCTRINE'
+                result['epistemicCertainty'] = 'confirmed'
+                print(f'📚 [Authority] Cross-statute Körperverletzung detected → suggestedField=koerperverletzung')
+
     # ✅ CRITICAL: Propagate retrieval enforcement AND derivative norm flags
     result['requiresParagraphMatch'] = authority_state.get('requiresParagraphMatch', False)
     result['allowedParagraphs'] = authority_state.get('allowedParagraphs', [])
@@ -853,7 +869,41 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
     Maps common legal fields to statutes.
     """
     lower_question = question.lower()
-    
+
+    # Willenserklärung -> BGB §§ 116-144 (must come before generic contract_keywords)
+    will_keywords = ['willenserklärung', 'willenserklarung', 'willenserklaerung', 'willenserklärungen']
+    if any(keyword in lower_question for keyword in will_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB",
+                "domain": "civil_doctrine",
+                "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False,
+                "anchorNormMode": True,
+                "suggestedField": "willenserklarung",
+                "doctrinal_match": True,
+                "isStatuteLocked": True,
+                "isParagraphLocked": False,
+                "reference": None,
+                "referenceType": None,
+                "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False,
+                "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY",
+                "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING",
+                "requiresSynthesis": False,
+                "prohibitsQuotation": False,
+                "isDerivativeNorm": False,
+                "inferenceMethod": "none",
+                "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed",
+                "epistemicMetadata": {},
+            }
+        }
+
     # Family law / Divorce -> BGB
     family_keywords = ['scheidung', 'trennung', 'ehe', 'ehescheidung', 'unterhalt', 'sorgerecht', 'kinder', 'familie']
     if any(keyword in lower_question for keyword in family_keywords):
@@ -998,7 +1048,177 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
             }
         }
     
-    # Criminal law -> StGB
+    # ── StGB-specific criminal offence detection ─────────────────────────────
+    # Local helper to build a DOCTRINE_AUTHORIZED result for StGB
+    def _stgb_result(field: str, confidence: float = 0.90) -> dict:
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "StGB", "domain": "criminal", "confidence": confidence,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": field, "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": confidence,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    _has_mord      = 'mord' in lower_question
+    _has_totschlag = 'totschlag' in lower_question
+    _is_comparison = any(k in lower_question for k in [
+        'unterschied', 'vergleich', 'abgrenzung', 'unterschied zwischen',
+        'vergleich zwischen', 'difference between', 'compare',
+    ])
+
+    # Mord vs Totschlag comparison — catch before individual checks
+    if (_has_mord and _has_totschlag) or (_is_comparison and (_has_mord or _has_totschlag)):
+        return _stgb_result('mord_totschlag_vergleich', 0.90)
+
+    if _has_mord:
+        return _stgb_result('mord', 0.90)
+
+    if _has_totschlag:
+        return _stgb_result('totschlag', 0.90)
+
+    # Tötung / Tötungsdelikt (§§ 211-212 StGB)
+    _toetung_terms = ['tötung', 'toetung', 'tötungsdelikt', 'toetungsdelikt', '§ 211', '§211', '§ 212', '§212']
+    if any(k in lower_question for k in _toetung_terms):
+        return _stgb_result('mord', 0.90)
+
+    # General comparison with any named criminal offence → StGB
+    _named_crimes = [
+        'diebstahl', 'betrug', 'untreue', 'nötigung', 'noetigung',
+        'raub', 'erpressung', 'körperverletzung', 'koerperverletzung',
+    ]
+    if _is_comparison and any(k in lower_question for k in _named_crimes):
+        # Best-effort specific field
+        if any(k in lower_question for k in ['diebstahl', 'raub']):
+            return _stgb_result('diebstahl')
+        if any(k in lower_question for k in ['betrug', 'erpressung', 'untreue']):
+            return _stgb_result('betrug')
+        return _stgb_result('criminal_offenses')
+
+    # Diebstahl (§§ 242-244a StGB)
+    if any(k in lower_question for k in [
+        'diebstahl', 'wegnahme', 'zueignungsabsicht',
+        'wohnungseinbruchsdiebstahl', 'einbruch diebstahl', '§ 242', '§242',
+    ]):
+        return _stgb_result('diebstahl')
+
+    # Raub (§ 249 StGB)
+    if any(k in lower_question for k in ['raub', 'raubtat', '§ 249', '§249']):
+        return _stgb_result('raub')
+
+    # Erpressung / Hehlerei / Unterschlagung
+    if any(k in lower_question for k in ['erpressung', 'hehlerei', 'unterschlagung']):
+        if 'erpressung' in lower_question:
+            return _stgb_result('erpressung')
+        if 'hehlerei' in lower_question:
+            return _stgb_result('hehlerei')
+        return _stgb_result('unterschlagung')
+
+    # Betrug (§ 263 StGB) — checked before generic irrtum/täuschung blocks
+    if any(k in lower_question for k in ['betrug', 'computerbetrug', 'betrugs', '§ 263', '§263']):
+        return _stgb_result('betrug')
+
+    # Untreue (§ 266 StGB)
+    if any(k in lower_question for k in ['untreue', '§ 266', '§266']):
+        return _stgb_result('untreue')
+
+    # Nötigung (§ 240 StGB)
+    if any(k in lower_question for k in ['nötigung', 'noetigung', 'verwerflichkeitsklausel', '§ 240', '§240']):
+        return _stgb_result('noetigung')
+
+    # Bedrohung (§ 241 StGB)
+    if any(k in lower_question for k in ['bedrohung', 'bedroht', '§ 241', '§241']):
+        return _stgb_result('bedrohung')
+
+    # Körperverletzung without explicit BGB context → StGB §§ 223-229
+    _kv_terms = [
+        'körperverletzung', 'koerperverletzung',
+        'gefährliche körperverletzung', 'schwere körperverletzung',
+        'fahrlässige körperverletzung', 'körperliche misshandlung',
+        '§ 223', '§223', '§ 224', '§224',
+    ]
+    _bgb_kv_ctx = 'bgb' in lower_question or '§ 823' in lower_question or '§823' in lower_question
+    if any(k in lower_question for k in _kv_terms) and not _bgb_kv_ctx:
+        return _stgb_result('koerperverletzung_stgb')
+
+    # Täterschaft / Mittelbare Täterschaft (§ 25 StGB)
+    _mittaeter_terms = [
+        'mittäterschaft', 'mittaeterschaft', 'mittäter', 'mittaeter',
+        'mittelbare täterschaft', 'mittelbare taeterschaft', 'mittelbarer täter',
+        'täterschaft', 'taeterschaft', 'tatherrschaft',
+        '§ 25', '§25',
+    ]
+    if any(k in lower_question for k in _mittaeter_terms):
+        if 'mittelbar' in lower_question:
+            return _stgb_result('mittelbare_taeterschaft')
+        return _stgb_result('mittaeterschaft')
+
+    # Anstiftung (§ 26 StGB)
+    _anstiftung_terms = [
+        'anstiftung', 'anstifter', 'bestimmung zur tat', 'zur tat bestimmen',
+        '§ 26', '§26',
+    ]
+    if any(k in lower_question for k in _anstiftung_terms):
+        return _stgb_result('anstiftung')
+
+    # Beihilfe (§ 27 StGB)
+    _beihilfe_terms = [
+        'beihilfe', 'gehilfe', 'hilfeleistung zur tat', '§ 27', '§27',
+    ]
+    if any(k in lower_question for k in _beihilfe_terms):
+        return _stgb_result('beihilfe')
+
+    # Teilnahme / Beteiligung — general participation covering anstiftung + beihilfe
+    _teilnahme_terms = ['teilnahme', 'teilnehmer', 'beteiligung stgb', 'akzessorietät']
+    if any(k in lower_question for k in _teilnahme_terms):
+        return _stgb_result('mittaeterschaft', 0.85)
+
+    # Notwehr / Nothilfe (§ 32 StGB)
+    _notwehr_terms = [
+        'notwehr', 'nothilfe', 'notwehrlage', 'notwehrrecht', 'notwehrexzess',
+        'rechtfertigung angriff', '§ 32', '§32',
+    ]
+    if any(k in lower_question for k in _notwehr_terms):
+        return _stgb_result('notwehr')
+
+    # Notstand (§§ 34-35 StGB)
+    _notstand_terms = [
+        'notstand', 'rechtfertigender notstand', 'entschuldigender notstand',
+        'aggressivnotstand', 'defensivnotstand', 'übergesetzlicher notstand',
+        '§ 34', '§34', '§ 35', '§35',
+    ]
+    if any(k in lower_question for k in _notstand_terms):
+        return _stgb_result('notstand')
+
+    # Broad criminal law vocabulary → StGB (covers vorsatz, fahrlässigkeit, schuld, etc.)
+    _stgb_broad = [
+        'vorsatz', 'vorsätzlich', 'fahrlässigkeit', 'fahrlässig',
+        'schuld', 'schuldhaft', 'schuldprinzip', 'schuldunfähigkeit',
+        'rechtswidrigkeit', 'rechtswidrig', 'rechtswidrigkeitsebene',
+        'strafbarkeit', 'strafbar', 'straftat stgb',
+        'täter', 'taeter', 'opfer',
+        'tatbestandsmerkmal', 'tatbestandsmerkmale',
+        'objektiver tatbestand', 'subjektiver tatbestand',
+        'delikt', 'vergehen stgb', 'raub', 'erpressung', 'hehlerei',
+        'unterschlagung', 'sachbeschädigung', 'hausfriedensbruch',
+        'beleidigung', 'verleumdung', 'üble nachrede',
+        'freiheitsberaubung', 'entführung',
+        'notwehrexzess', 'putativnotwehr', 'erlaubnistatbestandsirrtum',
+        'versuch stgb', 'rücktritt stgb',
+    ]
+    if any(k in lower_question for k in _stgb_broad):
+        return _stgb_result('criminal_offenses', 0.85)
+
+    # Generic criminal law → StGB (existing catch-all)
     criminal_keywords = ['straf', 'straftat', 'verbrechen', 'tatbestand', 'strafrecht', 'anklage']
     if any(keyword in lower_question for keyword in criminal_keywords):
         return {
@@ -1053,11 +1273,9 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
                 "reference": None,
                 "referenceType": None,
                 "referenceSource": "doctrine_fallback",
-                # ✅ Retrieval enforcement fields
                 "requiresParagraphMatch": False,
                 "allowedParagraphs": [],
                 "retrievalConstraint": "STATUTE_ONLY",
-                # ✅ Epistemic classification
                 "normFunction": "OPERATIVE",
                 "epistemicRole": "CONTENT_PROVIDING",
                 "requiresSynthesis": False,
@@ -1069,7 +1287,175 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
                 "epistemicMetadata": {},
             }
         }
-    
+
+    # -----------------------------------------------------------------------
+    # BGB core concepts: auto-map to BGB when no statute is named explicitly
+    # -----------------------------------------------------------------------
+
+    # Verjährung (Statute of limitations) -> BGB §§ 194-218
+    verjaehrungs_keywords = [
+        'verjährung', 'verjaehrung', 'verjährungsfrist', 'verjährungsfristen',
+        'limitation period', 'prescription period', 'regelverjährung'
+    ]
+    if any(k in lower_question for k in verjaehrungs_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "verjaehrung", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Angebot / Annahme (Offer and acceptance) -> BGB §§ 145-150
+    angebot_keywords = [
+        'angebot', 'annahme', 'antrag', 'vertragsangebot',
+        'offer and acceptance', 'antrag und annahme'
+    ]
+    if any(k in lower_question for k in angebot_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "angebot_annahme", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Geschäftsfähigkeit (Legal capacity) -> BGB §§ 104-113
+    geschaeft_keywords = [
+        'geschäftsfähigkeit', 'geschaeftsfaehigkeit', 'geschäftsunfähigkeit',
+        'beschränkte geschäftsfähigkeit', 'legal capacity', 'rechtsfähigkeit'
+    ]
+    if any(k in lower_question for k in geschaeft_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "geschaeftsfaehigkeit", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Stellvertretung (Agency / Representation) -> BGB §§ 164-181
+    stellv_keywords = [
+        'stellvertretung', 'vollmacht', 'bevollmächtigter', 'vertreter',
+        'prokura', 'agency', 'legal representation', 'vertretungsmacht'
+    ]
+    if any(k in lower_question for k in stellv_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "stellvertretung", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Ungerechtfertigte Bereicherung (Unjust enrichment) -> BGB §§ 812-822
+    bereicherungs_keywords = [
+        'ungerechtfertigte bereicherung', 'bereicherungsrecht',
+        'bereicherungsanspruch', 'unjust enrichment', '§ 812'
+    ]
+    if any(k in lower_question for k in bereicherungs_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "bereicherung", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Kaufmann (HGB §§ 1-7) — for questions without explicit statute reference
+    kaufmann_keywords = [
+        'kaufmann', 'istkaufmann', 'kannkaufmann', 'formkaufmann', 'kaufleute', 'handelsgewerbe'
+    ]
+    if any(k in lower_question for k in kaufmann_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "HGB", "domain": "commercial_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "kaufmann", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Prokura (HGB §§ 48-53) — for questions without explicit statute reference
+    prokura_keywords = ['prokurist', 'handlungsvollmacht']
+    if any(k in lower_question for k in prokura_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "HGB", "domain": "commercial_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "prokura", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
     return None
 
 
@@ -1279,10 +1665,16 @@ def _determine_authority_state(statute: str, reference: str,
         # Check for civil law doctrinal topics
         civil_doctrinal_topics = {
             'mistake_doctrine': ['irrtum', 'mistake', 'error', 'anfechtung', 'voidable', 'essential characteristic'],
-            'contract_formation': ['vertragsschluss', 'contract formation', 'offer acceptance', 'willenserklärung'],
+            'willenserklarung': ['willenserklärung', 'willenserklarung', 'willenserklaerung', 'declaration of intent'],
+            'angebot_annahme': ['angebot', 'annahme', 'antrag', 'vertragsangebot', 'offer and acceptance'],
+            'contract_formation': ['vertragsschluss', 'contract formation', 'willenserklärung'],
             'liability': ['haftung', 'liability', 'schadenersatz', 'damages', 'verschulden'],
             'property_transfer': ['eigentumsübertragung', 'property transfer', 'übereignung', 'tradition'],
-            'unjust_enrichment': ['ungerechtfertigte bereicherung', 'unjust enrichment', 'bereicherungsrecht']
+            'bereicherung': ['ungerechtfertigte bereicherung', 'unjust enrichment', 'bereicherungsrecht', 'bereicherungsanspruch'],
+            'verjaehrung': ['verjährung', 'verjaehrung', 'verjährungsfrist', 'limitation period', 'regelverjährung'],
+            'geschaeftsfaehigkeit': ['geschäftsfähigkeit', 'geschaeftsfaehigkeit', 'geschäftsunfähigkeit', 'legal capacity'],
+            'stellvertretung': ['stellvertretung', 'vollmacht', 'bevollmächtigter', 'vertreter', 'vertretungsmacht'],
+            'unjust_enrichment': ['ungerechtfertigte bereicherung', 'unjust enrichment', 'bereicherungsrecht'],
         }
         
         # Detect doctrinal topic
@@ -1307,9 +1699,38 @@ def _determine_authority_state(statute: str, reference: str,
             result['retrievalConstraint'] = 'STATUTE_ONLY'
             
             print(f'📚 [Authority] Doctrinal mode authorized for BGB {suggested_field or "general doctrine"}')
-            
+
             return result
-    
+
+    # HGB-specific doctrinal handling for commercial law questions
+    if statute == 'HGB' and not has_reference:
+        lower_question = question.lower()
+        hgb_doctrinal_topics = {
+            'kaufmann':       ['kaufmann', 'istkaufmann', 'kannkaufmann', 'formkaufmann', 'kaufleute'],
+            'handelsgewerbe': ['handelsgewerbe', 'handelsgewerbes'],
+            'prokura':        ['prokura', 'prokurist', 'handlungsvollmacht'],
+            'firma':          ['firma', 'handelsregister', 'firmenrecht'],
+        }
+        suggested_field = None
+        for field, keywords in hgb_doctrinal_topics.items():
+            for keyword in keywords:
+                if keyword in lower_question:
+                    suggested_field = field
+                    break
+            if suggested_field:
+                break
+        if suggested_field:
+            result['state'] = AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN
+            result['confidence'] = 0.75
+            result['requiresClarification'] = False
+            result['anchorNormMode'] = True
+            result['suggestedField'] = suggested_field
+            result['retrievalConstraint'] = 'STATUTE_ONLY'
+            result['epistemicCertainty'] = 'confirmed'
+            result['doctrinal_match'] = True
+            print(f'📚 [Authority] Doctrinal mode authorized for HGB {suggested_field}')
+            return result
+
     # For other statutes without reference, clarification needed
     result['state'] = AuthorityState.CLARIFICATION_REQUIRED
     result['confidence'] = 0.0

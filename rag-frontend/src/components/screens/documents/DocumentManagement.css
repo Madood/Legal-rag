@@ -490,3 +490,1045 @@
     height: 8rem;
   }
 }
+
+/* ============================================================
+   COUNTRY SELECTOR
+   ============================================================ */
+.country-selector {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.country-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 1rem;
+  border-radius: 9999px;
+  border: 1.5px solid #d1d5db;
+  background-color: white;
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dark .country-pill {
+  background-color: #2a2a2a;
+  border-color: #3a3a3a;
+  color: #d1d5db;
+}
+
+.country-pill:hover {
+  border-color: #3498DB;
+  color: #3498DB;
+}
+
+.dark .country-pill:hover {
+  border-color: #3498DB;
+  color: #3498DB;
+}
+
+.country-pill-active {
+  background-color: #3498DB !important;
+  border-color: #3498DB !important;
+  color: white !important;
+}
+
+.dark .country-pill-active {
+  background-color: #3498DB !important;
+  border-color: #3498DB !important;
+  color: white !important;
+}
+
+.country-flag {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+/* ============================================================
+   STATUTE CARDS
+   ============================================================ */
+.statute-card {
+  background-color: white;
+  border-color: #e5e7eb;
+  border-left: 3px solid #e5e7eb;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.dark .statute-card {
+  background-color: #2a2a2a;
+  border-color: #3a3a3a;
+}
+
+.statute-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.statute-card-indexed {
+  border-left-color: #27AE60 !important;
+}
+
+.statute-card-planned {
+  border-left-color: #d1d5db !important;
+  opacity: 0.85;
+}
+
+.dark .statute-card-planned {
+  opacity: 0.75;
+}
+
+/* Card header row */
+.statute-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.statute-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.statute-abbreviation {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #2C3E50;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.dark .statute-abbreviation {
+  color: white;
+}
+
+.statute-category-label {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Full name */
+.statute-full-name {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.dark .statute-full-name {
+  color: #9ca3af;
+}
+
+/* Metrics */
+.statute-metrics {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid #f3f4f6;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.dark .statute-metrics {
+  border-color: #3a3a3a;
+}
+
+.statute-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.statute-metric-wide {
+  flex: 1;
+}
+
+.statute-metric-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #2C3E50;
+}
+
+.dark .statute-metric-value {
+  color: white;
+}
+
+.statute-metric-date {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.statute-metric-label {
+  font-size: 0.68rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Empty / loading hints */
+.statute-empty-hint {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  font-style: italic;
+  margin: 0;
+}
+
+.statute-loading-bar {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #e5e7eb 25%, #d1d5db 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+  margin: 0.25rem 0;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Actions */
+.statute-card-actions {
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+/* Shared icon size for both card action buttons */
+.statute-btn-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+}
+
+/* Re-ingest (indexed statutes) — subtle outline */
+.reingest-button {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-color: #d1d5db !important;
+  color: #6b7280 !important;
+  font-size: 0.8rem !important;
+}
+
+.dark .reingest-button {
+  border-color: #3a3a3a !important;
+  color: #9ca3af !important;
+}
+
+.reingest-button:hover:not(:disabled) {
+  border-color: #3498DB !important;
+  color: #3498DB !important;
+  background-color: rgba(52, 152, 219, 0.05) !important;
+}
+
+/* Upload PDF (not-yet-indexed / planned statutes) — dashed border, neutral */
+.statute-upload-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1.5px dashed #d1d5db !important;
+  color: #6b7280 !important;
+  background-color: transparent !important;
+  font-size: 0.8rem !important;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s !important;
+}
+
+.dark .statute-upload-btn {
+  border-color: #4a4a4a !important;
+  color: #9ca3af !important;
+}
+
+.statute-upload-btn:hover:not(:disabled) {
+  border-color: #3498DB !important;
+  border-style: solid !important;
+  color: #3498DB !important;
+  background-color: rgba(52, 152, 219, 0.06) !important;
+}
+
+.statute-upload-btn:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+/* ============================================================
+   STATUS BADGES (corpus-specific, don't conflict with doc badges)
+   ============================================================ */
+.corpus-badge {
+  font-size: 0.65rem !important;
+  padding: 0.15rem 0.45rem !important;
+  height: auto !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  border: none !important;
+  flex-shrink: 0;
+}
+
+.corpus-badge-indexed {
+  background-color: #27AE60 !important;
+  color: white !important;
+}
+
+.corpus-badge-planned {
+  background-color: #9ca3af !important;
+  color: white !important;
+}
+
+.corpus-badge-none {
+  background-color: #f3f4f6 !important;
+  color: #6b7280 !important;
+}
+
+.dark .corpus-badge-none {
+  background-color: #3a3a3a !important;
+  color: #9ca3af !important;
+}
+
+/* ============================================================
+   STAT EXTRAS
+   ============================================================ */
+.stat-value-sm {
+  font-size: 1rem !important;
+  margin-top: 0.25rem;
+}
+
+.stat-icon-error {
+  color: #E74C3C;
+}
+
+/* ============================================================
+   ERROR BANNER
+   ============================================================ */
+.status-error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background-color: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: 0.5rem;
+  color: #B91C1C;
+  font-size: 0.8rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.dark .status-error-banner {
+  background-color: rgba(185, 28, 28, 0.15);
+  border-color: rgba(185, 28, 28, 0.4);
+  color: #FCA5A5;
+}
+
+.status-error-banner code {
+  font-family: monospace;
+  background-color: rgba(0, 0, 0, 0.06);
+  padding: 0 0.25rem;
+  border-radius: 3px;
+}
+
+/* ============================================================
+   COMING SOON PLACEHOLDER
+   ============================================================ */
+.coming-soon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20rem;
+}
+
+.coming-soon-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+  max-width: 28rem;
+}
+
+.coming-soon-flag {
+  font-size: 4rem;
+  line-height: 1;
+  filter: grayscale(0.4);
+}
+
+.coming-soon-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2C3E50;
+  margin: 0;
+}
+
+.dark .coming-soon-title {
+  color: white;
+}
+
+.coming-soon-subtitle {
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.dark .coming-soon-subtitle {
+  color: #9ca3af;
+}
+
+.coming-soon-badge {
+  background-color: #f3f4f6 !important;
+  color: #6b7280 !important;
+  border: 1px solid #d1d5db !important;
+  font-size: 0.75rem !important;
+  padding: 0.25rem 0.75rem !important;
+  height: auto !important;
+  border-radius: 9999px !important;
+}
+
+/* ============================================================
+   DARK DOCUMENT CARDS
+   ============================================================ */
+.doc-card {
+  background-color: #1a1a1a;
+  border-radius: 0.75rem;
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.doc-card:hover {
+  border-color: #3a3a3a;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.doc-card-planned {
+  opacity: 0.65;
+}
+
+/* Top thumbnail area */
+.doc-card-thumbnail {
+  height: 9rem;
+  background-color: #222222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid #2a2a2a;
+  transition: background-color 0.2s ease-in-out;
+}
+
+/* Green tint for indexed statutes */
+.doc-card-thumbnail-indexed {
+  background-color: #0d2818;
+  border-bottom-color: #14532d;
+}
+
+.doc-card-icon {
+  width: 3rem;
+  height: 3rem;
+  color: #4b5563;
+}
+
+.doc-card-thumbnail-indexed .doc-card-icon {
+  color: #22c55e;
+}
+
+/* Bottom body */
+.doc-card-body {
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  flex: 1;
+}
+
+/* Filename + date */
+.doc-card-filename {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #f9fafb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0 0 0.2rem 0;
+}
+
+.doc-card-date {
+  font-size: 0.7rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* Badges row */
+.doc-card-badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.badge-type {
+  font-size: 0.65rem !important;
+  padding: 0.15rem 0.5rem !important;
+  height: auto !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+  border-radius: 9999px !important;
+}
+
+.badge-status-ok {
+  font-size: 0.65rem !important;
+  padding: 0.15rem 0.5rem !important;
+  height: auto !important;
+  font-weight: 600 !important;
+  background-color: #22c55e !important;
+  color: white !important;
+  border: none !important;
+  border-radius: 9999px !important;
+}
+
+.badge-status-planned,
+.badge-status-none {
+  font-size: 0.65rem !important;
+  padding: 0.15rem 0.5rem !important;
+  height: auto !important;
+  font-weight: 500 !important;
+  background-color: #374151 !important;
+  color: #9ca3af !important;
+  border: none !important;
+  border-radius: 9999px !important;
+}
+
+/* Stats row */
+.doc-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid #2a2a2a;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.doc-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  text-align: center;
+}
+
+.doc-stat-label {
+  font-size: 0.62rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  order: 2;
+}
+
+.doc-stat-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #f9fafb;
+  order: 1;
+}
+
+/* File size */
+.doc-card-size {
+  font-size: 0.7rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* Actions */
+.doc-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+
+.doc-card-open {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  background-color: #262626;
+  color: #e5e7eb;
+  border: 1px solid #3a3a3a;
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.doc-card-open:hover:not(:disabled) {
+  background-color: #333333;
+  border-color: #4a4a4a;
+  color: white;
+}
+
+.doc-card-open:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Upload button — for not-yet-indexed statutes */
+.doc-card-upload {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  background-color: transparent;
+  color: #9ca3af;
+  border: 1.5px dashed #3a3a3a;
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.doc-card-upload:hover:not(:disabled) {
+  background-color: rgba(34, 197, 94, 0.08);
+  border-color: #22c55e;
+  border-style: solid;
+  color: #22c55e;
+}
+
+.doc-card-upload:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.doc-card-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.55rem;
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid #3a3a3a;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.doc-card-delete:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.doc-card-delete:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.doc-card-btn-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   DRAG-AND-DROP UPLOAD ZONE
+   ============================================================ */
+.doc-upload-zone {
+  margin-top: auto;
+  padding: 1rem 0.75rem 0.875rem;
+  border: 1.5px dashed #3a3a3a;
+  border-radius: 0.625rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
+  text-align: center;
+  background-color: transparent;
+  user-select: none;
+  outline: none;
+}
+
+.doc-upload-zone:hover:not(.doc-upload-zone-busy),
+.doc-upload-zone:focus-visible:not(.doc-upload-zone-busy) {
+  border-color: #555;
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Active drag-over state */
+.doc-upload-zone-over {
+  border-color: #22c55e !important;
+  border-style: solid !important;
+  background-color: rgba(34, 197, 94, 0.07) !important;
+}
+
+/* Uploading / busy state */
+.doc-upload-zone-busy {
+  cursor: not-allowed;
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+/* Icon */
+.upload-zone-icon {
+  width: 1.4rem;
+  height: 1.4rem;
+  color: #4b5563;
+  transition: color 0.2s ease-in-out, transform 0.2s ease-in-out;
+  margin-bottom: 0.15rem;
+}
+
+.doc-upload-zone:hover:not(.doc-upload-zone-busy) .upload-zone-icon,
+.doc-upload-zone:focus-visible:not(.doc-upload-zone-busy) .upload-zone-icon {
+  color: #9ca3af;
+  transform: translateY(-1px);
+}
+
+.doc-upload-zone-over .upload-zone-icon {
+  color: #22c55e !important;
+  transform: translateY(-2px) !important;
+}
+
+/* Primary text */
+.upload-zone-text {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #6b7280;
+  transition: color 0.2s ease-in-out;
+  line-height: 1.2;
+}
+
+.doc-upload-zone:hover:not(.doc-upload-zone-busy) .upload-zone-text,
+.doc-upload-zone:focus-visible:not(.doc-upload-zone-busy) .upload-zone-text {
+  color: #9ca3af;
+}
+
+.doc-upload-zone-over .upload-zone-text {
+  color: #22c55e !important;
+}
+
+/* Hint / subtext */
+.upload-zone-hint {
+  font-size: 0.67rem;
+  color: #4b5563;
+  transition: color 0.2s ease-in-out;
+  line-height: 1.2;
+}
+
+.doc-upload-zone:hover:not(.doc-upload-zone-busy) .upload-zone-hint,
+.doc-upload-zone:focus-visible:not(.doc-upload-zone-busy) .upload-zone-hint {
+  color: #6b7280;
+}
+
+.doc-upload-zone-over .upload-zone-hint {
+  color: #4ade80 !important;
+}
+
+/* ============================================================
+   GLOBAL UPLOAD ZONE
+   ============================================================ */
+.global-upload-section {
+  margin-bottom: 1.5rem;
+  background-color: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 0.875rem;
+  padding: 1.25rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+/* ── Header row: label + statute pills ── */
+.global-upload-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.global-upload-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Statute pills ── */
+.global-statute-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.global-statute-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 9999px;
+  border: 1.5px solid #3a3a3a;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.global-statute-pill:hover:not(:disabled) {
+  border-color: #555;
+  color: #d1d5db;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.global-statute-pill:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Selected pill */
+.global-statute-pill-active {
+  border-color: #3498DB !important;
+  background-color: rgba(52, 152, 219, 0.15) !important;
+  color: #60b4f0 !important;
+}
+
+/* Indexed pill gets a subtle green tint */
+.global-statute-pill-indexed {
+  border-color: #1a4731;
+  color: #86efac;
+}
+
+.global-statute-pill-indexed.global-statute-pill-active {
+  border-color: #22c55e !important;
+  background-color: rgba(34, 197, 94, 0.15) !important;
+  color: #4ade80 !important;
+}
+
+/* Green dot for indexed statutes */
+.global-pill-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: #22c55e;
+  flex-shrink: 0;
+}
+
+/* ── Drop zone ── */
+.global-drop-zone {
+  min-height: 7rem;
+  border: 2px dashed #3a3a3a;
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 1.5rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+  background-color: transparent;
+}
+
+.global-drop-zone:hover:not(.global-drop-zone-busy):not(.global-drop-zone-disabled) {
+  border-color: #555;
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.global-drop-zone:focus-visible:not(.global-drop-zone-busy):not(.global-drop-zone-disabled) {
+  border-color: #3498DB;
+  background-color: rgba(52, 152, 219, 0.04);
+  outline: 2px solid rgba(52, 152, 219, 0.3);
+  outline-offset: 2px;
+}
+
+/* Active drag-over */
+.global-drop-zone-over {
+  border-color: #22c55e !important;
+  border-style: solid !important;
+  background-color: rgba(34, 197, 94, 0.07) !important;
+}
+
+/* Uploading */
+.global-drop-zone-busy {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* Poland / Norway disabled */
+.global-drop-zone-disabled {
+  cursor: default;
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+/* Icon wrapper circle */
+.global-drop-icon-wrap {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background-color: #222;
+  border: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.2rem;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.global-drop-zone:hover:not(.global-drop-zone-busy):not(.global-drop-zone-disabled) .global-drop-icon-wrap {
+  border-color: #555;
+  background-color: #2a2a2a;
+}
+
+.global-drop-zone-over .global-drop-icon-wrap {
+  border-color: #22c55e !important;
+  background-color: rgba(34, 197, 94, 0.1) !important;
+}
+
+/* Upload icon */
+.global-drop-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #6b7280;
+  transition: color 0.2s, transform 0.2s;
+  flex-shrink: 0;
+}
+
+.global-drop-zone:hover:not(.global-drop-zone-busy):not(.global-drop-zone-disabled) .global-drop-icon {
+  color: #9ca3af;
+  transform: translateY(-1px);
+}
+
+.global-drop-zone-over .global-drop-icon {
+  color: #22c55e !important;
+  transform: translateY(-2px) !important;
+}
+
+/* Country flag in disabled zone */
+.global-drop-flag {
+  font-size: 2.25rem;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+  filter: grayscale(0.3);
+}
+
+/* Primary drop-zone text */
+.global-drop-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #9ca3af;
+  line-height: 1.3;
+  transition: color 0.2s;
+}
+
+.global-drop-zone:hover:not(.global-drop-zone-busy):not(.global-drop-zone-disabled) .global-drop-title {
+  color: #d1d5db;
+}
+
+.global-drop-zone-over .global-drop-title {
+  color: #4ade80 !important;
+}
+
+/* Clickable "klicken zum Auswählen" inline span */
+.global-drop-link {
+  color: #3498DB;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.global-drop-zone:hover:not(.global-drop-zone-busy) .global-drop-link {
+  color: #60b4f0;
+}
+
+.global-drop-zone-over .global-drop-link {
+  color: #4ade80 !important;
+  text-decoration: none;
+}
+
+/* Secondary subtitle */
+.global-drop-sub {
+  font-size: 0.775rem;
+  color: #6b7280;
+  line-height: 1.4;
+  transition: color 0.2s;
+}
+
+.global-drop-zone-over .global-drop-sub {
+  color: #86efac !important;
+}
+
+/* Format hint */
+.global-drop-format {
+  font-size: 0.7rem;
+  color: #4b5563;
+  margin-top: 0.15rem;
+  transition: color 0.2s;
+}
+
+.global-drop-zone-over .global-drop-format {
+  color: #6b7280 !important;
+}
+
+/* ── doc-card-meta (used in card body) ── */
+.doc-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+/* ── Responsive adjustments for global upload section ── */
+@media (max-width: 768px) {
+  .global-upload-section {
+    padding: 1rem;
+  }
+
+  .global-upload-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .global-drop-zone {
+    min-height: 5.5rem;
+    padding: 1.25rem 0.75rem;
+  }
+}

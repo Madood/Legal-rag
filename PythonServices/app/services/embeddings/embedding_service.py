@@ -1,7 +1,6 @@
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import hashlib
-import pickle
 import os
 from typing import List, Dict, Any, Optional
 import logging
@@ -27,18 +26,16 @@ class EmbeddingService:
         return hashlib.md5(text.encode()).hexdigest()
     
     def _load_from_cache(self, cache_key: str) -> Optional[np.ndarray]:
-        """Load embedding from cache"""
-        cache_path = os.path.join(self.cache_dir, f"{cache_key}.pkl")
+        """Load embedding from cache (safe numpy format, no pickle)"""
+        cache_path = os.path.join(self.cache_dir, f"{cache_key}.npy")
         if os.path.exists(cache_path):
-            with open(cache_path, 'rb') as f:
-                return pickle.load(f)
+            return np.load(cache_path, allow_pickle=False)
         return None
-    
+
     def _save_to_cache(self, cache_key: str, embedding: np.ndarray):
-        """Save embedding to cache"""
-        cache_path = os.path.join(self.cache_dir, f"{cache_key}.pkl")
-        with open(cache_path, 'wb') as f:
-            pickle.dump(embedding, f)
+        """Save embedding to cache (safe numpy format, no pickle)"""
+        cache_path = os.path.join(self.cache_dir, f"{cache_key}.npy")
+        np.save(cache_path, embedding)
     
     def embed_text(self, text: str, use_cache: bool = True) -> np.ndarray:
         """

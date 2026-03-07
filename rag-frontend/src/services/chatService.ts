@@ -56,7 +56,7 @@ export class ChatService {
               chunkId: `chunk-${index}`,
               page: 1,
               excerpt: source.excerpt,
-              confidence: parseFloat(source.relevance),
+              confidence: (() => { const r = parseFloat(source.relevance); return isNaN(r) ? 0 : r; })(),
             }))
           };
         }

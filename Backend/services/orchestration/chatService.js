@@ -323,18 +323,21 @@ class ChatService {
 
   generateAuthoritativeAbstentionResponse(authority, question) {
     const statuteName = this.getStatuteDisplayName(authority.statute);
-    const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§${authority.paragraph}`;
-    
+    const paragraphRef = authority.paragraph
+      ? (authority.isArticle ? `Artikel ${authority.paragraph}` : `§${authority.paragraph}`)
+      : '';
+    const normRef = paragraphRef ? `${statuteName} ${paragraphRef}` : statuteName;
+
     const responseTemplates = {
-      default: `**${statuteName} ${paragraphRef}**\n\n` +
+      default: `**${normRef}**\n\n` +
                `Die Norm wurde eindeutig identifiziert. Eine inhaltliche Auslegung erfordert juristische Subsumtion oder zusätzlichen Kontext.\n\n` +
                `*Autoritative Suche ergab keine auslegungsfähigen Textstellen.*`,
-      
-      BGB: `**${statuteName} ${paragraphRef}**\n\n` +
+
+      BGB: `**${normRef}**\n\n` +
            `Die Vorschrift wurde identifiziert. Eine konkrete inhaltliche Würdigung erfordert die Prüfung von Rechtsprechung oder Literatur.\n\n` +
            `*Der autoritative Suchdienst konnte keine unmittelbar auslegungsfähigen Passagen extrahieren.*`,
-      
-      GG: `**${statuteName} ${paragraphRef}**\n\n` +
+
+      GG: `**${normRef}**\n\n` +
           `Der Verfassungsartikel wurde bestimmt. Die Auslegung von Grundrechten erfordert stets die Berücksichtigung der Rechtsprechung des Bundesverfassungsgerichts.\n\n` +
           `*Die autoritative Suche ergab keine unmittelbar synthetisierbaren Textstellen.*`
     };
@@ -365,50 +368,38 @@ class ChatService {
   
   shouldUseDoctrinalEarlyExit(authority) {
     if (!authority) return false;
-    
-    // Check for multiple doctrine indicators
-    const isDoctrinalQuestion = 
-      authority.classification?.type === 'DOCTRINE' ||
-      authority.question_type === 'DOCTRINE' ||
-      authority.question_type === 'GENERAL_DOCTRINE' ||
-      authority.doctrinal_match === true ||
-      (authority.anchorNormMode && authority.epistemicCertainty === 'uncertain');
-    
-    const isConfirmed = 
-      authority.epistemicCertainty === 'confirmed' || 
+
+    // ONLY genuine doctrine question types trigger early-exit.
+    // anchorNormMode+uncertain was incorrectly routing DEFINITION/GENERAL questions
+    // (which have no specific paragraph) to the doctrine endpoint.
+    const DOCTRINAL_TYPES = new Set([
+      'DOCTRINE', 'GENERAL_DOCTRINE', 'LEGAL_PRINCIPLE', 'GRUNDSATZ', 'PRINCIPLE', 'DOCTRINAL_ANALYSIS'
+    ]);
+
+    const isDoctrinalQuestion =
+      DOCTRINAL_TYPES.has(authority.classification?.type) ||
+      DOCTRINAL_TYPES.has(authority.question_type) ||
+      authority.doctrinal_match === true;
+
+    if (!isDoctrinalQuestion) {
+      // DEFINITION, GENERAL, FACTUAL, GENERAL_INFORMATION, STATUTE_OVERVIEW etc.
+      // must go through normal retrieval, not doctrine early-exit.
+      return false;
+    }
+
+    const isConfirmed =
+      authority.epistemicCertainty === 'confirmed' ||
       authority.epistemic_certainty === 'confirmed';
-    
-    const isAnchorNormMode = 
-      authority.anchorNormMode === true || 
+
+    const isAnchorNormMode =
+      authority.anchorNormMode === true ||
       authority.anchor_norm_mode === true;
-    
-    // 🔴 CRITICAL ADDITION: Check for statute-only doctrine
-    const isStatuteOnlyDoctrine = 
-      authority.retrieval?.constraint === 'STATUTE_ONLY' &&
-      authority.isStatuteLocked === true &&
-      authority.isParagraphLocked === false &&
-      isDoctrinalQuestion;
-    
-    // CRITICAL FIX: Doctrine + anchor mode is enough (don't require confirmed)
-    if (isDoctrinalQuestion && isAnchorNormMode) {
-      console.log(`✅ [Doctrine Early-Exit] Triggered: doctrine=${isDoctrinalQuestion}, anchor=${isAnchorNormMode}, confirmed=${isConfirmed}`);
+
+    if (isDoctrinalQuestion && (isAnchorNormMode || isConfirmed)) {
+      console.log(`✅ [Doctrine Early-Exit] Triggered: type=${authority.question_type}, anchor=${isAnchorNormMode}, confirmed=${isConfirmed}`);
       return true;
     }
-    
-    // Also trigger if highly certain about doctrine
-    if (isDoctrinalQuestion && isConfirmed) {
-      console.log(`✅ [Doctrine Early-Exit] Triggered: doctrine=${isDoctrinalQuestion}, confirmed=${isConfirmed}`);
-      return true;
-    }
-    
-    // 🔴 NEW: Trigger for statute-only doctrine
-    if (isStatuteOnlyDoctrine) {
-      console.log(`✅ [Doctrine Early-Exit] Triggered: statute-only doctrine question`);
-      console.log(`   Retrieval constraint: ${authority.retrieval?.constraint}`);
-      console.log(`   Statute locked: ${authority.isStatuteLocked}, Paragraph locked: ${authority.isParagraphLocked}`);
-      return true;
-    }
-    
+
     return false;
   }
 
@@ -427,7 +418,14 @@ class ChatService {
         suggested_field: authority.suggestedField || authority.doctrinal_field,
         epistemic_certainty: authority.epistemicCertainty
       });
-      
+
+      // When the doctrine endpoint finds a known doctrine and doctrinal_match is set,
+      // the content is authoritative — promote certainty so callers skip uncertainty warnings.
+      if (doctrineResult?.doctrine_found === true && authority.doctrinal_match === true) {
+        authority.epistemicCertainty = 'confirmed';
+        console.log(`✅ [Doctrine] doctrine_found + doctrinal_match → epistemicCertainty promoted to 'confirmed'`);
+      }
+
       return doctrineResult;
     } catch (error) {
       console.error(`⚠️ Doctrine induction failed: ${error.message}`);
@@ -484,9 +482,11 @@ class ChatService {
   
   generateDoctrinalAnswer(doctrineResult, authority, question) {
     const statuteName = this.getStatuteDisplayName(authority.statute);
-    const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§ ${authority.paragraph}`;
-    
-    let answer = `**${statuteName} ${paragraphRef}**\n\n`;
+    const paragraphRef = authority.paragraph
+      ? (authority.isArticle ? `Artikel ${authority.paragraph}` : `§ ${authority.paragraph}`)
+      : '';
+
+    let answer = `**${statuteName}${paragraphRef ? ` ${paragraphRef}` : ''}**\n\n`;
     
     if (doctrineResult.doctrinal_summary) {
       answer += doctrineResult.doctrinal_summary;
@@ -812,9 +812,13 @@ class ChatService {
     let authority = null;
     let authorityLock = { __locked: false };
     let pythonAuthorityError = null;
-    
+
+    // Map UI language code to the language string used by the Python service
+    const _lang = context.language || 'de';
+    const languageStr = _lang === 'de' ? 'german' : 'english';
+
     try {
-      console.log(`\n🧠 Processing with EPISTEMIC AUTHORITY: "${question}"`);
+      console.log(`\n🧠 Processing with EPISTEMIC AUTHORITY: "${question}" [lang=${languageStr}]`);
       
       // STEP 1: Get all documents
       const allDocuments = documentService.getAllDocuments();
@@ -1005,16 +1009,22 @@ class ChatService {
           if (authorityResult.authority.doctrinal_match !== undefined) {
             authority.doctrinal_match = authorityResult.authority.doctrinal_match;
           }
-          
+
+          // Python uses camelCase epistemicCertainty; snake_case is a fallback alias
           if (authorityResult.authority.epistemicCertainty) {
             authority.epistemicCertainty = authorityResult.authority.epistemicCertainty;
-          }
-          
-          if (authorityResult.authority.epistemic_certainty) {
+          } else if (authorityResult.authority.epistemic_certainty) {
             authority.epistemicCertainty = authorityResult.authority.epistemic_certainty;
           }
+
+          if (authorityResult.authority.suggestedField) {
+            authority.suggestedField = authorityResult.authority.suggestedField;
+          }
           
-          if (authorityResult.authority.anchor_norm_mode !== undefined) {
+          // Python uses camelCase (anchorNormMode); guard against snake_case alias too
+          if (authorityResult.authority.anchorNormMode !== undefined) {
+            authority.anchorNormMode = authorityResult.authority.anchorNormMode;
+          } else if (authorityResult.authority.anchor_norm_mode !== undefined) {
             authority.anchorNormMode = authorityResult.authority.anchor_norm_mode;
           }
           
@@ -1195,7 +1205,19 @@ class ChatService {
             console.log(`✅ Overview mode: statute ${authority.statute} without paragraph is allowed`);
             return false;
           }
-          
+
+          // General definition questions (e.g. "Was ist Schadensersatz?") arrive with
+          // anchorNormMode=true but no specific paragraph. When authority_mode is
+          // undefined or 'fallback', Python has identified a statute anchor but not a
+          // paragraph — this is intentional and must not block the response.
+          const isUndefinedOrFallbackMode =
+            !authority.authority_mode || authority.authority_mode === 'fallback';
+          if (isUndefinedOrFallbackMode && authority.anchorNormMode === true) {
+            console.log(`✅ [Anchor Norm Mode] Statute-only anchor for general question — paragraph not required`);
+            console.log(`   authority_mode: ${authority.authority_mode || 'undefined'}, anchorNormMode: ${authority.anchorNormMode}`);
+            return false;
+          }
+
           console.log(`⚠️ Statute ${authority.statute} found but paragraph missing in mode ${authority.authority_mode}`);
           return true;
         }
@@ -1318,7 +1340,7 @@ class ChatService {
                 metadata: {
                   documentsUsed: 1,
                   processingTime: 0,
-                  language: "german",
+                  language: languageStr,
                   exactParagraphMatch: false,
                   textInclusionMatch: true,
                   chunksUsed: 1,
@@ -1405,7 +1427,7 @@ class ChatService {
             metadata: {
               documentsUsed: 1,
               processingTime: 0,
-              language: "german",
+              language: languageStr,
               exactParagraphMatch: true,
               chunksUsed: 1,
               safetyPassed: true,
@@ -1446,7 +1468,9 @@ class ChatService {
       if (classification.type === 'DOCTRINE' || authority.question_type === 'GENERAL_DOCTRINE') {
         console.log(`⚖️ Doctrine question detected - separate path`);
         
-        if (authority.epistemicCertainty === 'confirmed') {
+        // doctrinal_match=true means Python already confirmed this is a settled doctrine;
+        // its content is authoritative regardless of the pre-call epistemicCertainty value.
+        if (authority.epistemicCertainty === 'confirmed' || authority.doctrinal_match === true) {
           const result = await this.handleConfirmedDoctrine(question, authority);
           return resultFormatter.formatResponse(result, authority);
         } else {
@@ -1666,7 +1690,11 @@ class ChatService {
         
         // This is a doctrinal question that needs special handling
         if (authority.question_type === 'GENERAL_DOCTRINE' || authority.doctrinal_match) {
-          const result = await this.handleUnconfirmedDoctrine(question, authority);
+          // doctrinal_match=true → authoritative content, no uncertainty warning
+          const handler = authority.doctrinal_match
+            ? this.handleConfirmedDoctrine.bind(this)
+            : this.handleUnconfirmedDoctrine.bind(this);
+          const result = await handler(question, authority);
           return resultFormatter.formatResponse(result, authority);
         }
         
@@ -1682,7 +1710,7 @@ class ChatService {
         question,
         allDocuments,
         {
-          language: "german",
+          language: languageStr,
           authority: authority,
           classification: classification,
           python_results: pythonResults
@@ -1764,7 +1792,7 @@ class ChatService {
           metadata: {
             documentsUsed: ragResponse.documentsUsed || 0,
             processingTime: ragResponse.metadata?.processingTime || 0,
-            language: "german",
+            language: languageStr,
             exactParagraphMatch: ragResponse.metadata?.exactParagraphMatch || false,
             chunksUsed: ragResponse.metadata?.chunksUsed || 0,
             safetyPassed: safetyValidation.isLegallySound,

@@ -231,33 +231,45 @@ class FormatNormalizer:
         else:
             patterns = english_patterns
         
+        # Amendment/legislative-history patterns to strip from paragraph body text.
+        # These appear in PDFs from gesetze-im-internet.de and carry no norm content.
+        _amendment_patterns = [
+            re.compile(r'^\(\+\+\+'),                          # (+++ ... lines
+            re.compile(r'\bG\s+v\.\s+\d{1,2}\.\d{1,2}\.\d{4}\s+I\s+\d', re.IGNORECASE),  # G v. DD.MM.YYYY I NNN
+            re.compile(r'\bmWv\s+\d{1,2}\.\d{1,2}\.\d{4}', re.IGNORECASE),               # mWv DD.MM.YYYY
+            re.compile(r'\bgem\.\s+Art\.\s+\d', re.IGNORECASE),                            # gem. Art. NNN
+        ]
+
+        def _is_amendment_line(line: str) -> bool:
+            return any(p.search(line) for p in _amendment_patterns)
+
         paragraphs = []
         current_paragraph = None
         current_text = []
-        
+
         lines = content.split('\n')
-        
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-                
+
             # Check if line contains a paragraph header
             is_header = False
             paragraph_id = None
-            
+
             for pattern in patterns:
                 match = re.search(pattern, line, re.IGNORECASE)
                 if match:
                     is_header = True
                     paragraph_id = match.group(1).strip()
-                    
+
                     # Clean up paragraph ID
                     paragraph_id = re.sub(r'§\s*', '', paragraph_id)
                     paragraph_id = re.sub(r'(Artikel|Article|Art\.?|Section)\s+', '', paragraph_id, flags=re.IGNORECASE)
                     paragraph_id = paragraph_id.strip()
                     break
-            
+
             if is_header and paragraph_id:
                 # Save previous paragraph if exists
                 if current_paragraph is not None and current_text:
@@ -266,20 +278,20 @@ class FormatNormalizer:
                         'text': ' '.join(current_text),
                         'word_count': len(' '.join(current_text).split())
                     })
-                
+
                 # Start new paragraph
                 current_paragraph = paragraph_id
                 current_text = []
-                
+
                 # Remove the header from line and keep rest
                 for pattern in patterns:
                     line = re.sub(pattern, '', line, flags=re.IGNORECASE)
                 line = line.strip()
-                if line:
+                if line and not _is_amendment_line(line):
                     current_text.append(line)
             else:
-                # Continue current paragraph
-                if current_paragraph is not None:
+                # Continue current paragraph — skip amendment metadata lines
+                if current_paragraph is not None and not _is_amendment_line(line):
                     current_text.append(line)
         
         # Add the last paragraph

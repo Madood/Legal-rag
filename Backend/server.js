@@ -2,12 +2,19 @@
 
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
 const dotenv = require("dotenv");
 const fs = require("fs");
 const path = require("path");
 const pdfDocumentService = require("./services/ingestion/pdfDocumentService");
 // Load environment variables
 dotenv.config();
+
+// Connect to MongoDB
+const { connectDB } = require("./config/db");
+connectDB();
 
 console.log("🚀 Starting German Legal RAG Backend...");
 console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
@@ -24,13 +31,60 @@ directories.forEach((dir) => {
 
 const app = express();
 
-// Middleware
+// Security: HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", process.env.PYTHON_SERVICE_URL || "http://localhost:8000"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Security: CORS
 app.use(cors({
   origin: process.env.FRONTEND_URL || "http://localhost:3000",
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Language", "X-Session-ID"],
 }));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Security: Rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: "Too many requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "Too many auth attempts, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/", generalLimiter);
+app.use("/api/auth/", authLimiter);
+
+// Body parsing with safe limits
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10kb", parameterLimit: 100 }));
+
+// Security: Sanitize MongoDB query operators from user input
+app.use(mongoSanitize({
+  replaceWith: "_",
+  onSanitize: ({ req, key }) => {
+    console.warn(`⚠️ NoSQL injection attempt blocked on key: ${key}`);
+  },
+}));
 
 // Serve static files
 app.use("/documents", express.static(path.join(__dirname, "documents")));
@@ -93,6 +147,13 @@ setTimeout(() => {
 }, 1000);
 
 // ==================== ROUTES ====================
+
+// Auth routes
+const authRoutes = require("./routes/authRoutes");
+app.use("/api/auth", authRoutes);
+
+// Token middleware
+const { authenticate, checkTokens, deductTokens } = require("./middleware/tokenMiddleware");
 
 // Health check
 app.get("/api/health", async (req, res) => {
@@ -223,8 +284,9 @@ app.post("/api/documents/search", (req, res) => {
 });
 
 // Chat endpoint - ask questions about documents
-app.post("/api/chat/query", async (req, res) => {
+app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
   const { question } = req.body;
+  const lang = req.headers['x-language'] || 'de';
 
   if (!question) {
     return res.status(400).json({
@@ -234,9 +296,18 @@ app.post("/api/chat/query", async (req, res) => {
   }
 
   try {
-    const response = await chatService.processQuestion(question);
+    const response = await chatService.processQuestion(question, { language: lang });
 
     if (response.success) {
+      // Deduct tokens after successful response (fire-and-forget, skip if DB unavailable)
+      if (req.user) {
+        deductTokens(req.user, req._tokenCost || 1, {
+          statute: response.data?.statute || null,
+          doctrineLevel: response.data?.doctrineLevel || null,
+          aiUsed: response.data?.aiUsed || false,
+          crossStatute: response.data?.crossStatute || false,
+        });
+      }
       res.json(response);
     } else {
       res.status(500).json(response);
@@ -286,11 +357,27 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+    // Sanitize filename: allow only safe characters
+    const safeExt = path.extname(file.originalname).replace(/[^.a-zA-Z0-9]/g, "");
+    cb(null, file.fieldname + "-" + uniqueSuffix + safeExt);
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max
+    files: 1,
+    fields: 10,
+    fieldSize: 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== "application/pdf") {
+      return cb(new Error("Only PDF files are allowed"), false);
+    }
+    cb(null, true);
+  },
+});
 
 app.post("/api/documents/upload", upload.single("document"), (req, res) => {
   if (!req.file) {
@@ -487,6 +574,17 @@ app.get("/", (req, res) => {
       chatExample: 'curl -X POST http://localhost:5000/api/chat/query -H "Content-Type: application/json" -d \'{"question": "Was ist Eigentum gemäß BGB?"}\'',
     },
   });
+});
+
+// Error handler for multer and general errors
+app.use((err, req, res, next) => {
+  if (err && err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ success: false, error: "File too large. Maximum 50MB allowed." });
+  }
+  if (err && err.message === "Only PDF files are allowed") {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+  next(err);
 });
 
 const PORT = process.env.PORT || 5000;

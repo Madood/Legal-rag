@@ -4,6 +4,7 @@ import { FileText, ChevronRight, ChevronDown, MapPin, Loader2 } from 'lucide-rea
 import { ScrollArea } from '../../../ui/scroll-area';
 import { Badge } from '../../../ui/badge';
 import { Document } from '../../../../services/api';
+import { useTranslation } from '../../../../i18n';
 import './DocumentSidebar.css';
 
 interface Section {
@@ -22,6 +23,7 @@ interface DocumentSidebarProps {
 export function DocumentSidebar({ onCitationClick, documents, isLoading }: DocumentSidebarProps) {
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const { t } = useTranslation();
 
   const toggleDocument = (docId: string) => {
     const newExpanded = new Set(expandedDocs);
@@ -63,11 +65,11 @@ export function DocumentSidebar({ onCitationClick, documents, isLoading }: Docum
     return (
       <div className="document-sidebar">
         <div className="sidebar-header">
-          <h2 className="sidebar-title">Dokumente</h2>
+          <h2 className="sidebar-title">{t('sidebar.documents')}</h2>
         </div>
         <div className="loading-container">
           <Loader2 className="animate-spin" />
-          <p>Lade Dokumente...</p>
+          <p>{t('sidebar.loading')}</p>
         </div>
       </div>
     );
@@ -76,9 +78,9 @@ export function DocumentSidebar({ onCitationClick, documents, isLoading }: Docum
   return (
     <div className="document-sidebar">
       <div className="sidebar-header">
-        <h2 className="sidebar-title">Dokumente</h2>
+        <h2 className="sidebar-title">{t('sidebar.documents')}</h2>
         <p className="sidebar-subtitle">
-          {documents.length} Dokumente geladen
+          {documents.length} {t('sidebar.loaded')}
         </p>
       </div>
 
@@ -106,7 +108,7 @@ export function DocumentSidebar({ onCitationClick, documents, isLoading }: Docum
                     </p>
                     <div className="document-badges">
                       <Badge variant="secondary" className="document-badge">
-                        {doc.pages} Seiten
+                        {doc.pages} {t('sidebar.pages')}
                       </Badge>
                       <Badge 
                         variant={doc.type === 'civil_code' ? 'default' : 'outline'}
@@ -136,7 +138,7 @@ export function DocumentSidebar({ onCitationClick, documents, isLoading }: Docum
                             <p className="section-title">
                               {section.title}
                             </p>
-                            <p className="section-page">Seite {section.page}</p>
+                            <p className="section-page">{t('sidebar.page')} {section.page}</p>
                           </div>
                         </button>
 
@@ -167,9 +169,9 @@ export function DocumentSidebar({ onCitationClick, documents, isLoading }: Docum
 
           {documents.length === 0 && (
             <div className="empty-documents">
-              <p>Keine Dokumente geladen</p>
+              <p>{t('sidebar.noDocuments')}</p>
               <p className="empty-documents-hint">
-                Laden Sie PDFs hoch, um mit der rechtlichen Recherche zu beginnen.
+                {t('sidebar.uploadHint')}
               </p>
             </div>
           )}

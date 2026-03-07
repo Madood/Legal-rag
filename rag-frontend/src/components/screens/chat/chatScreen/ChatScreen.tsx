@@ -8,6 +8,10 @@ import { Textarea } from '../../../ui/textarea';
 import { useChat } from '../../../../hooks/useChat';
 import { useDocuments } from '../../../../hooks/useDocuments';
 import { Citation } from '../../../../services/api';
+import { useTranslation } from '../../../../i18n';
+import { GuestBanner } from '../../../Auth/GuestBanner';
+import { LoginModal } from '../../../Auth/LoginModal';
+import { useAuth } from '../../../../context/AuthContext';
 import './ChatScreen.css';
 
 // Local Message interface that matches what MessageCard expects
@@ -19,11 +23,16 @@ interface Message {
   timestamp: Date;
 }
 
+type TokenErrorCode = 'TOKEN_EXHAUSTED' | 'SESSION_LIMIT' | 'AUTH_REQUIRED';
+
 export function ChatScreen() {
   const [input, setInput] = useState('');
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [tokenModalReason, setTokenModalReason] = useState<TokenErrorCode | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
+  const { refreshUser } = useAuth();
 
   const { 
     messages: chatMessages,
@@ -56,16 +65,23 @@ export function ChatScreen() {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || isStreaming) return;
-
-    // Clear any previous errors
     setErrorMessage(null);
 
     try {
-      // Ask question with streaming
       await askQuestion(input, true);
       setInput('');
+      // Refresh token balance after a successful query
+      refreshUser();
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to send message');
+      const status = err?.response?.status;
+      const code = err?.response?.data?.code as TokenErrorCode | undefined;
+      if (status === 402 && code) {
+        setTokenModalReason(code);
+      } else if (status === 401) {
+        setTokenModalReason('AUTH_REQUIRED');
+      } else {
+        setErrorMessage(err.message || 'Failed to send message');
+      }
     }
   };
 
@@ -98,7 +114,15 @@ export function ChatScreen() {
   };
 
   return (
+    <>
+    {tokenModalReason && (
+      <LoginModal
+        reason={tokenModalReason}
+        onClose={() => setTokenModalReason(null)}
+      />
+    )}
     <div className="chat-screen">
+      <GuestBanner />
       {/* Sidebar - 30% */}
       <div className="chat-sidebar">
         <DocumentSidebar 
@@ -127,11 +151,11 @@ export function ChatScreen() {
               onClick={handleNewConversation}
               disabled={isStreaming}
             >
-              New Chat
+              {t('chat.newChat')}
             </Button>
             {documents.length > 0 && (
               <span className="text-xs text-gray-500">
-                {documents.length} docs loaded
+                {documents.length} {t('chat.docsLoaded')}
               </span>
             )}
           </div>
@@ -142,14 +166,14 @@ export function ChatScreen() {
           <div className="error-banner">
             <AlertCircle className="h-4 w-4" />
             <p>{errorMessage || (error as Error)?.message || 'An error occurred'}</p>
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setErrorMessage(null);
               }}
             >
-              Dismiss
+              {t('chat.dismiss')}
             </Button>
           </div>
         )}
@@ -162,18 +186,18 @@ export function ChatScreen() {
                 <div className="empty-chat-logo">
                   <span className="logo-text">LR</span>
                 </div>
-                <h3 className="empty-chat-title">Willkommen bei LegalRAG</h3>
+                <h3 className="empty-chat-title">{t('chat.welcome')}</h3>
                 <p className="empty-chat-subtitle">
-                  Stellen Sie Ihre rechtliche Frage und erhalten Sie präzise Antworten mit zitierten Quellen.
+                  {t('chat.welcomeSubtitle')}
                 </p>
                 <div className="empty-chat-stats">
-                  <p>{documents.length} Dokumente geladen</p>
-                  <p>{isStreaming ? 'Antwort wird generiert...' : 'Bereit für Ihre Frage'}</p>
+                  <p>{documents.length} {t('chat.docsLoaded')}</p>
+                  <p>{isStreaming ? t('chat.streaming') : t('chat.ready')}</p>
                 </div>
                 {documents.length === 0 && (
                   <div className="empty-chat-warning">
                     <AlertCircle className="h-4 w-4" />
-                    <p>Keine Dokumente geladen. Bitte laden Sie Dokumente hoch, um Fragen zu stellen.</p>
+                    <p>{t('chat.noDocumentsWarning')}</p>
                   </div>
                 )}
               </div>
@@ -192,14 +216,14 @@ export function ChatScreen() {
               {isStreaming && (
                 <div className="streaming-indicator">
                   <Loader2 className="animate-spin h-4 w-4" />
-                  <span>Antwort wird generiert...</span>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <span>{t('chat.streaming')}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={cancelStream}
                     disabled={!isStreaming}
                   >
-                    Stop
+                    {t('chat.stop')}
                   </Button>
                 </div>
               )}
@@ -216,14 +240,14 @@ export function ChatScreen() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Stellen Sie Ihre rechtliche Frage..."
+              placeholder={t('chat.placeholder')}
               className="chat-textarea"
-              disabled={isLoading || isStreaming || documents.length === 0}
+              disabled={isLoading || isStreaming}
               rows={3}
             />
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || isLoading || isStreaming || documents.length === 0}
+              disabled={!input.trim() || isLoading || isStreaming}
               className="send-button"
               size="icon"
             >
@@ -236,16 +260,17 @@ export function ChatScreen() {
           </div>
           <div className="input-hint">
             <p className="text-xs text-gray-500">
-              Drücken Sie Enter zum Senden, Shift+Enter für neue Zeile
+              {t('chat.enterToSend')}
             </p>
             <p className="text-xs text-gray-500">
-              {documents.length > 0 
-                ? `${documents.length} Dokumente stehen für die Suche zur Verfügung`
-                : 'Keine Dokumente geladen. Bitte laden Sie zuerst Dokumente hoch.'}
+              {documents.length > 0
+                ? `${documents.length} ${t('chat.docsAvailable')}`
+                : t('chat.noDocumentsWarning')}
             </p>
           </div>
         </div>
       </div>
     </div>
+    </>
   );
 }

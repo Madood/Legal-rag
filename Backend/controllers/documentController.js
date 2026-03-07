@@ -439,22 +439,28 @@ exports.processDocument = async (req, res, next) => {
 exports.getAllDocuments = async (req, res, next) => {
   try {
     const userId = req.user._id;
-    const { 
-      page = 1, 
-      limit = 10, 
-      status, 
-      documentType,
-      sortBy = 'uploadedAt',
+    const {
+      page = 1,
+      limit = 10,
       sortOrder = 'desc'
     } = req.query;
 
+    // Whitelist to prevent NoSQL injection via sort key or filter value
+    const ALLOWED_SORT_FIELDS = ['uploadedAt', 'updatedAt', 'filename', 'size'];
+    const ALLOWED_STATUSES = ['uploaded', 'processing', 'processed', 'failed'];
+    const ALLOWED_DOC_TYPES = ['civil_code', 'commercial_code', 'constitution', 'data_protection', 'legal_code', 'legal_document'];
+
+    const sortBy = ALLOWED_SORT_FIELDS.includes(req.query.sortBy) ? req.query.sortBy : 'uploadedAt';
+    const status = ALLOWED_STATUSES.includes(req.query.status) ? req.query.status : undefined;
+    const documentType = ALLOWED_DOC_TYPES.includes(req.query.documentType) ? req.query.documentType : undefined;
+
     // Build query
     const query = { uploadedBy: userId };
-    
+
     if (status) {
       query.status = status;
     }
-    
+
     if (documentType) {
       query['metadata.documentType'] = documentType;
     }
@@ -713,16 +719,20 @@ exports.searchDocuments = async (req, res, next) => {
       documentFilter._id = { $in: documentIds };
     }
 
-    // Add legal filters if provided
-    if (jurisdiction) {
+    // Whitelist legal filter values to prevent NoSQL injection
+    const ALLOWED_JURISDICTIONS = ['DE', 'EU', 'Germany (Federal)', 'European Union', 'Germany'];
+    const ALLOWED_STATUTES = ['BGB', 'HGB', 'GG', 'STGB', 'StGB', 'ZPO', 'StPO', 'AO', 'VwVfG', 'EU-GDPR', 'DSGVO'];
+    const ALLOWED_DOC_TYPES_SEARCH = ['civil_code', 'commercial_code', 'constitution', 'data_protection', 'legal_code', 'legal_document'];
+
+    if (jurisdiction && ALLOWED_JURISDICTIONS.includes(String(jurisdiction))) {
       documentFilter['metadata.jurisdiction'] = jurisdiction;
     }
-    
-    if (statute) {
-      documentFilter['metadata.statute'] = statute;
+
+    if (statute && ALLOWED_STATUTES.includes(String(statute).toUpperCase())) {
+      documentFilter['metadata.statute'] = String(statute).toUpperCase();
     }
-    
-    if (documentType) {
+
+    if (documentType && ALLOWED_DOC_TYPES_SEARCH.includes(String(documentType))) {
       documentFilter['metadata.documentType'] = documentType;
     }
 

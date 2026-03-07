@@ -14,13 +14,15 @@ export const createApiClient = (): AxiosInstance => {
     },
   });
 
-  // Request interceptor for auth token
+  // Request interceptor for auth token and language
   instance.interceptors.request.use(
     (config) => {
       const token = localStorage.getItem('auth_token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+      const lang = localStorage.getItem('app_language') || 'de';
+      config.headers['X-Language'] = lang;
       return config;
     },
     (error) => {
@@ -35,7 +37,14 @@ export const createApiClient = (): AxiosInstance => {
       console.error('API Error:', error.response?.data || error.message);
       
       if (error.response?.status === 401) {
-        window.location.href = '/login';
+        // Don't redirect when the 401 comes from an auth endpoint itself
+        // (failed login / wrong password) — let the form handle it
+        const url = error.config?.url || '';
+        const onAuthPage = ['/login', '/signup'].includes(window.location.pathname);
+        const isAuthCall = url.includes('/auth/');
+        if (!isAuthCall && !onAuthPage) {
+          window.location.href = '/login';
+        }
       }
       
       return Promise.reject(error);

@@ -2,7 +2,7 @@ import re
 import numpy as np
 import faiss
 import chromadb
-import pickle
+import json
 import os
 from typing import List, Dict, Any, Optional, Tuple
 import logging
@@ -40,20 +40,205 @@ CANONICAL_DOCTRINES = {
 # Lowercase lookup for detection
 SETTLED_DOCTRINES = set(CANONICAL_DOCTRINES.keys())
 
-# ⭐⭐ FIX 2: STATUTE CHAIN DEFINITIONS
+# ⭐⭐ FIX 2: STATUTE CHAIN DEFINITIONS (extended)
 STATUTE_CHAINS = {
     "BGB": {
-        "119": ["121", "122"],  # §119 always requires §121 and §122
-        "433": ["434", "437", "440"],  # Kaufvertrag chain
-        "823": ["826", "249", "253"],  # Deliktsrecht chain
-        "985": ["986", "987", "1004"],  # Eigentum chain
+        "119": ["121", "122"],        # Anfechtung chain
+        "433": ["434", "437", "440"], # Kaufvertrag chain
+        "823": ["826", "249", "253"], # Deliktsrecht chain
+        "985": ["986", "987", "1004"],# Eigentum chain
+        "195": ["197", "199"],        # Verjährung chain
+        "286": ["288", "280", "249"], # Verzug chain
+        "241": ["242", "243"],        # Schuldverhältnis chain
+        "626": ["627", "628"],        # Kündigung chain
+        "1564": ["1565", "1566", "1567", "1568", "1569"], # Scheidung chain
+        "631": ["632", "633", "634"], # Werkvertrag chain
+        "535": ["536", "537", "543"], # Mietvertrag chain
+        "280": ["281", "282", "283", "284"], # Schadensersatz chain
+        "346": ["347", "348"],        # Rücktritt chain
+        "313": ["314"],               # Störung der Geschäftsgrundlage
     },
     "StGB": {
-        "211": ["212", "213"],  # Mord chain
-        "223": ["224", "226"],  # Körperverletzung chain
-        "242": ["243", "244"],  # Diebstahl chain
+        "211": ["212", "213"],        # Mord/Totschlag chain
+        "223": ["224", "226", "227"], # Körperverletzung chain
+        "242": ["243", "244", "248b"],# Diebstahl chain
+        "263": ["264", "265"],        # Betrug chain
+        "249": ["250", "251", "252"], # Raub chain
+        "303": ["304", "305"],        # Sachbeschädigung chain
+        "185": ["186", "187", "188"], # Beleidigung chain
+        "13": ["14", "15", "16"],     # Unterlassen chain
+        "20": ["21"],                 # Schuldunfähigkeit chain
+        "32": ["33", "34", "35"],     # Rechtfertigungsgründe chain
+    },
+    "HGB": {
+        "377": ["378", "379", "380"], # Rügepflicht chain
+        "343": ["344", "345"],        # Kaufmann chain
+        "48": ["49", "50", "51"],     # Prokura chain
+        "84": ["85", "86", "87"],     # Handelsvertreter chain
+        "161": ["162", "163"],        # KG chain
+        "105": ["106", "107"],        # OHG chain
+        "230": ["231", "232"],        # Stille Gesellschaft
+        "407": ["408", "409"],        # Frachtvertrag chain
+        "425": ["426", "427"],        # Haftung Frachtführer
     }
 }
+
+# Extended cross-reference maps for semantic enrichment
+BGB_CROSS_REFERENCES = {
+    "119": ["121", "122", "142", "143"],  # Anfechtung: Frist, Schaden, Wirkung, Bestätigung
+    "433": ["434", "435", "437", "439", "440", "441", "442", "443"],  # Kauf
+    "275": ["276", "277", "278", "280"],  # Leistungsstörung
+    "280": ["281", "282", "283", "284", "285", "286"],  # Schadensersatz
+    "823": ["826", "249", "253", "254"],  # Delikt
+    "985": ["986", "987", "988", "989", "1004"],  # Vindikation
+    "195": ["196", "197", "198", "199", "200"],  # Verjährung §§195-200
+    "1564": ["1565", "1566", "1567", "1568", "1569", "1570", "1571", "1572",
+             "1573", "1574", "1575", "1576", "1577", "1578", "1579", "1580",
+             "1581", "1582", "1583", "1584", "1585", "1586", "1587", "1588"],  # Scheidung
+    "242": ["157", "241"],  # Treu und Glauben chain
+    "346": ["347", "348", "349", "350", "351", "352", "353", "354"],  # Rücktritt
+    "535": ["536", "537", "538", "539", "540", "541", "542", "543"],  # Miete
+    "631": ["632", "633", "634", "635", "636", "637", "638", "639"],  # Werkvertrag
+}
+
+STGB_CROSS_REFERENCES = {
+    "211": ["212", "213", "214", "216"],  # Töten
+    "223": ["224", "225", "226", "227", "228", "229", "230"],  # Körperverletzung
+    "242": ["243", "244", "244a", "247", "248a", "248b", "248c"],  # Diebstahl
+    "263": ["264", "264a", "265", "265a", "265b", "266", "267"],  # Betrug
+    "249": ["250", "251"],  # Raub
+    "185": ["186", "187", "188", "189", "190", "191", "192", "193", "194"],  # Beleidigung
+    "32": ["33", "34", "35"],  # Notwehr/Notstand
+    "20": ["21", "17", "16"],  # Schuld
+    "13": ["14"],  # Begehen durch Unterlassen
+    "25": ["26", "27", "28", "29", "30"],  # Täterschaft/Teilnahme
+}
+
+HGB_CROSS_REFERENCES = {
+    "377": ["378", "379", "380", "381"],  # Rüge/Handelskauf
+    "343": ["344", "345", "346", "347", "348", "349", "350"],  # Kaufmann/Handelsrecht
+    "48": ["49", "50", "51", "52", "53", "54", "55", "56", "57", "58"],  # Prokura/Vollmacht
+    "84": ["85", "86", "86a", "87", "87a", "87b", "87c", "88", "89", "89a", "89b"],  # Handelsvertreter
+    "105": ["106", "107", "108", "109", "110", "111", "112", "113"],  # OHG
+    "161": ["162", "163", "164", "165", "166", "167", "168", "169", "170",
+            "171", "172", "173", "174", "175", "176", "177"],  # KG
+    "407": ["408", "409", "410", "411", "412", "413", "414", "415", "416",
+            "417", "418", "419", "420", "421", "422", "423", "424"],  # Frachtvertrag
+    "425": ["426", "427", "428", "429", "430", "431", "432"],  # Haftung Frachtführer
+}
+
+
+# ===========================================================================
+# FIX 1: RANGE EXPANSION
+# ===========================================================================
+
+def expand_section_range(query: str) -> List[str]:
+    """
+    Parse range patterns from a query and return all paragraph numbers in range.
+
+    Handles:
+        §§ 195-197     → ["195", "196", "197"]
+        §§195–197      → ["195", "196", "197"]
+        §§ 195 bis 197 → ["195", "196", "197"]
+        § 195 ff.      → ["195", "196", "197", "198", "199", "200"]  (next 5)
+        § 195 f.       → ["195", "196"]  (immediately following)
+
+    Returns empty list if no range pattern found.
+    """
+    results: List[str] = []
+
+    # §§ NNN-MMM  or  §§ NNN–MMM  (double-§, dash or en-dash)
+    m = re.search(r'§§\s*(\d+)\s*[-–]\s*(\d+)', query)
+    if m:
+        start, end = int(m.group(1)), int(m.group(2))
+        if start <= end and (end - start) <= 50:  # sanity cap: max 50 paragraphs
+            return [str(n) for n in range(start, end + 1)]
+
+    # §§ NNN bis MMM
+    m = re.search(r'§§\s*(\d+)\s+bis\s+(\d+)', query, re.IGNORECASE)
+    if m:
+        start, end = int(m.group(1)), int(m.group(2))
+        if start <= end and (end - start) <= 50:
+            return [str(n) for n in range(start, end + 1)]
+
+    # § NNN ff. (folgende — forward references, expand 5 ahead)
+    m = re.search(r'§\s*(\d+)\s+ff\.?', query, re.IGNORECASE)
+    if m:
+        start = int(m.group(1))
+        return [str(n) for n in range(start, start + 6)]
+
+    # § NNN f. (immediately following — just the next one)
+    m = re.search(r'§\s*(\d+)\s+f\.(?!\s*f)', query, re.IGNORECASE)
+    if m:
+        start = int(m.group(1))
+        return [str(start), str(start + 1)]
+
+    return results
+
+
+# ===========================================================================
+# FIX 3: QUERY INTENT DETECTION
+# ===========================================================================
+
+def detect_query_intent(query: str) -> Dict:
+    """
+    Classify the query to determine retrieval strategy.
+
+    Returns a dict with:
+        intent:       "single" | "multi" | "range" | "comparative"
+        paragraphs:   List[str]  — all paragraph numbers involved
+        statute_hint: Optional[str] — statute detected from query
+        range_str:    Optional[str] — raw range string (e.g. "§§195-197")
+    """
+    query_lower = query.lower()
+
+    # 1. RANGE: §§195-197 or §§ 195 bis 197 or § 195 ff.
+    range_paragraphs = expand_section_range(query)
+    if range_paragraphs:
+        return {
+            "intent": "range",
+            "paragraphs": range_paragraphs,
+            "statute_hint": None,
+            "range_str": query,
+        }
+
+    # 2. COMPARATIVE: "Unterschied zwischen § X und § Y" / "vergleich" / "vs" / "versus"
+    comparative_signals = [
+        "unterschied", "vergleich", "verglichen", "vs", "versus",
+        "gegenüber", "im vergleich", "unterscheiden", "abgrenzung",
+        "difference between", "compare", "contrast", "versus",
+    ]
+    is_comparative = any(sig in query_lower for sig in comparative_signals)
+
+    # Collect all single § references
+    single_re = re.compile(r'§\s*(\d+[a-z]?)', re.IGNORECASE)
+    all_refs = [ParagraphNormalizer.normalize_paragraph(r) for r in single_re.findall(query)]
+    unique_refs = list(dict.fromkeys(all_refs))  # preserve order, deduplicate
+
+    if is_comparative and len(unique_refs) >= 2:
+        return {
+            "intent": "comparative",
+            "paragraphs": unique_refs[:4],  # cap at 4 sections
+            "statute_hint": None,
+            "range_str": None,
+        }
+
+    # 3. MULTI: multiple § references without comparative language
+    if len(unique_refs) >= 2:
+        return {
+            "intent": "multi",
+            "paragraphs": unique_refs[:6],  # cap at 6 sections
+            "statute_hint": None,
+            "range_str": None,
+        }
+
+    # 4. SINGLE: zero or one § reference
+    return {
+        "intent": "single",
+        "paragraphs": unique_refs[:1] if unique_refs else [],
+        "statute_hint": None,
+        "range_str": None,
+    }
 
 # NEW: Paragraph normalization utility
 class ParagraphNormalizer:
@@ -383,55 +568,55 @@ class FAISSStore(VectorStore):
         """Save FAISS index - SIMPLE VERSION for Windows"""
         try:
             save_path = os.path.join(self.indices_dir, f"{index_name}.faiss")
-            metadata_path = os.path.join(self.indices_dir, f"{index_name}_meta.pkl")
-            
+            metadata_path = os.path.join(self.indices_dir, f"{index_name}_meta.json")
+
             # ⭐⭐ FIX: Check if index can be saved
             if self.index is None or self.index.ntotal == 0:
                 print(f"⚠️ No vectors to save for {index_name}")
                 return False
-            
+
             # Save FAISS index
             faiss.write_index(self.index, save_path)
-            
-            # Save metadata
-            with open(metadata_path, 'wb') as f:
-                pickle.dump({
+
+            # Save metadata as JSON (safe alternative to pickle)
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump({
                     "metadata": self.metadata,
                     "ids": self.ids,
                     "dimension": self.dimension
                 }, f)
-            
+
             logger.info(f"Saved FAISS index to {save_path}")
             return True
-            
+
         except Exception as e:
             print(f"⚠️ Could not save FAISS index {index_name}: {e}")
             print("   Using in-memory index only (Windows FAISS limitation)")
             return False
-    
+
     def load(self, index_name: str):
         """Load FAISS index - SIMPLE VERSION for Windows"""
         try:
             save_path = os.path.join(self.indices_dir, f"{index_name}.faiss")
-            metadata_path = os.path.join(self.indices_dir, f"{index_name}_meta.pkl")
-            
+            metadata_path = os.path.join(self.indices_dir, f"{index_name}_meta.json")
+
             if not os.path.exists(save_path) or not os.path.exists(metadata_path):
                 print(f"ℹ️ No existing index found: {index_name}")
                 return False
-            
+
             # Load FAISS index
             self.index = faiss.read_index(save_path)
-            
-            # Load metadata
-            with open(metadata_path, 'rb') as f:
-                data = pickle.load(f)
+
+            # Load metadata from JSON (safe, no code execution)
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
                 self.metadata = data["metadata"]
                 self.ids = data["ids"]
                 self.dimension = data["dimension"]
-            
+
             logger.info(f"Loaded FAISS index from {save_path}")
             return True
-            
+
         except Exception as e:
             print(f"⚠️ Could not load FAISS index {index_name}: {e}")
             print("   Creating new index instead")
@@ -473,17 +658,34 @@ class RetrievalService:
     
     def _try_load_existing_statute_indices(self):
         """
-        Try to load existing statute indices on startup
+        Scan the indices directory for *_index.faiss files and load every one.
+        Replaces the old hardcoded list so any ingested statute is auto-discovered.
+        load_statute_indices(statute) uses statute.lower() internally for the
+        filename, so we always pass the UPPERCASE canonical name here.
         """
-        print("🔍 Looking for existing statute indices on startup...")
-        
-        # Check for BGB index
-        if self.load_statute_indices("BGB"):
-            print("✅ Loaded BGB index on startup")
-            self.indices_loaded = True
-        # Check for StGB index
-        elif self.load_statute_indices("StGB"):
-            print("✅ Loaded StGB index on startup")
+        print("🔍 Scanning for existing statute indices on startup...")
+        indices_dir = self.vector_store.indices_dir
+        loaded_any = False
+        try:
+            files = os.listdir(indices_dir)
+        except FileNotFoundError:
+            print("ℹ️ Indices directory not found")
+            self.indices_loaded = False
+            return
+
+        for fname in sorted(files):
+            if not fname.endswith("_index.faiss"):
+                continue
+            # Derive canonical uppercase statute name from filename
+            # e.g. "bgb_index.faiss" → "BGB"
+            statute = fname.replace("_index.faiss", "").upper()
+            if statute == "LEGAL":   # skip the empty legacy placeholder
+                continue
+            if self.load_statute_indices(statute):
+                print(f"✅ Loaded {statute} index on startup")
+                loaded_any = True
+
+        if loaded_any:
             self.indices_loaded = True
         else:
             print("ℹ️ No statute indices found on startup")
@@ -1120,7 +1322,7 @@ class RetrievalService:
                     continue
                 
                 # Check statute match
-                if meta.get("statute") != statute:
+                if meta.get("statute", "").upper() != statute.upper():
                     continue
                 
                 # FIX 2: Use paragraph_base for normalization matching
@@ -1232,7 +1434,15 @@ class RetrievalService:
                         "paragraph": None,
                         "query_type": "statute_overview",
                         "total_norms_returned": len(overview_results),
-                        "has_real_norms": len(overview_results) > 0
+                        "has_real_norms": len(overview_results) > 0,
+                        # Forward resolver flags so Node can handle statute-only queries correctly
+                        "anchorNormMode": authority_result.get("anchorNormMode", False),
+                        "isStatuteLocked": authority_result.get("isStatuteLocked", False),
+                        "isParagraphLocked": authority_result.get("isParagraphLocked", False),
+                        "question_type": authority_result.get("question_type", "GENERAL"),
+                        "doctrinal_match": authority_result.get("doctrinal_match", False),
+                        "suggestedField": authority_result.get("suggestedField"),
+                        "epistemicCertainty": authority_result.get("epistemicCertainty", "uncertain"),
                     },
                     "authority_validation": {
                         "status": "valid" if len(overview_results) > 0 else "no_norms",
@@ -1265,9 +1475,9 @@ class RetrievalService:
                     "authority_validation": {"status": "no_statute"}
                 }
             
-            # ⭐⭐ FIX 2: EXPAND RETRIEVAL WITH STATUTE CHAINS
-            related_paragraphs = self._get_statute_chain_paragraphs(statute, paragraph)
-            print(f"📚 Statute chain for {statute} §{paragraph}: {related_paragraphs}")
+            # FIX 1+2+3: Unified expansion — range, multi, comparative, or chain
+            related_paragraphs = self._expand_query_paragraphs(query, statute, paragraph)
+            print(f"📚 Expanded paragraphs for {statute} §{paragraph}: {related_paragraphs}")
             
             # Apply source authority filtering if documents provided AND resolver exists
             allowed_documents = []
@@ -1320,6 +1530,13 @@ class RetrievalService:
                 )
                 all_paragraph_results = general_results
         
+        # ===========================================================================
+        # STEP 3b: Apply keyword boost to non-strict semantic results
+        # (exact paragraph matches already have score=1.0 and don't need boosting)
+        # ===========================================================================
+        if not strict_mode:
+            all_paragraph_results = self._apply_keyword_boost(all_paragraph_results, query)
+
         # ===========================================================================
         # STEP 4: Combine and apply authority filtering
         # ===========================================================================
@@ -1469,6 +1686,10 @@ class RetrievalService:
                 "paragraph_strict_success": strict_mode and len(authority_enhanced_results) > 0,
                 "paragraph_normalization_applied": strict_mode,
                 "doctrine_enforced": bool(doctrine_results and doctrine_results.get("status") == "applied"),
+                # Anchor norm mode — forwarded from authority resolver so Node can detect statute-only queries
+                "anchorNormMode": authority_result.get("anchorNormMode", False),
+                "isStatuteLocked": authority_result.get("isStatuteLocked", False),
+                "isParagraphLocked": authority_result.get("isParagraphLocked", False),
                 # 🔴🔴🔴 EXPLICIT SEPARATION MARKERS (FIX 5)
                 "doctrinal_template": doctrinal_template,
                 "legal_hierarchy": "statutory",  # Always statutory for non-doctrinal questions
@@ -1554,6 +1775,139 @@ class RetrievalService:
         print(f"❌ PARAGRAPH-STRICT ERROR: {message}")
         return error_response
     
+    # ===========================================================================
+    # § NUMBER KEYWORD BOOSTING
+    # ===========================================================================
+
+    _QUERY_PARA_RE = re.compile(r'§\s*(\d+[a-z]?)', re.IGNORECASE)
+
+    # Legal doctrine / concept terms that contribute to keyword boost when found
+    # in both query and chunk content
+    _LEGAL_KEYWORDS = [
+        'garantenstellung', 'mordmerkmale', 'tatbestand', 'rechtswidrigkeit',
+        'schuld', 'vorsatz', 'fahrlässigkeit', 'täterschaft', 'notwehr',
+        'notstand', 'unterlassen', 'beihilfe', 'anstiftung', 'mittäterschaft',
+        'willenserklärung', 'anfechtung', 'schadensersatz', 'kaufvertrag',
+        'rügepflicht', 'handelskauf', 'haftung', 'eigentum',
+    ]
+
+    def _extract_query_paragraph_refs(self, query: str) -> List[str]:
+        """
+        Return normalised paragraph numbers explicitly cited in the query.
+        Now handles range patterns (§§195-197) via expand_section_range().
+        """
+        # FIX 1: Check for range patterns first
+        range_refs = expand_section_range(query)
+        if range_refs:
+            return range_refs
+
+        # Fall back to individual § references
+        refs = self._QUERY_PARA_RE.findall(query)
+        return [ParagraphNormalizer.normalize_paragraph(r) for r in refs]
+
+    def _apply_keyword_boost(self, results: List[Dict], query: str) -> List[Dict]:
+        """
+        Post-FAISS hybrid boost:
+          score = 0.7 × vector_similarity + 0.3 × keyword_boost
+
+        keyword_boost = 1.0 when the result's paragraph_base matches an
+        explicit § reference in the query, or 0.5 when a legal doctrine
+        keyword appears in both query and chunk content, else 0.0.
+
+        The original 'score' is preserved as 'vector_score'.
+        """
+        if not results:
+            return results
+
+        query_lower = query.lower()
+        query_para_refs = self._extract_query_paragraph_refs(query)
+        query_keywords = [kw for kw in self._LEGAL_KEYWORDS if kw in query_lower]
+
+        boosted = []
+        for result in results:
+            para_base = result.get("paragraph_base", "") or ParagraphNormalizer.normalize_paragraph(
+                result.get("paragraph", ""))
+            content_lower = result.get("content", "").lower()
+            vector_score = result.get("score", 0.0)
+
+            # Paragraph-number boost (hard match)
+            if query_para_refs and para_base in query_para_refs:
+                keyword_boost = 1.0
+            # Soft boost: legal keyword present in both query and chunk
+            elif query_keywords and any(kw in content_lower for kw in query_keywords):
+                keyword_boost = 0.5
+            else:
+                keyword_boost = 0.0
+
+            hybrid_score = 0.7 * vector_score + 0.3 * keyword_boost
+
+            boosted.append({
+                **result,
+                "vector_score": vector_score,
+                "keyword_boost": keyword_boost,
+                "score": hybrid_score,
+            })
+
+        boosted.sort(key=lambda x: x["score"], reverse=True)
+        return boosted
+
+    def _expand_query_paragraphs(self, query: str, statute: str, paragraph: Optional[str]) -> List[str]:
+        """
+        FIX 1+2+3: Unified paragraph expansion combining intent detection,
+        range expansion, and statute chain lookup.
+
+        Priority:
+          1. Range pattern in query   → expand range (§§195-197)
+          2. Comparative / multi refs → use all cited paragraphs
+          3. Statute chain            → chain expansion for single paragraph
+          4. Single paragraph         → [paragraph]
+        """
+        intent_info = detect_query_intent(query)
+        intent = intent_info["intent"]
+
+        if intent == "range":
+            print(f"📐 RANGE intent: {intent_info['paragraphs']}")
+            return intent_info["paragraphs"]
+
+        if intent in ("comparative", "multi") and intent_info["paragraphs"]:
+            print(f"🔀 {intent.upper()} intent: {intent_info['paragraphs']}")
+            return intent_info["paragraphs"]
+
+        # Single paragraph — use chain expansion
+        if paragraph:
+            return self._get_statute_chain_paragraphs(statute, paragraph)
+
+        return []
+
+    def enrich_paragraph_metadata(self, doc: Dict, statute: str) -> Dict:
+        """
+        FIX 4: Enrich a paragraph document with cross-reference metadata.
+        Called during indexing to add semantic relationship data.
+        """
+        para_base = doc.get("paragraph_base") or ParagraphNormalizer.normalize_paragraph(
+            doc.get("paragraph", ""))
+
+        cross_ref_map = {
+            "BGB": BGB_CROSS_REFERENCES,
+            "STGB": STGB_CROSS_REFERENCES,
+            "HGB": HGB_CROSS_REFERENCES,
+        }.get(statute.upper(), {})
+
+        related = cross_ref_map.get(para_base, [])
+
+        # Also check if this paragraph IS a target in any chain
+        is_chain_target = False
+        for src, targets in cross_ref_map.items():
+            if para_base in targets:
+                is_chain_target = True
+                related = list(dict.fromkeys([src] + related))  # add source
+                break
+
+        doc["cross_references"] = related[:10]  # cap to 10
+        doc["is_chain_target"] = is_chain_target
+        doc["has_cross_references"] = len(related) > 0
+        return doc
+
     def _get_statute_chain_paragraphs(self, statute: str, paragraph: str) -> List[str]:
         """
         ⭐⭐ FIX 2: Get related paragraphs in statutory chain
@@ -1615,7 +1969,7 @@ class RetrievalService:
             }
         
         statutory_count = sum(1 for r in real_norms if r.get("is_statutory", False))
-        statute_compliance = sum(1 for r in real_norms if r.get("metadata", {}).get("statute") == statute) / len(real_norms)
+        statute_compliance = sum(1 for r in real_norms if r.get("metadata", {}).get("statute", "").upper() == statute.upper()) / len(real_norms)
         
         validation = {
             "status": "valid" if statute_compliance > 0.7 else "partial",
@@ -1746,7 +2100,7 @@ class RetrievalService:
         
         base_score = metadata.get("authority_score", 0.5)
         is_normative = metadata.get("is_normative", False)
-        statute_match = metadata.get("statute", "") == target_statute
+        statute_match = metadata.get("statute", "").upper() == target_statute.upper()
         doc_type = metadata.get("document_type", "other")
         is_real = metadata.get("is_real_legal_content", False)
         
@@ -1873,11 +2227,11 @@ class RetrievalService:
             # Check if this is REAL legal content
             if not meta.get("is_real_legal_content", True):
                 continue  # Skip fake/test content
-            
-            # Check statute match
-            if meta.get("statute") != statute:
+
+            # Check statute match (case-insensitive: metadata stores "STGB", resolver returns "StGB")
+            if meta.get("statute", "").upper() != statute.upper():
                 continue
-            
+
             # FIX 2: Use paragraph_base for matching
             meta_paragraph_base = meta.get("paragraph_base", "")
             if not meta_paragraph_base:
@@ -1952,11 +2306,13 @@ class RetrievalService:
                     result["authority_score"] = max(result["authority_score"], 0.9)
                 
                 real_semantic_results.append(result)
-            
-            return real_semantic_results[:k]
-        
+
+            # Apply keyword boost to semantic results before returning
+            boosted = self._apply_keyword_boost(real_semantic_results, query)
+            return boosted[:k]
+
         return []
-    
+
     def search_with_validation(self, query: str, statute: str, paragraph: str, 
                               k: int = 10, paragraphSource: str = "explicit",
                               authority_constraints: Optional[Dict] = None,
@@ -2106,7 +2462,7 @@ class RetrievalService:
             for meta in all_metadata:
                 if not meta.get("is_real_legal_content", True):
                     continue
-                if meta.get("statute") != statute:
+                if meta.get("statute", "").upper() != statute.upper():
                     continue
                 
                 # Use paragraph_base for matching
@@ -2348,33 +2704,38 @@ class RetrievalService:
         return results
     
     def _calculate_legal_relevance(self, result: Dict) -> float:
-        """Calculate legal relevance score"""
-        score = result["score"]
-        metadata = result["metadata"]
-        
-        # CRITICAL FIX: Use boolean paragraph presence, not similarity
+        """
+        FIX 5: Calculate legal relevance score.
+        Never returns 0.0 for ingested documents — minimum floor of 0.05
+        so relevance is never displayed as "0%".
+        """
+        score = result.get("score", 0.0)
+        metadata = result.get("metadata", {})
+
         is_normative = metadata.get("is_normative", False)
-        has_paragraph = metadata.get("has_paragraph", False)
-        is_real = metadata.get("is_real_legal_content", True)
-        
+        has_paragraph = bool(metadata.get("paragraph") or metadata.get("paragraph_base"))
+        is_real = metadata.get("is_real_legal_content", True)  # default True for ingested docs
+
+        # FIX 5: Penalise but never zero-out non-real content
         if not is_real:
-            return 0.0
-        
+            return max(score * 0.1, 0.05)
+
         if is_normative:
-            score *= 1.5
+            score = score * 1.5
         elif has_paragraph:
-            score *= 1.2
-        
+            score = score * 1.2
+
         # Boost for statute match
         if metadata.get("statute"):
-            score *= 1.05
-        
-        # Penalize very short content
+            score = score * 1.05
+
+        # Penalize very short content (but never to zero)
         content = metadata.get("content", "")
         if len(content.split()) < 10:
-            score *= 0.8
-        
-        return min(score, 1.0)
+            score = score * 0.8
+
+        # FIX 5: Minimum floor — never 0%
+        return max(min(score, 1.0), 0.05)
     
     # ===========================================================================
     # UPDATED PERSISTENCE METHODS

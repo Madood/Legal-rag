@@ -150,13 +150,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# Configure CORS — restrict to known backend origins only
+_default_origins = "http://localhost:5000,http://localhost:3000"
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "*").split(","),
+    allow_origins=[o.strip() for o in _allowed_origins],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization", "X-Language", "X-Session-ID", "X-Node-Service"],
 )
 
 # ===========================================================================
@@ -181,14 +183,15 @@ api_router = None  # Keep this for compatibility with existing code
 try:
     # Import from our services package which handles multiple locations
     from app.services import (
-        resolve_authority, 
-        get_available_statutes, 
+        resolve_authority,
+        get_available_statutes,
         get_doctrine_explanation,
         validate_answer,
         compare_hierarchy,
         get_metrics,
         AUTHORITY_AVAILABLE
     )
+    from app.services.doctrine_induction.ai_fallback import get_ai_doctrine_explanation
     
     if AUTHORITY_AVAILABLE:
         print("✅ Legal Authority Service imported successfully (lazy-loaded from registry)")
@@ -230,8 +233,10 @@ try:
     
     @authority_router.get("/doctrine/{doctrine_name}")
     async def doctrine_endpoint(doctrine_name: str, language: str = "german"):
-        """Get doctrine/principle explanation"""
+        """Get doctrine/principle explanation (hardcoded dict → AI fallback → 404)"""
         explanation = get_doctrine_explanation(doctrine_name, language)
+        if not explanation:
+            explanation = await get_ai_doctrine_explanation(doctrine_name, language)
         if not explanation:
             raise HTTPException(status_code=404, detail=f"Doctrine '{doctrine_name}' not found")
         return explanation
