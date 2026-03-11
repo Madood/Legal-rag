@@ -1,8 +1,12 @@
 import re
 import numpy as np
 import faiss
-import chromadb
 import json
+
+try:
+    import chromadb
+except ImportError:
+    chromadb = None  # type: ignore
 import os
 from typing import List, Dict, Any, Optional, Tuple
 import logging

@@ -5,11 +5,21 @@ Fixed based on critical correctness analysis.
 
 import numpy as np
 import faiss
-import chromadb
-from chromadb.config import Settings
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 import os
+
+# Optional backends — imported lazily to avoid hard startup failures
+try:
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+except ImportError:
+    chromadb = None  # type: ignore
+    ChromaSettings = None  # type: ignore
+
+try:
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+except ImportError:
+    QdrantClient = None  # type: ignore
 import json
 from typing import List, Dict, Any, Optional, Tuple, Union
 import logging
@@ -263,7 +273,7 @@ class ChromaStore(BaseVectorStore):
             persist_directory = os.path.join(self.index_path, "chroma")
             os.makedirs(persist_directory, exist_ok=True)
             
-            self.client = chromadb.Client(Settings(
+            self.client = chromadb.Client(ChromaSettings(
                 chroma_db_impl="duckdb+parquet",
                 persist_directory=persist_directory
             ))
