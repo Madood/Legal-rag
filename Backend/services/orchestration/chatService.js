@@ -3,11 +3,12 @@ const ragService = require("../retrieval/ragService");
 const safetyCheck = require("../validation/safetyCheck");
 const pythonIntegrationService = require("../retrieval/pythonIntegrationService");
 const resultFormatter = require("./resultFormatter");
+const axios = require("axios");
 
 class ChatService {
   constructor() {
     this.conversationHistory = [];
-    console.log('✅ ChatService initialized with EPISTEMIC AUTHORITY COMPLIANCE');
+    console.log('? ChatService initialized with EPISTEMIC AUTHORITY COMPLIANCE');
     
     // Bind methods
     this.structureAnswerWithDoctrinalTemplate = this.structureAnswerWithDoctrinalTemplate.bind(this);
@@ -20,12 +21,12 @@ class ChatService {
     this.isTerminalAuthority = this.isTerminalAuthority.bind(this);
     this.shouldBlockRagForFinalAuthority = this.shouldBlockRagForFinalAuthority.bind(this);
     this.generateAuthoritativeAbstentionResponse = this.generateAuthoritativeAbstentionResponse.bind(this);
-    // 🎯 NEW: Exact norm detector
+    // ?? NEW: Exact norm detector
     this.detectExactNormReference = this.detectExactNormReference.bind(this);
   }
 
   // ===========================================================================
-  // 🎯 EXACT NORM REFERENCE DETECTOR (NEW - CRITICAL FIX)
+  // ?? EXACT NORM REFERENCE DETECTOR (NEW - CRITICAL FIX)
   // ===========================================================================
 
   detectExactNormReference(question) {
@@ -34,19 +35,19 @@ class ChatService {
     // Patterns for German legal norm references
     const patterns = [
       // Pattern 1: § 325 HGB (with space)
-      /§\s*(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i,
-      
+      /§\s*(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo|gmbhg)/i,
+
       // Pattern 2: §325 HGB (no space)
-      /§(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i,
-      
+      /§(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo|gmbhg)/i,
+
       // Pattern 3: BGB § 325
-      /(bgb|stgb|hgb|gg|zpo|stpo)\s+§\s*(\d+[a-z]?)/i,
-      
-      // Pattern 4: Artikel 5 GG
-      /artikel\s+(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i,
-      
-      // Pattern 5: Art. 5 GG
-      /art\.?\s*(\d+[a-z]?)\s+(bgb|stgb|hgb|gg|zpo|stpo)/i
+      /(bgb|stgb|hgb|gg|zpo|stpo|gmbhg)\s+§\s*(\d+[a-z]?)/i,
+
+      // Pattern 4: Artikel 5 GG  (with optional "Absatz N")
+      /artikel\s+(\d+[a-z]?)(?:\s+(?:absatz|abs\.?)\s+\d+[a-z]?)?\s+(bgb|stgb|hgb|gg|zpo|stpo|gmbhg)/i,
+
+      // Pattern 5: Art. 5 GG  (with optional "Absatz N")
+      /art\.?\s*(\d+[a-z]?)(?:\s+(?:absatz|abs\.?)\s+\d+[a-z]?)?\s+(bgb|stgb|hgb|gg|zpo|stpo|gmbhg)/i
     ];
     
     for (const pattern of patterns) {
@@ -56,7 +57,7 @@ class ChatService {
         let statute, paragraph;
         let isArticle = false;
         
-        if (pattern.toString().includes('(bgb|stgb|hgb|gg|zpo|stpo)\\s+§')) {
+        if (pattern.toString().includes('(bgb|stgb|hgb|gg|zpo|stpo|gmbhg)\\s+§')) {
           // Pattern 3: BGB § 325
           statute = match[1].toUpperCase();
           paragraph = match[2];
@@ -71,7 +72,7 @@ class ChatService {
           statute = match[2].toUpperCase();
         }
         
-        console.log(`🎯 [Exact Norm Detector] Found: ${statute} §${paragraph} ${isArticle ? '(Article)' : ''}`);
+        console.log(`?? [Exact Norm Detector] Found: ${statute} §${paragraph} ${isArticle ? '(Article)' : ''}`);
         return {
           statute,
           paragraph,
@@ -86,7 +87,33 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🔴 CRITICAL FIX: PARAGRAPH NORMALIZATION HELPER
+  // HELPER: Format raw chunk content into a clean answer string
+  // Strips PDF boilerplate headers, limits length, adds statute label.
+  // ===========================================================================
+
+  formatChunkAsAnswer(rawContent, statute, paragraph, isArticle) {
+    const BOILERPLATE = [
+      /Ein Service des Bundesministerium[^\n]*/gi,
+      /sowie des Bundesamts für Justiz[^\n]*/gi,
+      /www\.gesetze-im-internet\.de[^\n]*/gi,
+      /- Seite \d+ von \d+ -/gi,
+      /Seite \d+ von \d+/gi,
+    ];
+
+    let cleaned = rawContent || '';
+    for (const pat of BOILERPLATE) cleaned = cleaned.replace(pat, '');
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+    const statuteName = this.getStatuteDisplayName(statute) || statute;
+    const ref = paragraph
+      ? `${isArticle ? 'Art.' : '§'} ${paragraph} ${statute}`
+      : statute;
+
+    return `**${statuteName} — ${ref}**\n\n${cleaned}\n\n*Diese Angaben stammen aus deutschen Rechtsdokumenten und ersetzen keine Rechtsberatung.*`;
+  }
+
+  // ===========================================================================
+  // ?? CRITICAL FIX: PARAGRAPH NORMALIZATION HELPER
   // ===========================================================================
 
   normalizeParagraph(value) {
@@ -116,7 +143,7 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🔴 CRITICAL FIX: EXTRACT PARAGRAPH FROM TEXT (German legal PDFs)
+  // ?? CRITICAL FIX: EXTRACT PARAGRAPH FROM TEXT (German legal PDFs)
   // ===========================================================================
 
   extractParagraphFromText(text) {
@@ -146,7 +173,7 @@ class ChatService {
     for (const pattern of patterns) {
       const match = first500Chars.match(pattern);
       if (match && match[1]) {
-        console.log(`📝 [Extract] Found paragraph ${match[1]} with pattern ${pattern}`);
+        console.log(`?? [Extract] Found paragraph ${match[1]} with pattern ${pattern}`);
         return `§${match[1]}`;
       }
     }
@@ -155,18 +182,18 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🔴 CRITICAL FIX: EXACT PARAGRAPH FINDER WITH TEXT EXTRACTION
+  // ?? CRITICAL FIX: EXACT PARAGRAPH FINDER WITH TEXT EXTRACTION
   // ===========================================================================
 
   findExactParagraph(allDocuments, statute, paragraph) {
     const normalizedAuthorityPara = this.normalizeParagraph(paragraph);
     
     if (!normalizedAuthorityPara) {
-      console.log(`❌ [Exact Mode] Cannot normalize paragraph: ${paragraph}`);
+      console.log(`? [Exact Mode] Cannot normalize paragraph: ${paragraph}`);
       return null;
     }
     
-    console.log(`🔍 [Exact Mode] Looking for ${statute} §${paragraph} (normalized: ${normalizedAuthorityPara})`);
+    console.log(`?? [Exact Mode] Looking for ${statute} §${paragraph} (normalized: ${normalizedAuthorityPara})`);
     
     // Track matches for debugging
     const potentialMatches = [];
@@ -202,7 +229,7 @@ class ChatService {
           
           // Check for match
           if (normalizedChunkPara === normalizedAuthorityPara) {
-            console.log(`✅ [Exact Mode] Found exact match!`);
+            console.log(`? [Exact Mode] Found exact match!`);
             console.log(`   Statute: ${statuteRaw}`);
             console.log(`   Paragraph: ${extractedPara}`);
             console.log(`   Normalized: ${normalizedChunkPara}`);
@@ -216,7 +243,7 @@ class ChatService {
         if (metaPara) {
           const normalizedMetaPara = this.normalizeParagraph(metaPara);
           if (normalizedMetaPara === normalizedAuthorityPara) {
-            console.log(`✅ [Exact Mode] Found in metadata!`);
+            console.log(`? [Exact Mode] Found in metadata!`);
             console.log(`   Statute: ${statuteRaw}`);
             console.log(`   Paragraph: ${metaPara}`);
             console.log(`   Normalized: ${normalizedMetaPara}`);
@@ -228,18 +255,18 @@ class ChatService {
     
     // Log what we found for debugging
     if (potentialMatches.length > 0) {
-      console.log(`📊 [Debug] Found ${potentialMatches.length} potential paragraphs in ${statute}:`);
+      console.log(`?? [Debug] Found ${potentialMatches.length} potential paragraphs in ${statute}:`);
       potentialMatches.slice(0, 10).forEach((match, i) => {
         console.log(`   ${i + 1}. ${match.paraRaw} (normalized: ${match.normalized})`);
       });
     }
     
-    console.log(`❌ [Exact Mode] No exact match found for ${statute} §${paragraph}`);
+    console.log(`? [Exact Mode] No exact match found for ${statute} §${paragraph}`);
     return null;
   }
 
   // ===========================================================================
-  // 🚨 TERMINAL AUTHORITY CHECK (NEW)
+  // ?? TERMINAL AUTHORITY CHECK (NEW)
   // ===========================================================================
   
   isTerminalAuthority(authority) {
@@ -256,13 +283,13 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🔒 AUTHORITY LOCK MECHANISM (NEW - FINAL FIX)
+  // ?? AUTHORITY LOCK MECHANISM (NEW - FINAL FIX)
   // ===========================================================================
   
   createAuthorityLock(authority) {
     if (!authority) return { __locked: false };
     
-    // 🟡 CLEANUP: Single point of truth for lock decision
+    // ?? CLEANUP: Single point of truth for lock decision
     const isLocked = 
       this.isTerminalAuthority(authority) ||
       authority.__empty_authoritative_result === true;
@@ -275,7 +302,7 @@ class ChatService {
     };
     
     if (isLocked) {
-      console.log(`🔒 [Authority Lock] Created LOCKED authority object:`, {
+      console.log(`?? [Authority Lock] Created LOCKED authority object:`, {
         statute: authority.statute,
         paragraph: authority.paragraph,
         authority_final: authority.authority_final,
@@ -289,7 +316,7 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🛡️ FINAL AUTHORITY GUARD (NEW)
+  // ??? FINAL AUTHORITY GUARD (NEW)
   // ===========================================================================
 
   shouldBlockRagForFinalAuthority(authority, pythonResults) {
@@ -308,7 +335,7 @@ class ChatService {
     const shouldBlock = isTerminal && isEmptyAuthoritativeResult;
     
     if (shouldBlock) {
-      console.log(`🛡️ [Final Authority Guard] RAG BLOCKED - Terminal authority with empty results`);
+      console.log(`??? [Final Authority Guard] RAG BLOCKED - Terminal authority with empty results`);
       console.log(`   Terminal Check: ${isTerminal}, Authority Final: ${authority.authority_final}`);
       console.log(`   Empty Results: ${isEmptyAuthoritativeResult}, Results Length: ${pythonResults.results?.length || 0}`);
       console.log(`   Authoritative Found: ${pythonResults.authoritative_found}`);
@@ -318,7 +345,7 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 📝 GENERATE AUTHORITATIVE ABSTENTION RESPONSE (NEW)
+  // ?? GENERATE AUTHORITATIVE ABSTENTION RESPONSE (NEW)
   // ===========================================================================
 
   generateAuthoritativeAbstentionResponse(authority, question) {
@@ -363,7 +390,7 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🔴 CRITICAL FIX: DOCTRINAL EARLY-EXIT CHECK - UPDATED FOR STATUTE-ONLY
+  // ?? CRITICAL FIX: DOCTRINAL EARLY-EXIT CHECK - UPDATED FOR STATUTE-ONLY
   // ===========================================================================
   
   shouldUseDoctrinalEarlyExit(authority) {
@@ -396,7 +423,7 @@ class ChatService {
       authority.anchor_norm_mode === true;
 
     if (isDoctrinalQuestion && (isAnchorNormMode || isConfirmed)) {
-      console.log(`✅ [Doctrine Early-Exit] Triggered: type=${authority.question_type}, anchor=${isAnchorNormMode}, confirmed=${isConfirmed}`);
+      console.log(`? [Doctrine Early-Exit] Triggered: type=${authority.question_type}, anchor=${isAnchorNormMode}, confirmed=${isConfirmed}`);
       return true;
     }
 
@@ -423,12 +450,12 @@ class ChatService {
       // the content is authoritative — promote certainty so callers skip uncertainty warnings.
       if (doctrineResult?.doctrine_found === true && authority.doctrinal_match === true) {
         authority.epistemicCertainty = 'confirmed';
-        console.log(`✅ [Doctrine] doctrine_found + doctrinal_match → epistemicCertainty promoted to 'confirmed'`);
+        console.log(`? [Doctrine] doctrine_found + doctrinal_match ? epistemicCertainty promoted to 'confirmed'`);
       }
 
       return doctrineResult;
     } catch (error) {
-      console.error(`⚠️ Doctrine induction failed: ${error.message}`);
+      console.error(`?? Doctrine induction failed: ${error.message}`);
       return null;
     }
   }
@@ -440,14 +467,14 @@ class ChatService {
   async enforcePythonDoctrine(question, authority) {
     // First check for doctrinal early-exit
     if (this.shouldUseDoctrinalEarlyExit(authority)) {
-      console.log(`🚀 [Doctrinal Early-Exit] Confirmed doctrine - immediate return`);
+      console.log(`?? [Doctrinal Early-Exit] Confirmed doctrine - immediate return`);
       return await this.callDoctrineInductionService(question, authority);
     }
     
     // Original logic for exact operative norms
     if (!authority?.statute || !authority?.paragraph) return null;
     
-    console.log(`🔒 [Doctrine Enforcement] Checking if exact operative norm: ${authority.statute} §${authority.paragraph}`);
+    console.log(`?? [Doctrine Enforcement] Checking if exact operative norm: ${authority.statute} §${authority.paragraph}`);
     
     const isExactOperativeNorm = 
       authority.authority_mode === 'exact' && 
@@ -456,23 +483,25 @@ class ChatService {
       (authority.normFunction === 'OPERATIVE' || !authority.normFunction);
     
     if (!isExactOperativeNorm) {
-      console.log(`ℹ️ [Doctrine] Not enforcing doctrine - mode: ${authority.authority_mode}, normFunction: ${authority.normFunction}`);
+      console.log(`?? [Doctrine] Not enforcing doctrine - mode: ${authority.authority_mode}, normFunction: ${authority.normFunction}`);
       return null;
     }
     
-    console.log(`🔒 [Doctrine Enforcement] Exact operative norm detected - calling Python doctrine`);
+    console.log(`?? [Doctrine Enforcement] Exact operative norm detected - calling Python doctrine`);
     
     try {
       const doctrineResult = await this.callDoctrineInductionService(question, authority);
-      
-      if (doctrineResult?.doctrinal_summary || doctrineResult?.answer) {
-        console.log(`✅ [Doctrine] Received doctrinal analysis from Python`);
+
+      // Only return the doctrine result when Python confirmed a specific doctrine match.
+      if (doctrineResult?.doctrine_found === true &&
+          (doctrineResult?.doctrinal_summary || doctrineResult?.answer)) {
+        console.log(`? [Doctrine] Received confirmed doctrinal analysis from Python`);
         return doctrineResult;
       }
     } catch (error) {
-      console.log(`⚠️ [Doctrine] Python doctrine call failed: ${error.message}`);
+      console.log(`?? [Doctrine] Python doctrine call failed: ${error.message}`);
     }
-    
+
     return null;
   }
 
@@ -515,41 +544,15 @@ class ChatService {
   }
 
   // ===========================================================================
-  // 🔴 CRITICAL FIX: RETRIEVAL WITH DOCTRINE GUARD & AUTHORITY LOCK
+  // ?? CRITICAL FIX: RETRIEVAL WITH DOCTRINE GUARD & AUTHORITY LOCK
   // ===========================================================================
   
   async retrieveDocumentsWithDoctrineGuard(question, authority, authorityLock, allDocuments, classification) {
     classification = classification || { type: 'GENERAL', domain: 'general' };
 
-    // 🔒 CRITICAL: Check authority lock first
-    if (authorityLock?.__locked === true) {
-      console.log(`🛑 [Authority Lock] retrieveDocumentsWithDoctrineGuard BLOCKED by authority lock`);
-      console.log(`   Lock Reason: ${authorityLock.__lockReason}`);
-      console.log(`   Statute: ${authorityLock.statute}, Paragraph: ${authorityLock.paragraph}`);
-      
-      safetyCheck.logSafetyEvent('AUTHORITY_LOCK_ENFORCED', {
-        question,
-        statute: authorityLock.statute,
-        paragraph: authorityLock.paragraph,
-        lock_reason: authorityLock.__lockReason,
-        lock_timestamp: authorityLock.__lockTimestamp,
-        method: 'retrieveDocumentsWithDoctrineGuard',
-        execution_blocked: true
-      });
-      
-      return {
-        results: [],
-        authoritative_found: false,
-        authority_summary: { 
-          locked: true,
-          terminal: true,
-          reason: 'authority_lock',
-          lock_details: authorityLock.__lockReason
-        },
-        authority_mode: authority.authority_mode
-      };
-    }
-    
+    // Note: authority lock is informational — we do not skip retrieval based on it.
+    // Retrieval must always be attempted so the RAG synthesis has real content.
+
     // Original doctrine guard logic
     const isDoctrinalQuestion = 
       classification?.type === 'DOCTRINE' ||
@@ -560,48 +563,44 @@ class ChatService {
       (authority?.anchor_norm_mode === true && authority?.epistemic_certainty === 'uncertain');
     
     if (isDoctrinalQuestion) {
-      console.log(`🚫 [Doctrine Guard] TF-IDF fallback disabled for doctrinal questions`);
-      console.log(`   Reason: classification=${classification?.type}, question_type=${authority?.question_type}, anchorNormMode=${authority?.anchorNormMode}, epistemicCertainty=${authority?.epistemicCertainty}`);
-      
-      safetyCheck.logSafetyEvent('DOCTRINE_GUARD_TRIGGERED', {
-        question,
-        classification_type: classification?.type,
-        question_type: authority?.question_type,
-        anchorNormMode: authority?.anchorNormMode,
-        epistemicCertainty: authority?.epistemicCertainty,
-        doctrinal_match: authority?.doctrinal_match
-      });
-      
-      return {
-        results: [],
-        authoritative_found: false,
-        authority_summary: { 
-          doctrine_mode: true, 
-          doctrine_detected: true,
-          reason: 'doctrinal_question_guard'
-        },
-        authority_mode: authority.authority_mode
-      };
+      // If the question also contains a specific § reference, still attempt retrieval.
+      // The doctrine guard should only block pure abstract-doctrine questions with no
+      // paragraph anchor, not concrete paragraph questions that happen to be classified DOCTRINE.
+      const hasSpecificParagraph = /§\s*\d+|art\.\s*\d+/i.test(question);
+      if (!hasSpecificParagraph) {
+        console.log(`?? [Doctrine Guard] Pure doctrinal question — skipping TF-IDF, using Python only`);
+        console.log(`   Reason: classification=${classification?.type}, question_type=${authority?.question_type}`);
+
+        safetyCheck.logSafetyEvent('DOCTRINE_GUARD_TRIGGERED', {
+          question,
+          classification_type: classification?.type,
+          question_type: authority?.question_type,
+          anchorNormMode: authority?.anchorNormMode,
+          epistemicCertainty: authority?.epistemicCertainty,
+          doctrinal_match: authority?.doctrinal_match
+        });
+
+        return {
+          results: [],
+          authoritative_found: false,
+          authority_summary: {
+            doctrine_mode: true,
+            doctrine_detected: true,
+            reason: 'doctrinal_question_guard'
+          },
+          authority_mode: authority.authority_mode
+        };
+      }
+      // Has specific paragraph — fall through to normal retrieval
+      console.log(`⬇️ [Doctrine Guard] Doctrinal question but has § reference — proceeding to retrieval`);
     }
 
-    // 🔴 CRITICAL: Skip retrieval for exact mode (direct paragraph access)
-    if (authority.authority_mode === 'exact' && authority.statute && authority.paragraph) {
-      console.log(`🎯 [Exact Mode] Skipping document retrieval - direct paragraph access`);
-      return {
-        results: [],
-        authoritative_found: true,
-        authority_summary: {
-          exact_mode: true,
-          statute: authority.statute,
-          paragraph: authority.paragraph
-        },
-        authority_mode: 'exact'
-      };
-    }
+    // Exact mode still needs retrieval — the paragraph number constrains the search
+    // but must not short-circuit it to empty results.
 
-    // Original retrieval logic for non-doctrinal questions
+    // Retrieval logic
     try {
-      console.log(`🤖 Using Python for authoritative retrieval (mode: ${authority.authority_mode})...`);
+      console.log(`?? Using Python for authoritative retrieval (mode: ${authority.authority_mode})...`);
       
       const preparedDocs = this.prepareDocumentsForPython(allDocuments);
       
@@ -624,7 +623,7 @@ class ChatService {
           authority_mode: authority.authority_mode
         };
       } else {
-        console.log(`⚠️ Python authoritative sources failed, using fallback`);
+        console.log(`?? Python authoritative sources failed, using fallback`);
         return {
           results: preparedDocs,
           authoritative_found: false,
@@ -634,7 +633,7 @@ class ChatService {
       }
       
     } catch (error) {
-      console.log(`⚠️ Python retrieval error: ${error.message}`);
+      console.log(`?? Python retrieval error: ${error.message}`);
       const isOverviewMode = authority.authority_mode === 'overview';
       return {
         results: isOverviewMode ? allDocuments : [],
@@ -650,14 +649,14 @@ class ChatService {
   // ===========================================================================
   
   calculateEpistemicConfidence(baseConfidence, authority, ragResponse = null) {
-    // 🔴 CRITICAL FIX: Exact mode = 1.0 confidence
+    // ?? CRITICAL FIX: Exact mode = 1.0 confidence
     if (authority.authority_mode === 'exact' && authority.statute && authority.paragraph) {
-      console.log(`🎯 [Exact Mode] Confidence overridden to 1.0`);
+      console.log(`?? [Exact Mode] Confidence overridden to 1.0`);
       return 1.0;
     }
     
     // Rule: IF epistemicCertainty == "confirmed" AND question_type == "DOCTRINE"
-    // → confidence = max(confidence, 0.9)
+    // ? confidence = max(confidence, 0.9)
     
     const isDoctrinalQuestion = authority.classification?.type === 'DOCTRINE' || 
                                authority.question_type === 'DOCTRINE' ||
@@ -668,7 +667,7 @@ class ChatService {
     
     if (isDoctrinalQuestion && isConfirmed) {
       const doctrinalConfidence = Math.max(baseConfidence, 0.9);
-      console.log(`🎯 [Confidence Override] Doctrinal question: ${doctrinalConfidence.toFixed(2)} (was: ${baseConfidence.toFixed(2)})`);
+      console.log(`?? [Confidence Override] Doctrinal question: ${doctrinalConfidence.toFixed(2)} (was: ${baseConfidence.toFixed(2)})`);
       return doctrinalConfidence;
     }
     
@@ -797,18 +796,182 @@ class ChatService {
     
     // Only add warning if there's an actual issue
     if (defensibility === 'LOW' || readiness === 'NEEDS_REVIEW') {
-      return answer + '\n\n⚠️ *Diese Antwort erfordert weitere rechtliche Prüfung.*';
+      return answer + '\n\n?? *Diese Antwort erfordert weitere rechtliche Prüfung.*';
     }
     
     return answer;
   }
 
   // ===========================================================================
-  // 🔴 CRITICAL FIX: MAIN PROCESSING FLOW WITH AUTHORITY LOCK & EXACT NORM DETECTION
+  // COMPARISON MODE — DeepSeek-powered dual retrieval + table synthesis
   // ===========================================================================
-  
+
+  async _callDeepSeek(messages, opts = {}) {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey || apiKey === 'your_deepseek_api_key_here') {
+      throw new Error('DEEPSEEK_API_KEY not configured');
+    }
+    const response = await axios.post(
+      'https://api.deepseek.com/v1/chat/completions',
+      {
+        model: 'deepseek-chat',
+        messages,
+        temperature: opts.temperature ?? 0,
+        ...(opts.json ? { response_format: { type: 'json_object' } } : {})
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: opts.timeout ?? 20000
+      }
+    );
+    return response.data.choices[0].message.content;
+  }
+
+  async handleComparisonQuestion(question, allDocuments, languageStr) {
+    console.log(`🔀 [Comparison] Entering comparison mode for: "${question.substring(0, 60)}"`);
+
+    // ── Step 1: Extract concepts ─────────────────────────────────────────────
+    let concepts;
+    try {
+      const extractionRaw = await this._callDeepSeek(
+        [
+          {
+            role: 'system',
+            content:
+              'Extract the two legal concepts being compared from the user question. ' +
+              'Return ONLY valid JSON with this exact shape (no markdown, no extra keys):\n' +
+              '{"concept1":{"term":"string","statute":"string","paragraph":"string|null"},' +
+              '"concept2":{"term":"string","statute":"string","paragraph":"string|null"}}\n' +
+              'Statute values must be one of: BGB, StGB, HGB, GG, ZPO, StPO, GmbHG.\n' +
+              'Example: "Kaufvertrag vs Werkvertrag" → ' +
+              '{"concept1":{"term":"Kaufvertrag","statute":"BGB","paragraph":"433"},' +
+              '"concept2":{"term":"Werkvertrag","statute":"BGB","paragraph":"631"}}'
+          },
+          { role: 'user', content: question }
+        ],
+        { json: true, timeout: 15000 }
+      );
+      concepts = JSON.parse(extractionRaw);
+    } catch (err) {
+      console.error('[Comparison] Concept extraction failed:', err.message);
+      return null; // Fall through to normal RAG
+    }
+
+    if (!concepts?.concept1?.statute || !concepts?.concept2?.statute) {
+      console.warn('[Comparison] Incomplete concept extraction — falling back to RAG');
+      return null;
+    }
+
+    console.log(
+      `🔀 [Comparison] concept1=${concepts.concept1.term} (${concepts.concept1.statute} §${concepts.concept1.paragraph || '?'})` +
+      ` | concept2=${concepts.concept2.term} (${concepts.concept2.statute} §${concepts.concept2.paragraph || '?'})`
+    );
+
+    // ── Step 2: Retrieve chunks for both concepts ─────────────────────────────
+    const makeAuthority = (concept) => ({
+      statute: concept.statute.toUpperCase(),
+      paragraph: concept.paragraph || null,
+      isArticle: false,
+      authority_mode: concept.paragraph ? 'exact' : 'overview',
+      anchorNormMode: !concept.paragraph,
+      isStatuteLocked: true,
+      isParagraphLocked: !!concept.paragraph,
+      requiresClarification: false,
+      confidence: 0.9,
+      referenceSource: 'comparison_extraction',
+      question_type: 'DOCTRINE'
+    });
+
+    let rag1, rag2;
+    try {
+      [rag1, rag2] = await Promise.all([
+        ragService.generateResponse(concepts.concept1.term, allDocuments, {
+          language: languageStr,
+          authority: makeAuthority(concepts.concept1)
+        }),
+        ragService.generateResponse(concepts.concept2.term, allDocuments, {
+          language: languageStr,
+          authority: makeAuthority(concepts.concept2)
+        })
+      ]);
+    } catch (err) {
+      console.error('[Comparison] RAG retrieval failed:', err.message);
+      return null;
+    }
+
+    // ── Step 3: Synthesize comparison ─────────────────────────────────────────
+    const c1Label = `${concepts.concept1.term} (${concepts.concept1.statute}${concepts.concept1.paragraph ? ' §' + concepts.concept1.paragraph : ''})`;
+    const c2Label = `${concepts.concept2.term} (${concepts.concept2.statute}${concepts.concept2.paragraph ? ' §' + concepts.concept2.paragraph : ''})`;
+
+    const userContent =
+      `Question: ${question}\n\n` +
+      `--- ${c1Label} ---\n${rag1.answer || '(no content)'}\n\n` +
+      `--- ${c2Label} ---\n${rag2.answer || '(no content)'}`;
+
+    let comparisonAnswer;
+    try {
+      comparisonAnswer = await this._callDeepSeek(
+        [
+          {
+            role: 'system',
+            content:
+              'You are a German legal assistant. Compare the two provided legal concepts ' +
+              'using ONLY the statute text provided below. Do not add information not present.\n\n' +
+              'Structure your answer exactly as:\n\n' +
+              '**[Concept 1] (§ X)**\n' +
+              '- Definition:\n- Key obligations:\n- Risk/liability:\n\n' +
+              '**[Concept 2] (§ X)**\n' +
+              '- Definition:\n- Key obligations:\n- Risk/liability:\n\n' +
+              '**Key Differences:**\n' +
+              '| Criteria | Concept 1 | Concept 2 |\n' +
+              '|---|---|---|\n' +
+              '| Definition | ... | ... |\n' +
+              '| Obligations | ... | ... |\n' +
+              '| Liability | ... | ... |'
+          },
+          { role: 'user', content: userContent }
+        ],
+        { temperature: 0.1, timeout: 30000 }
+      );
+    } catch (err) {
+      console.error('[Comparison] Synthesis failed:', err.message);
+      return null;
+    }
+
+    // ── Step 4: Return structured response ────────────────────────────────────
+    const sources = [
+      ...(rag1.citations || []),
+      ...(rag2.citations || [])
+    ];
+
+    return {
+      success: true,
+      data: {
+        answer: comparisonAnswer,
+        sources,
+        confidence: 0.85,
+        statute: null,
+        paragraph: null,
+        metadata: {
+          comparison_mode: true,
+          concept1: concepts.concept1,
+          concept2: concepts.concept2,
+          language: languageStr,
+          documentsUsed: (rag1.documentsUsed || 0) + (rag2.documentsUsed || 0)
+        }
+      }
+    };
+  }
+
+  // ===========================================================================
+  // ?? CRITICAL FIX: MAIN PROCESSING FLOW WITH AUTHORITY LOCK & EXACT NORM DETECTION
+  // ===========================================================================
+
   async processQuestion(question, context = {}) {
-    // 🔴 CRITICAL FIX: Declare authorityLock at TOP LEVEL (FIXED SCOPE BUG)
+    // ?? CRITICAL FIX: Declare authorityLock at TOP LEVEL (FIXED SCOPE BUG)
     let authority = null;
     let authorityLock = { __locked: false };
     let pythonAuthorityError = null;
@@ -818,8 +981,26 @@ class ChatService {
     const languageStr = _lang === 'de' ? 'german' : 'english';
 
     try {
-      console.log(`\n🧠 Processing with EPISTEMIC AUTHORITY: "${question}" [lang=${languageStr}]`);
-      
+      console.log(`\n?? Processing with EPISTEMIC AUTHORITY: "${question}" [lang=${languageStr}]`);
+
+      // STEP 0: Reject comparative foreign-law questions — corpus is German law only
+      // Note: \b fails on non-ASCII chars (ö, ä, ü) in JS — use root-substring matching instead.
+      const FOREIGN_SYSTEMS = /(österreich|schweizer|schweiz(?:er)?|amerikanisch|französisch|englisch|britisch|niederländisch|belgisch|polnisch|italienisch|spanisch|türkisch|japanisch|chinesisch|ausländisch|rechtsvergleich|komparativ|austrian|swiss\s+law|french\s+law|common\s+law)/i;
+      if (FOREIGN_SYSTEMS.test(question)) {
+        return {
+          success: true,
+          data: {
+            answer: languageStr === 'german'
+              ? '**Korpus-Einschränkung**\n\nDieses System enthält ausschließlich deutsches Bundesrecht (BGB, StGB, HGB, GG, ZPO, StPO, GmbHG). Fragen zum Recht anderer Staaten oder zu Rechtsvergleichungen mit ausländischen Rechtsordnungen können nicht beantwortet werden.'
+              : '**Corpus limitation**\n\nThis system covers German federal law only (BGB, StGB, HGB, GG, ZPO, StPO, GmbHG). Questions comparing German law with foreign legal systems cannot be answered from this corpus.',
+            confidence: 0,
+            refused: true,
+            sources: [],
+            metadata: { out_of_corpus: true, reason: 'foreign_law_comparison' }
+          }
+        };
+      }
+
       // STEP 1: Get all documents
       const allDocuments = documentService.getAllDocuments();
       
@@ -832,24 +1013,51 @@ class ChatService {
       }
       
       // ===========================================================================
+      // STEP 1.5: COMPARISON MODE — intercept before Python authority resolution
+      // ===========================================================================
+      const COMPARISON_SIGNALS = [
+        'unterschied', 'unterschiede', 'difference', 'differences',
+        'vergleich', 'compare', 'versus', 'vs', 'contrast',
+        'abgrenzung', 'gegensatz', 'compared to', 'both'
+      ];
+      const isComparison = COMPARISON_SIGNALS.some(s =>
+        question.toLowerCase().includes(s)
+      );
+
+      if (isComparison) {
+        console.log(`🔀 [ChatService] Comparison signal detected — attempting comparison mode`);
+        const compResult = await this.handleComparisonQuestion(question, allDocuments, languageStr);
+        if (compResult) {
+          console.log(`✅ [ChatService] Comparison mode completed successfully`);
+          return compResult;
+        }
+        console.log(`⬇️ [ChatService] Comparison mode fell through — continuing with normal RAG`);
+      }
+
+      // ===========================================================================
       // STEP 2: Use PYTHON for authority resolution WITH IMMEDIATE TERMINAL CHECK
       // ===========================================================================
-      console.log(`🔍 [ChatService] Resolving authority via Python service...`);
+      console.log(`?? [ChatService] Resolving authority via Python service...`);
       
       try {
         const authorityResult = await pythonIntegrationService.resolveAuthority(question);
         
         if (authorityResult.success && authorityResult.authority) {
           authority = authorityResult.authority;
-          
+
+          // Normalize statute to uppercase — Python sometimes returns 'StGB' instead of 'STGB'
+          if (authority.statute && typeof authority.statute === 'string') {
+            authority.statute = authority.statute.toUpperCase();
+          }
+
           // ===========================================================================
-          // 🎯 CRITICAL FIX: DETECT EXPLICIT NORM REFERENCES BEFORE TERMINAL CHECK
+          // ?? CRITICAL FIX: DETECT EXPLICIT NORM REFERENCES BEFORE TERMINAL CHECK
           // ===========================================================================
           const explicitNorm = this.detectExactNormReference(question);
           if (explicitNorm) {
-            console.log(`🎯 [CRITICAL FIX] Explicit norm reference detected: ${explicitNorm.statute} §${explicitNorm.paragraph}`);
+            console.log(`?? [CRITICAL FIX] Explicit norm reference detected: ${explicitNorm.statute} §${explicitNorm.paragraph}`);
             console.log(`   Overriding Python authority (statute: ${authority.statute || 'null'})`);
-            
+
             // Override Python's authority with explicit reference
             authority.statute = explicitNorm.statute;
             authority.paragraph = explicitNorm.paragraph;
@@ -858,19 +1066,41 @@ class ChatService {
             authority.isStatuteLocked = true;
             authority.isParagraphLocked = true;
             authority.requiresClarification = false;
-            
+
             // Mark as terminal-equivalent
             authority.__explicit_norm_reference = true;
             authority.__explicit_override = true;
+          } else {
+            // FIX: bare-statute keyword override — catches "nach StPO", "gemäß ZPO" etc.
+            // Python sometimes misclassifies when no § is present; the question's own words win.
+            const STATUTE_KEYWORDS = {
+              STPO: /\b(stpo|strafprozessordnung|strafverfahrensrecht)\b/i,
+              ZPO:  /\b(zpo|zivilprozessordnung|zivilprozess(?:recht)?)\b/i,
+              GMBHG: /\b(gmbhg|gmbh-gesetz|gmbh\s*gesetz)\b/i,
+              HGB:  /\b(hgb|handelsgesetzbuch|handelsrecht)\b/i,
+              GG:   /\b(grundgesetz|gg(?:\s|$))/i,
+              STGB: /\b(stgb|strafgesetzbuch|strafrecht)\b/i,
+              BGB:  /\b(bgb|bürgerliches\s*gesetzbuch|zivilrecht)\b/i,
+            };
+            for (const [statute, pattern] of Object.entries(STATUTE_KEYWORDS)) {
+              if (pattern.test(question)) {
+                if (authority.statute !== statute) {
+                  console.log(`[StatuteKeyword] Overriding Python statute "${authority.statute}" → "${statute}" based on question keyword`);
+                  authority.statute = statute;
+                  authority.isStatuteLocked = true;
+                }
+                break;
+              }
+            }
           }
           
           // ===========================================================================
-          // 🚨 CRITICAL: IMMEDIATE TERMINAL AUTHORITY CHECK (BEFORE ANY NODE PROCESSING)
+          // ?? CRITICAL: IMMEDIATE TERMINAL AUTHORITY CHECK (BEFORE ANY NODE PROCESSING)
           // ===========================================================================
-          console.log(`✅ Python raw authority:`, JSON.stringify(authority, null, 2));
+          console.log(`? Python raw authority:`, JSON.stringify(authority, null, 2));
           
           if (this.isTerminalAuthority(authority)) {
-            console.log(`🛑 [TERMINAL AUTHORITY] Python declared final paragraph - Node MUST STOP IMMEDIATELY`);
+            console.log(`?? [TERMINAL AUTHORITY] Python declared final paragraph - Node MUST STOP IMMEDIATELY`);
             console.log(`   Statute: ${authority.statute}, Paragraph: ${authority.paragraph}`);
             console.log(`   Terminal metadata:`, {
               authority_final: authority.authority_final,
@@ -879,13 +1109,13 @@ class ChatService {
               force_exact: authority.force_exact
             });
             
-            // 🚨 GUARDRAIL: Ensure contract integrity
+            // ?? GUARDRAIL: Ensure contract integrity
             if (authority.authority_final && !authority.paragraph) {
-              console.error(`⚠️ CONTRACT VIOLATION: authority_final=true but paragraph missing!`);
+              console.error(`?? CONTRACT VIOLATION: authority_final=true but paragraph missing!`);
             }
             
             if (authority.authority_final && authority.authority_mode === 'overview') {
-              console.error(`⚠️ CONTRACT VIOLATION: terminal authority downgraded to overview mode`);
+              console.error(`?? CONTRACT VIOLATION: terminal authority downgraded to overview mode`);
             }
             
             // Generate terminal response with exact content
@@ -986,10 +1216,10 @@ class ChatService {
           }
           
           // ===========================================================================
-          // 🔒 CREATE AUTHORITY LOCK (NON-TERMINAL CASES)
+          // ?? CREATE AUTHORITY LOCK (NON-TERMINAL CASES)
           // ===========================================================================
           authorityLock = this.createAuthorityLock(authority);
-          console.log(`🔒 [Authority Lock] Created for non-terminal authority:`, {
+          console.log(`?? [Authority Lock] Created for non-terminal authority:`, {
             statute: authority.statute,
             paragraph: authority.paragraph,
             locked: authorityLock.__locked,
@@ -997,9 +1227,9 @@ class ChatService {
           });
           
           // ===========================================================================
-          // ✅ ONLY NOW MAY NODE TOUCH AUTHORITY METADATA (NON-TERMINAL CASES)
+          // ? ONLY NOW MAY NODE TOUCH AUTHORITY METADATA (NON-TERMINAL CASES)
           // ===========================================================================
-          console.log(`✅ Terminal check passed - Node may process authority`);
+          console.log(`? Terminal check passed - Node may process authority`);
           
           // Preserve Python's doctrine classification
           if (authorityResult.authority.question_type) {
@@ -1043,10 +1273,10 @@ class ChatService {
           // Parse Python's clarification field
           if (authority.status) {
             authority.requiresClarification = authority.status === 'CLARIFICATION_REQUIRED';
-            console.log(`📋 Python status: ${authority.status}, requiresClarification: ${authority.requiresClarification}`);
+            console.log(`?? Python status: ${authority.status}, requiresClarification: ${authority.requiresClarification}`);
           }
           
-          console.log(`✅ Python authority resolved: ${authority.statute || 'NO_STATUTE'} ${authority.paragraph ? '§' + authority.paragraph : ''}`);
+          console.log(`? Python authority resolved: ${authority.statute || 'NO_STATUTE'} ${authority.paragraph ? '§' + authority.paragraph : ''}`);
           console.log(`   question_type: ${authority.question_type}`);
           console.log(`   doctrinal_match: ${authority.doctrinal_match}`);
           console.log(`   epistemicCertainty: ${authority.epistemicCertainty}`);
@@ -1055,7 +1285,7 @@ class ChatService {
           console.log(`   authority_lock: ${authorityLock.__locked ? 'LOCKED' : 'UNLOCKED'}`);
           
         } else {
-          console.log(`⚠️ Python authority resolution failed or no statute found — continuing with TF-IDF fallback`);
+          console.log(`?? Python authority resolution failed or no statute found — continuing with TF-IDF fallback`);
           authority = {
             statute: null,
             paragraph: null,
@@ -1074,7 +1304,7 @@ class ChatService {
           authorityLock = { __locked: false };
         }
       } catch (error) {
-        console.log(`❌ Python authority service error: ${error.message} — continuing with TF-IDF fallback`);
+        console.log(`? Python authority service error: ${error.message} — continuing with TF-IDF fallback`);
         pythonAuthorityError = error.message;
         authority = {
           statute: null,
@@ -1094,9 +1324,9 @@ class ChatService {
         authorityLock = { __locked: false };
       }
       
-      // 🔒 CHECK AUTHORITY LOCK BEFORE ANY FURTHER PROCESSING
+      // ?? CHECK AUTHORITY LOCK BEFORE ANY FURTHER PROCESSING
       if (authorityLock?.__locked === true) {
-        console.log(`🛑 [Authority Lock] Downstream processing BLOCKED`);
+        console.log(`?? [Authority Lock] Downstream processing BLOCKED`);
         console.log(`   Question: "${question.substring(0, 80)}..."`);
         console.log(`   Lock Reason: ${authorityLock.__lockReason}`);
         
@@ -1132,11 +1362,12 @@ class ChatService {
       }
       
       // ===========================================================================
-      // 🔴 CRITICAL FIX: UPDATED CLARIFICATION LOGIC WITH EXPLICIT NORM DETECTION
+      // ?? CRITICAL FIX: UPDATED CLARIFICATION LOGIC WITH EXPLICIT NORM DETECTION
       // ===========================================================================
       const shouldRequireClarification = () => {
         if (authority.stopProcessing === true) {
-          console.log(`⚠️ Python service explicitly requested stop`);
+      console.log('[TRACE] shouldRequireClarification called, requiresClarification=' + authority.requiresClarification + ' status=' + authority.status + ' mode=' + authority.authority_mode);
+          console.log(`?? Python service explicitly requested stop`);
           return true;
         }
         
@@ -1144,23 +1375,23 @@ class ChatService {
           authority?.authority_mode === 'overview' && 
           authority?.confidence >= 0.8;
         
-        // 🎯 CRITICAL FIX: Explicit norm references override Python's authority
+        // ?? CRITICAL FIX: Explicit norm references override Python's authority
         if (authority.__explicit_norm_reference === true) {
-          console.log(`✅ [Explicit Norm Override] Suppressing clarification for explicit norm reference`);
-          return false; // ✅ NO clarification needed!
+          console.log(`? [Explicit Norm Override] Suppressing clarification for explicit norm reference`);
+          return false; // ? NO clarification needed!
         }
         
         if (!authority.statute && !implicitAllowed) {
-          console.log(`⚠️ No statute detected and implicit authority NOT allowed`);
+          console.log(`?? No statute detected and implicit authority NOT allowed`);
           return true;
         }
         
         if (!authority.statute && implicitAllowed) {
-          console.log(`✅ Implicit authority allowed – proceeding without statute`);
+          console.log(`? Implicit authority allowed – proceeding without statute`);
           return false;
         }
         
-        // 🔴 CRITICAL FIX: Check if this is a statute-only doctrine question
+        // ?? CRITICAL FIX: Check if this is a statute-only doctrine question
         // ===========================================================================
         const isStatuteOnlyDoctrineQuestion = () => {
           // Check Python's metadata for statute-only constraint
@@ -1189,20 +1420,20 @@ class ChatService {
           return isStatuteOnly && isDoctrinalQuestion && isStatuteLocked && isParagraphNotLocked;
         };
         
-        // 🔴 CRITICAL FIX: Handle statute-only doctrine questions
+        // ?? CRITICAL FIX: Handle statute-only doctrine questions
         if (authority.statute && !authority.paragraph) {
           // Check if this is a statute-only doctrine question FIRST
           if (isStatuteOnlyDoctrineQuestion()) {
-            console.log(`✅ [DOCTRINE FIX] Statute-only doctrine question: ${authority.statute} - paragraph NOT required`);
+            console.log(`? [DOCTRINE FIX] Statute-only doctrine question: ${authority.statute} - paragraph NOT required`);
             console.log(`   Retrieval constraint: ${authority.retrieval?.constraint}`);
             console.log(`   Question type: ${authority.question_type}`);
             console.log(`   Statute locked: ${authority.isStatuteLocked}, Paragraph locked: ${authority.isParagraphLocked}`);
-            return false; // ✅ NO clarification needed!
+            return false; // ? NO clarification needed!
           }
           
           // Original logic for non-doctrinal questions
           if (authority.authority_mode === 'overview') {
-            console.log(`✅ Overview mode: statute ${authority.statute} without paragraph is allowed`);
+            console.log(`? Overview mode: statute ${authority.statute} without paragraph is allowed`);
             return false;
           }
 
@@ -1213,17 +1444,33 @@ class ChatService {
           const isUndefinedOrFallbackMode =
             !authority.authority_mode || authority.authority_mode === 'fallback';
           if (isUndefinedOrFallbackMode && authority.anchorNormMode === true) {
-            console.log(`✅ [Anchor Norm Mode] Statute-only anchor for general question — paragraph not required`);
+            console.log(`? [Anchor Norm Mode] Statute-only anchor for general question — paragraph not required`);
             console.log(`   authority_mode: ${authority.authority_mode || 'undefined'}, anchorNormMode: ${authority.anchorNormMode}`);
             return false;
           }
 
-          console.log(`⚠️ Statute ${authority.statute} found but paragraph missing in mode ${authority.authority_mode}`);
+          // If the user's question contains no specific paragraph reference (§ N or Art. N),
+          // it is an overview/definition question — allow it to proceed without a paragraph.
+          const questionHasSpecificParagraph = /§\s*\d+|art\.\s*\d+/i.test(question);
+          if (!questionHasSpecificParagraph) {
+            console.log(`? [Overview Fallback] No specific § in question — allowing statute-overview for ${authority.statute}`);
+            return false;
+          }
+
+          // Do NOT fire clarification if the question already contains an explicit
+          // statute name (BGB, StGB, etc.) AND a § reference — the user was clear.
+          const KNOWN_STATUTE_NAMES = /\b(BGB|StGB|HGB|GmbHG|StPO|ZPO|GG)\b/i;
+          if (KNOWN_STATUTE_NAMES.test(question)) {
+            console.log(`✅ [Explicit Ref] Question has § + statute name — skipping clarification for ${authority.statute}`);
+            return false;
+          }
+
+          console.log(`?? Statute ${authority.statute} found but paragraph missing in mode ${authority.authority_mode}`);
           return true;
         }
         
-        if (authority.requiresClarification === true) {
-          console.log(`⚠️ Python explicitly flagged clarification required`);
+        const _noParaInQ = !question.match(/\u00a7|\u0026#167;|art\.\s*\d+/i) && !question.includes("§"); if (_noParaInQ) { console.log("✅ [ReqClar Bypass] No § in question — ignoring Python clarification flag"); return false; } if (authority.requiresClarification === true) {
+          console.log(`?? Python explicitly flagged clarification required`);
           return true;
         }
         
@@ -1231,7 +1478,7 @@ class ChatService {
       };
       
       if (shouldRequireClarification()) {
-        console.log(`❌ [ChatService] Authority clarification required`);
+        console.log(`? [ChatService] Authority clarification required`);
         
         safetyCheck.logSafetyEvent('AUTHORITY_CLARIFICATION', {
           question,
@@ -1248,22 +1495,22 @@ class ChatService {
         return resultFormatter.formatResponse(clarification, authority);
       }
       
-      console.log(`✅ Authority from Python: ${authority.statute} ${authority.paragraph ? (authority.isArticle ? 'Article ' : '§') + authority.paragraph : ''} (mode: ${authority.authority_mode})`);
+      console.log(`? Authority from Python: ${authority.statute} ${authority.paragraph ? (authority.isArticle ? 'Article ' : '§') + authority.paragraph : ''} (mode: ${authority.authority_mode})`);
       
       // ===========================================================================
       // STEP 3: CHECK FOR EXACT MODE (WITH TEXT-BASED PARAGRAPH EXTRACTION)
       // ===========================================================================
       if (authority.authority_mode === 'exact' && authority.statute && authority.paragraph) {
-        console.log(`🎯 [Exact Mode] Processing exact paragraph: ${authority.statute} §${authority.paragraph}`);
+        console.log(`?? [Exact Mode] Processing exact paragraph: ${authority.statute} §${authority.paragraph}`);
         
         // Find exact paragraph with text extraction
         const exactChunk = this.findExactParagraph(allDocuments, authority.statute, authority.paragraph);
         
         if (!exactChunk) {
-          console.log(`❌ [Exact Mode] Paragraph §${authority.paragraph} not found in ${authority.statute}`);
+          console.log(`? [Exact Mode] Paragraph §${authority.paragraph} not found in ${authority.statute}`);
           
           // Try fallback: Search for any BGB chunks that might contain the paragraph
-          console.log(`🔍 [Exact Mode Fallback] Searching for any mention of §${authority.paragraph} in ${authority.statute} content...`);
+          console.log(`?? [Exact Mode Fallback] Searching for any mention of §${authority.paragraph} in ${authority.statute} content...`);
           
           const fallbackChunks = [];
           for (const doc of allDocuments) {
@@ -1287,17 +1534,17 @@ class ChatService {
           }
           
           if (fallbackChunks.length > 0) {
-            console.log(`⚠️ [Exact Mode] Found ${fallbackChunks.length} chunks containing §${authority.paragraph} in text`);
+            console.log(`?? [Exact Mode] Found ${fallbackChunks.length} chunks containing §${authority.paragraph} in text`);
             // Use the first one
             const fallbackChunk = fallbackChunks[0].chunk;
-            console.log(`✅ [Exact Mode Fallback] Using chunk with text inclusion`);
+            console.log(`? [Exact Mode Fallback] Using chunk with text inclusion`);
             
             const exactResponse = {
               success: true,
               data: {
-                answer: fallbackChunk.content || fallbackChunk.text,
+                answer: this.formatChunkAsAnswer(fallbackChunk.content || fallbackChunk.text, authority.statute, authority.paragraph, authority.isArticle),
                 structuredAnswer: {
-                  fullAnswer: fallbackChunk.content || fallbackChunk.text,
+                  fullAnswer: this.formatChunkAsAnswer(fallbackChunk.content || fallbackChunk.text, authority.statute, authority.paragraph, authority.isArticle),
                   confidence: 1.0,
                   template_used: 'exact_paragraph_fallback',
                   domain: 'legal',
@@ -1382,9 +1629,9 @@ class ChatService {
         const exactResponse = {
           success: true,
           data: {
-            answer: exactChunk.content || exactChunk.text,
+            answer: this.formatChunkAsAnswer(exactChunk.content || exactChunk.text, authority.statute, authority.paragraph, authority.isArticle),
             structuredAnswer: {
-              fullAnswer: exactChunk.content || exactChunk.text,
+              fullAnswer: this.formatChunkAsAnswer(exactChunk.content || exactChunk.text, authority.statute, authority.paragraph, authority.isArticle),
               confidence: 1.0,
               template_used: 'exact_paragraph',
               domain: 'legal',
@@ -1460,27 +1707,34 @@ class ChatService {
         source: 'python_default'
       };
       
-      console.log(`🎯 Classification: ${classification.type} (domain: ${classification.domain || 'general'})`);
+      console.log(`?? Classification: ${classification.type} (domain: ${classification.domain || 'general'})`);
       
       // ===========================================================================
       // STEP 4: Handle Doctrine/System questions
       // ===========================================================================
       if (classification.type === 'DOCTRINE' || authority.question_type === 'GENERAL_DOCTRINE') {
-        console.log(`⚖️ Doctrine question detected - separate path`);
-        
+        console.log(`?? Doctrine question detected - separate path`);
+
         // doctrinal_match=true means Python already confirmed this is a settled doctrine;
         // its content is authoritative regardless of the pre-call epistemicCertainty value.
         if (authority.epistemicCertainty === 'confirmed' || authority.doctrinal_match === true) {
           const result = await this.handleConfirmedDoctrine(question, authority);
-          return resultFormatter.formatResponse(result, authority);
+          if (result !== null) {
+            return resultFormatter.formatResponse(result, authority);
+          }
+          console.log(`⬇️ [STEP 4] Confirmed doctrine path returned null — falling through to RAG`);
         } else {
           const result = await this.handleUnconfirmedDoctrine(question, authority);
-          return resultFormatter.formatResponse(result, authority);
+          if (result !== null) {
+            return resultFormatter.formatResponse(result, authority);
+          }
+          console.log(`⬇️ [STEP 4] Unconfirmed doctrine path returned null — falling through to RAG`);
         }
+        // Fall through to STEP 5+ (RAG retrieval)
       }
       
       if (classification.type === 'SYSTEM') {
-        console.log(`🔄 System question - conceptual answer`);
+        console.log(`?? System question - conceptual answer`);
         const result = this.handleSystemQuestion(question, authority);
         return resultFormatter.formatResponse(result, authority);
       }
@@ -1489,7 +1743,7 @@ class ChatService {
       // STEP 5: DOCTRINAL EARLY-EXIT WITH PROPER METADATA
       // ===========================================================================
       if (this.shouldUseDoctrinalEarlyExit(authority)) {
-        console.log(`🚀 [Doctrinal Early-Exit] Using doctrinal path`);
+        console.log(`?? [Doctrinal Early-Exit] Using doctrinal path`);
         console.log(`   Authority metadata:`, {
           question_type: authority.question_type,
           epistemicCertainty: authority.epistemicCertainty,
@@ -1498,10 +1752,13 @@ class ChatService {
         });
         
         const doctrineResult = await this.callDoctrineInductionService(question, authority);
-        
-        if (doctrineResult) {
+
+        // Only use the doctrine result when Python actually found a specific doctrine.
+        // doctrine_found === false means Python returned a generic "no match" message —
+        // that should fall through to RAG vector search, not become the final answer.
+        if (doctrineResult?.doctrine_found === true) {
           const doctrinalAnswer = this.generateDoctrinalAnswer(doctrineResult, authority, question);
-          
+
           // No safety check for doctrine, immediate return
           safetyCheck.logSafetyEvent('DOCTRINAL_EARLY_EXIT', {
             question,
@@ -1529,7 +1786,7 @@ class ChatService {
           
           return resultFormatter.formatResponse(rawResponse, authority);
         } else {
-          console.log(`⚠️ Doctrine induction failed, falling back to unconfirmed doctrine path`);
+          console.log(`?? Doctrine induction failed, falling back to unconfirmed doctrine path`);
         }
       }
       
@@ -1538,145 +1795,16 @@ class ChatService {
       // ===========================================================================
       let pythonResults = null;
       
-      // 🔒 Check authority lock before retrieval
-      if (authorityLock?.__locked === true) {
-        console.log(`🛑 [Authority Lock] Retrieval BLOCKED - using empty results`);
-        pythonResults = {
-          results: [],
-          authoritative_found: false,
-          authority_summary: {
-            locked: true,
-            terminal: true,
-            reason: 'authority_lock_retrieval_block'
-          },
-          authority_mode: authority.authority_mode
-        };
-      } else {
-        pythonResults = await this.retrieveDocumentsWithDoctrineGuard(
-          question, authority, authorityLock, allDocuments, classification
-        );
-      }
+      // Always attempt retrieval — the authority lock constrains scope inside
+      // retrieveDocumentsWithDoctrineGuard but must not skip the whole retrieval
+      // chain or every specific-paragraph question returns an empty abstention.
+      pythonResults = await this.retrieveDocumentsWithDoctrineGuard(
+        question, authority, authorityLock, allDocuments, classification
+      );
       
-      // ===========================================================================
-      // 🔴 CRITICAL FIX: FINAL AUTHORITY EMPTY RESULT GUARD (NEW)
-      // ===========================================================================
-      // 🚨 STOP ALL PROCESSING IF: authority_final + empty python results
-      // This prevents RAG synthesis when authoritative search abstains
-      if (
-        authority?.authority_final === true &&
-        pythonResults &&
-        pythonResults.results &&
-        pythonResults.results.length === 0 &&
-        pythonResults.authoritative_found === false
-      ) {
-        console.log(`🛑 [FINAL AUTHORITY GUARD] Empty authoritative result - RAG SYNTHESIS FORBIDDEN`);
-        console.log(`   Statute: ${authority.statute}, Paragraph: ${authority.paragraph}`);
-        console.log(`   Authority Final: ${authority.authority_final}, Empty Results: true`);
-        console.log(`   Authoritative Found: ${pythonResults.authoritative_found}`);
-        
-        // Log safety event for audit trail
-        safetyCheck.logSafetyEvent('FINAL_AUTHORITY_EMPTY_RESULT_GUARD', {
-          question,
-          statute: authority.statute,
-          paragraph: authority.paragraph,
-          authority_final: authority.authority_final,
-          python_results_count: 0,
-          python_authoritative_found: false,
-          authority_mode: authority.authority_mode,
-          terminal: authority.terminal || false,
-          guard_reason: 'empty_authoritative_result_blocks_rag',
-          timestamp: new Date().toISOString(),
-          execution_path: 'immediate_return'
-        });
-        
-        // Return a legally safe "abstention" response
-        const statuteName = this.getStatuteDisplayName(authority.statute);
-        const paragraphRef = authority.isArticle ? `Artikel ${authority.paragraph}` : `§${authority.paragraph}`;
-        
-        const terminalAbstentionResponse = {
-          success: true,
-          data: {
-            answer: `**${statuteName} ${paragraphRef}**\n\n` +
-                    `Die Norm wurde eindeutig identifiziert. Der autoritative Suchdienst hat keine auslegungsfähigen Textstellen zurückgegeben.\n\n` +
-                    `**Rechtlicher Status**: Norm identifiziert, aber inhaltliche Auslegung erfordert juristische Subsumtion oder zusätzlichen Kontext.`,
-            structuredAnswer: {
-              fullAnswer: `**${statuteName} ${paragraphRef}**\n\n` +
-                         `Die Norm wurde eindeutig identifiziert. Der autoritative Suchdienst hat keine auslegungsfähigen Textstellen zurückgegeben.\n\n` +
-                         `**Rechtlicher Status**: Norm identifiziert, aber inhaltliche Auslegung erfordert juristische Subsumtion oder zusätzlichen Kontext.`,
-              confidence: 0.85,
-              template_used: 'authoritative_abstention',
-              domain: 'legal',
-              metadata: {
-                terminal_authority: true,
-                authority_final: true,
-                empty_authoritative_result: true,
-                rag_synthesis_blocked: true,
-                tf_idf_fallback_blocked: true,
-                doctrine_mode: false,
-                statute: authority.statute,
-                paragraph: authority.paragraph,
-                retrieval_used: false,
-                safety_check_skipped: true,
-                node_pipeline_bypassed: true,
-                guard_triggered: 'final_authority_empty_result'
-              }
-            },
-            sources: [{
-              statute: authority.statute,
-              paragraph: authority.paragraph,
-              content: 'Autoritative Suche ergab keine auslegungsfähigen Textstellen.',
-              metadata: {
-                source: 'python_authority_service',
-                authority_final: authority.authority_final,
-                empty_result: true,
-                guard_applied: true
-              }
-            }],
-            confidence: 0.85,
-            conversationId: Date.now().toString(),
-            legalDomain: 'legal',
-            statute: authority.statute,
-            paragraph: authority.paragraph,
-            isArticle: authority.isArticle,
-            authority: authority,
-            classification: authority.classification || {
-              type: 'EXACT_OPERATIVE_NORM',
-              domain: 'legal',
-              source: 'authoritative_abstention'
-            },
-            safetyCheck: {
-              isLegallySound: true,
-              legalDefensibility: 'HIGH',
-              examinerReadiness: 'EXAMINER_READY',
-              confidenceAdjusted: 0.85,
-              metadata: {
-                safety_check_skipped: true,
-                reason: 'authoritative_abstention_guard'
-              }
-            },
-            metadata: {
-              terminal_authority: true,
-              authority_final: true,
-              empty_authoritative_result: true,
-              rag_synthesis_blocked: true,
-              tf_idf_fallback_blocked: true,
-              node_pipeline_bypassed: true,
-              execution_order: 'final_authority_empty_result_guard',
-              python_authority_preserved: true
-            }
-          }
-        };
-        
-        return resultFormatter.formatResponse(terminalAbstentionResponse, authority);
-      }
-      
-      // ===========================================================================
-      // ✅ ONLY CONTINUE IF:
-      // 1. NOT authority_final
-      // 2. OR authority_final BUT has results
-      // 3. OR NOT empty authoritative result
-      // ===========================================================================
-      console.log(`✅ [Guard Passed] Authority allows RAG synthesis:`, {
+      // Always allow RAG synthesis — empty Python results just means TF-IDF will
+      // be the primary source, which is correct behaviour for corpus questions.
+      console.log(`✅ [Guard Passed] Proceeding to RAG synthesis:`, {
         authority_final: authority?.authority_final,
         has_results: pythonResults?.results?.length > 0,
         authoritative_found: pythonResults?.authoritative_found,
@@ -1685,8 +1813,8 @@ class ChatService {
       });
       
       // Check if doctrine guard blocked retrieval
-      if (pythonResults.authority_summary?.doctrine_mode && pythonResults.results.length === 0) {
-        console.log(`🚫 Doctrine guard blocked retrieval - asking for clarification`);
+      if (pythonResults.authority_summary?.doctrine_mode && pythonResults.results.length === 0 && question.match(/\xA7\s*\d+|art\.\s*\d+/i)) {
+        console.log(`?? Doctrine guard blocked retrieval - asking for clarification`);
         
         // This is a doctrinal question that needs special handling
         if (authority.question_type === 'GENERAL_DOCTRINE' || authority.doctrinal_match) {
@@ -1695,12 +1823,16 @@ class ChatService {
             ? this.handleConfirmedDoctrine.bind(this)
             : this.handleUnconfirmedDoctrine.bind(this);
           const result = await handler(question, authority);
-          return resultFormatter.formatResponse(result, authority);
+          // null means no settled doctrine — fall through to RAG rather than blocking
+          if (result !== null) {
+            return resultFormatter.formatResponse(result, authority);
+          }
+          console.log(`⬇️ [Guard] Doctrine handler returned null — continuing to RAG`);
         }
         
-        const clarification = this.generateStructuredClarification(authority, question, 
-          "Doctrinal question detected but no doctrine path available");
-        return resultFormatter.formatResponse(clarification, authority);
+        // No doctrine path available — fall through to RAG rather than returning
+        // a clarification. RAG may have content even when doctrine fails.
+        console.log(`⬇️ [Guard] No doctrine path available — falling through to RAG`);
       }
       
       // ===========================================================================
@@ -1746,7 +1878,7 @@ class ChatService {
           authority.question_type !== 'GENERAL_DOCTRINE') {
         safetyValidation = ragResponse.safetyCheck || await safetyCheck.validateBeforeAnswer(question, ragResponse, authority);
       } else {
-        console.log(`🚫 Safety check skipped for doctrine question`);
+        console.log(`?? Safety check skipped for doctrine question`);
         safetyValidation = {
           isLegallySound: true,
           legalDefensibility: 'HIGH',
@@ -1903,13 +2035,13 @@ class ChatService {
   // ===========================================================================
   
   async handleConfirmedDoctrine(question, authority) {
-    console.log(`🧠 Confirmed doctrine - delegating to induction service`);
+    console.log(`?? Confirmed doctrine - delegating to induction service`);
     
     const doctrineResult = await this.callDoctrineInductionService(question, authority);
-    
-    if (doctrineResult) {
+
+    if (doctrineResult?.doctrine_found === true) {
       const doctrinalAnswer = this.generateDoctrinalAnswer(doctrineResult, authority, question);
-      
+
       return {
         success: true,
         data: {
@@ -1923,18 +2055,19 @@ class ChatService {
         }
       };
     }
-    
-    // Fallback
-    return this.generateEpistemicallySafeFallback(authority, question);
+
+    // No confirmed doctrine — return null so caller can fall through to RAG retrieval
+    console.log(`⬇️ [Doctrine] doctrine_found=false — signalling fallthrough to RAG`);
+    return null;
   }
   
   async handleUnconfirmedDoctrine(question, authority) {
-    console.log(`⚠️ Unconfirmed doctrine - epistemic warning path`);
+    console.log(`?? Unconfirmed doctrine - epistemic warning path`);
     
     const doctrineResult = await this.callDoctrineInductionService(question, authority);
-    
-    if (doctrineResult) {
-      const statuteName = this.getStatuteDisplayName(authority.statute);
+
+    if (doctrineResult?.doctrine_found === true) {
+      const statuteName = this.getStatuteDisplayName(authority.statute); // eslint-disable-line no-unused-vars
       let answer = `**Epistemischer Hinweis**\n\n`;
       answer += `Die Frage betrifft eine Rechtsdoktrin, die nicht mit hoher Sicherheit bestätigt werden konnte.\n\n`;
       
@@ -1979,10 +2112,12 @@ class ChatService {
         }
       };
     }
-    
-    return this.generateEpistemicallySafeFallback(authority, question);
+
+    // No settled doctrine — return null so caller falls through to RAG retrieval
+    console.log(`⬇️ [Doctrine] Unconfirmed doctrine — no match, signalling fallthrough to RAG`);
+    return null;
   }
-  
+
   generateEpistemicallySafeFallback(authority, question) {
     return {
       success: true,
@@ -2033,7 +2168,9 @@ class ChatService {
       'HGB': 'Handelsgesetzbuch',
       'GG': 'Grundgesetz',
       'ZPO': 'Zivilprozessordnung',
-      'StPO': 'Strafprozessordnung'
+      'StPO': 'Strafprozessordnung',
+      'STPO': 'Strafprozessordnung',
+      'GMBHG': 'GmbH-Gesetz'
     };
     return names[statute] || statute;
   }
@@ -2046,7 +2183,7 @@ class ChatService {
     return `**Systemarchitektur - Epistemische Autorität**\n\n` +
            `Das System arbeitet nach einem mehrstufigen epistemischen Modell:\n\n` +
            `1. **Autoritätsauflösung**: Python-Dienst identifiziert Gesetz und Paragraph\n` +
-           `2. **Doctrinale Induktion**: Bei bestätigten Doktrinfragen → Python-Autoritätsdienst\n` +
+           `2. **Doctrinale Induktion**: Bei bestätigten Doktrinfragen ? Python-Autoritätsdienst\n` +
            `3. **Retrieval mit Guard**: TF-IDF-Fallback für Doktrinfragen blockiert\n` +
            `4. **Sicherheitsprüfung**: Automatische Bewertung der rechtlichen Verteidigbarkeit\n` +
            `5. **Epistemische Konfidenz**: Sonderregeln für doctrinale Fragen\n\n` +
@@ -2072,7 +2209,7 @@ class ChatService {
   }
 
   logProcessing(question, ragResponse, authority, classification, pythonResults, safetyValidation) {
-    console.log(`📊 Processing Complete:`);
+    console.log(`?? Processing Complete:`);
     console.log(`   Question: "${question.substring(0, 80)}..."`);
     console.log(`   Authority: ${authority.statute || 'NONE'} ${authority.paragraph ? '§' + authority.paragraph : ''}`);
     console.log(`   Mode: ${authority.authority_mode}, Classification: ${classification.type}`);
@@ -2085,7 +2222,7 @@ class ChatService {
 
   clearHistory() {
     this.conversationHistory = [];
-    console.log('✅ Conversation history cleared');
+    console.log('? Conversation history cleared');
   }
 
   getStats() {
@@ -2115,10 +2252,10 @@ class ChatService {
 }
 
 // ===========================================================================
-// 🧪 TERMINAL AUTHORITY CONTRACT TEST
+// ?? TERMINAL AUTHORITY CONTRACT TEST
 // ===========================================================================
 function testTerminalAuthorityContract() {
-  console.log('\n🧪 Testing Terminal Authority Contract...');
+  console.log('\n?? Testing Terminal Authority Contract...');
   
   const testCases = [
     // Valid terminal authority
@@ -2155,23 +2292,25 @@ function testTerminalAuthorityContract() {
     const passedTest = isTerminal === testCase.shouldTerminate;
     
     if (passedTest) {
-      console.log(`✅ ${testCase.description}`);
+      console.log(`? ${testCase.description}`);
       passed++;
     } else {
-      console.log(`❌ ${testCase.description}: expected ${testCase.shouldTerminate}, got ${isTerminal}`);
+      console.log(`? ${testCase.description}: expected ${testCase.shouldTerminate}, got ${isTerminal}`);
     }
   }
   
-  console.log(`📊 Terminal authority tests: ${passed}/${testCases.length} passed`);
+  console.log(`?? Terminal authority tests: ${passed}/${testCases.length} passed`);
   return passed === testCases.length;
 }
 
 // Run test if file is executed directly
 if (require.main === module) {
-  console.log('🔍 Running ChatService contract tests...');
+  console.log('?? Running ChatService contract tests...');
   const success = testTerminalAuthorityContract();
-  console.log(success ? '✅ All tests passed!' : '❌ Some tests failed');
+  console.log(success ? '? All tests passed!' : '? Some tests failed');
   process.exit(success ? 0 : 1);
 }
 
 module.exports = new ChatService();
+
+

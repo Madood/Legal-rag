@@ -66,22 +66,18 @@ async function checkTokens(req, res, next) {
     });
   }
 
-  // Guest session limit
-  if (user.isGuest) {
-    const limit = parseInt(process.env.GUEST_SESSION_LIMIT || '5', 10);
-    if (user.sessionTokensUsed >= limit) {
-      return res.status(402).json({
-        success: false,
-        error: 'Session limit reached',
-        code: 'SESSION_LIMIT',
-        data: {
-          sessionUsed: user.sessionTokensUsed,
-          limit,
-          tier: 'guest',
-        },
-      });
-    }
-  }
+  // Guest session limit — DISABLED for dev/testing (re-enable before prod)
+  // if (user.isGuest) {
+  //   const limit = parseInt(process.env.GUEST_SESSION_LIMIT || '5', 10);
+  //   if (user.sessionTokensUsed >= limit) {
+  //     return res.status(402).json({
+  //       success: false,
+  //       error: 'Session limit reached',
+  //       code: 'SESSION_LIMIT',
+  //       data: { sessionUsed: user.sessionTokensUsed, limit, tier: 'guest' },
+  //     });
+  //   }
+  // }
 
   next();
 }

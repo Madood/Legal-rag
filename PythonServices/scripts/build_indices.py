@@ -16,7 +16,7 @@ import logging
 sys.path.append(str(Path(__file__).parent.parent))
 
 from PythonServices.app.services.embeddings.embedding_service import EmbeddingService
-from PythonServices.app.services.embeddings.vector_store import create_default_store
+from PythonServices.app.services.retrieval.vector_store import create_default_store
 
 # Configure logging
 logging.basicConfig(

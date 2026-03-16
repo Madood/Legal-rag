@@ -15,7 +15,10 @@ STATUTE_DOMAIN_MAP: Dict[str, str] = {
     "STGB": "criminal",      # Uppercase to match authority resolver output
     "HGB": "commercial",
     "GG": "constitutional",
-    "EU-GDPR": "data_protection"
+    "EU-GDPR": "data_protection",
+    "GMBHG": "company_law",
+    "ZPO": "civil_procedure",
+    "STPO": "criminal_procedure",
 }
 
 # Reverse mapping for looking up statutes by domain
@@ -25,7 +28,10 @@ DOMAIN_TO_STATUTE_MAP: Dict[str, str] = {
     "criminal": "STGB",      # Uppercase to match STATUTE_DOMAIN_MAP
     "commercial": "HGB",
     "constitutional": "GG",
-    "data_protection": "EU-GDPR"
+    "data_protection": "EU-GDPR",
+    "company_law": "GMBHG",
+    "civil_procedure": "ZPO",
+    "criminal_procedure": "STPO",
 }
 
 # Embedding dimension - must match your model
@@ -41,7 +47,10 @@ STATUTE_FULL_NAMES: Dict[str, str] = {
     "STGB": "Strafgesetzbuch",   # Uppercase
     "HGB": "Handelsgesetzbuch",
     "GG": "Grundgesetz",
-    "EU-GDPR": "Datenschutz-Grundverordnung"
+    "EU-GDPR": "Datenschutz-Grundverordnung",
+    "GMBHG": "Gesetz betreffend die Gesellschaften mit beschränkter Haftung",
+    "ZPO": "Zivilprozessordnung",
+    "STPO": "Strafprozessordnung",
 }
 
 # Statute English names (keys UPPERCASE)
@@ -50,7 +59,10 @@ STATUTE_ENGLISH_NAMES: Dict[str, str] = {
     "STGB": "German Criminal Code",  # Uppercase
     "HGB": "German Commercial Code",
     "GG": "German Basic Law",
-    "EU-GDPR": "EU General Data Protection Regulation"
+    "EU-GDPR": "EU General Data Protection Regulation",
+    "GMBHG": "German Limited Liability Company Act",
+    "ZPO": "German Code of Civil Procedure",
+    "STPO": "German Code of Criminal Procedure",
 }
 
 # Minimum expected paragraphs per statute (for validation) - keys UPPERCASE
@@ -59,7 +71,10 @@ MIN_EXPECTED_PARAGRAPHS: Dict[str, int] = {
     "STGB": 100,    # Uppercase
     "HGB": 50,
     "GG": 20,
-    "EU-GDPR": 30
+    "EU-GDPR": 30,
+    "GMBHG": 30,
+    "ZPO": 100,
+    "STPO": 100,
 }
 
 # Test paragraphs for sanity checks - keys UPPERCASE
@@ -68,16 +83,54 @@ TEST_PARAGRAPHS: Dict[str, str] = {
     "STGB": "211",   # Uppercase
     "HGB": "1",
     "GG": "1",
-    "EU-GDPR": "1"
+    "EU-GDPR": "1",
+    "GMBHG": "1",
+    "ZPO": "253",
+    "STPO": "112",
 }
 
 # Domain-specific search keywords for fallback routing
 DOMAIN_KEYWORDS: Dict[str, list] = {
-    "civil": ["bgb", "civil", "bürgerliches", "vertrag", "kauf", "miete", "schadensersatz", "BGB"],
-    "criminal": ["stgb", "criminal", "straf", "verbrechen", "diebstahl", "mord", "körperverletzung", "StGB"],
-    "commercial": ["hgb", "commercial", "handel", "kaufmann", "firma", "register", "HGB"],
-    "constitutional": ["gg", "grundgesetz", "constitution", "grundrecht", "menschenwürde", "GG"],
-    "data_protection": ["gdpr", "dsgvo", "datenschutz", "privacy", "personenbezogene", "EU-GDPR"]
+    "civil": [
+        "bgb", "civil", "bürgerliches", "vertrag", "kauf", "miete", "schadensersatz",
+        "verjährung", "willenserklärung", "geschäftsfähigkeit", "vollmacht", "stellvertretung",
+        "kaufvertrag", "mietvertrag", "werkvertrag", "darlehen", "verzug", "unmöglichkeit",
+        "mitverschulden", "bereicherung", "agb", "widerrufsrecht", "eigentumsübertragung",
+        "gewährleistung", "treu und glauben", "anfechtung", "BGB",
+    ],
+    "criminal": [
+        "stgb", "criminal", "straf", "verbrechen", "diebstahl", "mord", "körperverletzung",
+        "totschlag", "raub", "erpressung", "betrug", "untreue", "hehlerei",
+        "nötigung", "hausfriedensbruch", "beleidigung", "urkundenfälschung",
+        "notwehr", "notstand", "fahrlässige tötung", "StGB",
+    ],
+    "commercial": [
+        "hgb", "commercial", "handel", "kaufmann", "firma", "register",
+        "prokura", "ohg", "kg", "kommanditgesellschaft", "handelsmakler",
+        "handelsbücher", "handlungsgehilfe", "kommissionsgeschäft", "HGB",
+    ],
+    "constitutional": [
+        "gg", "grundgesetz", "constitution", "grundrecht", "menschenwürde",
+        "meinungsfreiheit", "versammlungsfreiheit", "religionsfreiheit", "berufsfreiheit",
+        "eigentumsgarantie", "gleichheit", "verhältnismäßigkeit", "rechtsstaat",
+        "sozialstaat", "ewigkeitsklausel", "GG",
+    ],
+    "data_protection": ["gdpr", "dsgvo", "datenschutz", "privacy", "personenbezogene", "EU-GDPR"],
+    "company_law": [
+        "gmbhg", "gmbh", "stammkapital", "gesellschaft", "geschäftsführer",
+        "unternehmergesellschaft", "ug", "gesellschafterbeschluss", "kapitalerhöhung",
+        "liquidation", "insolvenzantrag", "GMBHG",
+    ],
+    "civil_procedure": [
+        "zpo", "zivilprozess", "klage", "mahnbescheid", "zwangsvollstreckung",
+        "einstweilige verfügung", "versäumnisurteil", "berufung", "revision",
+        "beweislast", "arrest", "klageschrift", "ZPO",
+    ],
+    "criminal_procedure": [
+        "stpo", "strafprozess", "untersuchungshaft", "hauptverhandlung",
+        "haftbefehl", "durchsuchung", "strafbefehl", "akteneinsicht",
+        "verfahrenseinstellung", "vernehmung", "STPO",
+    ],
 }
 
 # Paragraph patterns for different statute types

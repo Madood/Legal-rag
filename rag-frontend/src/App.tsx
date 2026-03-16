@@ -10,6 +10,7 @@ import { ProfilePage } from './components/screens/profile/ProfilePage';
 import { SettingsPanel } from './components/screens/settings/SettingsPanel';
 import { AnalyticsDashboard } from './components/screens/analytics/AnalyticsDashboard';
 import { PricingPage } from './components/screens/pricing/PricingPage';
+import { ForgotPassword } from './components/Auth/ForgotPassword/ForgotPassword';
 import { LanguageProvider } from './i18n';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -29,6 +30,7 @@ function AppRoutes() {
       </Route>
       <Route path="/signup" element={<Signup />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/pricing" element={<PricingPage />} />
 
       {/* Protected routes with AppLayout */}

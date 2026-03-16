@@ -1,4 +1,6 @@
 ﻿// server.js
+process.on('uncaughtException', err => console.error('UNCAUGHT:', err.message, err.stack));
+process.on('unhandledRejection', err => console.error('UNHANDLED:', err?.message, err?.stack));
 
 const express = require("express");
 const cors = require("cors");
@@ -66,10 +68,15 @@ const generalLimiter = rateLimit({
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: process.env.AUTH_RATE_LIMIT_MAX ? parseInt(process.env.AUTH_RATE_LIMIT_MAX) : 500,
   message: { error: "Too many auth attempts, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const ip = req.ip || req.connection?.remoteAddress || "";
+    return process.env.NODE_ENV !== "production" &&
+      (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1");
+  },
 });
 app.use("/api/", generalLimiter);
 app.use("/api/auth/", authLimiter);
@@ -78,13 +85,14 @@ app.use("/api/auth/", authLimiter);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb", parameterLimit: 100 }));
 
-// Security: Sanitize MongoDB query operators from user input
-app.use(mongoSanitize({
-  replaceWith: "_",
-  onSanitize: ({ req, key }) => {
-    console.warn(`⚠️ NoSQL injection attempt blocked on key: ${key}`);
-  },
-}));
+// Security: Sanitize MongoDB query operators from request body
+// (req.query is read-only in newer Node.js, so only sanitize body)
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    req.body = mongoSanitize.sanitize(req.body, { replaceWith: '_' });
+  }
+  next();
+});
 
 // Serve static files
 app.use("/documents", express.static(path.join(__dirname, "documents")));

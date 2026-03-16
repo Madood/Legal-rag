@@ -38,8 +38,10 @@ class PdfDocumentService {
         const statute = this.detectStatute(text, filePath);
 
         let chunks;
-        if (["BGB", "STGB", "HGB"].includes(statute)) {
+        if (["BGB", "STGB", "HGB", "ZPO", "STPO", "GMBHG"].includes(statute)) {
           chunks = this.splitByParagraph(text, statute);
+        } else if (["GG"].includes(statute)) {
+          chunks = this.splitByArtikel(text, statute);
         } else {
           chunks = this.createChunks(text);
         }
@@ -74,56 +76,46 @@ class PdfDocumentService {
     return this.documents;
   }
 
-  // ✅ FIXED: Priority-based statute detection
+  // Filename-first statute detection — more specific names before less specific ones
+  // to avoid substring false-matches (e.g. "gmbhg" contains "hgb", "stpo" context)
   detectStatute(text, filePath) {
-    const lowerPath = filePath.toLowerCase();
+    const lowerPath = filePath.replace(/\\/g, '/').toLowerCase();
     const lowerText = text.toLowerCase();
-    const filename = path.basename(filePath).toLowerCase();
-    
-    // 🔥 CRITICAL FIX: Filename-based detection FIRST (most reliable)
-    // If filename contains statute code, use that as definitive
-    if (filename.includes("bgb") || lowerPath.includes("/bgb/")) {
-      return "BGB";
-    }
-    if (filename.includes("stgb") || lowerPath.includes("/stgb/")) {
-      return "STGB";
-    }
-    if (filename.includes("gg") || lowerPath.includes("/gg/")) {
-      return "GG";
-    }
-    if (filename.includes("hgb") || lowerPath.includes("/hgb/")) {
-      return "HGB";
-    }
-    
-    // Secondary: Text content detection (fallback)
-    if (lowerText.includes("grundgesetz") || 
-        lowerText.includes(" für die bundesrepublik deutschland") ||
-        /art\.\s*\d+/i.test(text)) {
-      return "GG";
-    }
-    
-    if (lowerText.includes("strafgesetzbuch") || lowerText.includes(" stgb ")) {
-      return "STGB";
-    }
-    
-    if (lowerText.includes("bürgerliches gesetzbuch") || 
-        lowerText.includes(" bgb ") ||
-        lowerText.includes("§ 1 bgb") ||
-        lowerText.includes("bgb §")) {
-      return "BGB";
-    }
-    
-    if (lowerText.includes("handelsgesetzbuch") || lowerText.includes(" hgb ")) {
-      return "HGB";
-    }
-    
-    if (lowerText.includes("datenschutz-grundverordnung") || 
-        lowerText.includes("gdpr") ||
-        lowerText.includes("dsgvo")) {
-      return "EU-GDPR";
-    }
+    const filename = path.basename(filePath).toLowerCase().replace(/\.pdf$/, '');
 
-    return "UNKNOWN";
+    // Helper: check filename OR parent directory segment
+    const matchName = (code) =>
+      filename === code ||
+      filename.startsWith(code + '_') ||
+      filename.endsWith('_' + code) ||
+      lowerPath.includes('/' + code + '/');
+
+    // CRITICAL: check longer/more-specific names BEFORE short names that are
+    // substrings of them (e.g. "hgb" is a substring of "gmbhg").
+    if (matchName('gmbhg'))   return 'GMBHG';
+    if (matchName('aktg'))    return 'AKTG';
+    if (matchName('kschg'))   return 'KSCHG';
+    if (matchName('inso'))    return 'INSO';
+    if (matchName('stgb'))    return 'STGB';
+    if (matchName('stpo'))    return 'STPO';
+    if (matchName('bgb'))     return 'BGB';
+    if (matchName('hgb'))     return 'HGB';
+    if (matchName('zpo'))     return 'ZPO';
+    if (matchName('gg'))      return 'GG';
+    if (matchName('eu-gdpr') || matchName('gdpr') || matchName('dsgvo')) return 'EU-GDPR';
+
+    // Fallback: text-content heuristics (least reliable — log a warning)
+    if (lowerText.includes('strafprozessordnung') || lowerText.includes(' stpo ')) return 'STPO';
+    if (lowerText.includes('zivilprozessordnung') || lowerText.includes(' zpo '))  return 'ZPO';
+    if (lowerText.includes('handelsgesetzbuch')   || lowerText.includes(' hgb '))  return 'HGB';
+    if (lowerText.includes('bürgerliches gesetzbuch') || lowerText.includes(' bgb ')) return 'BGB';
+    if (lowerText.includes('strafgesetzbuch')     || lowerText.includes(' stgb ')) return 'STGB';
+    if (lowerText.includes('grundgesetz')         || lowerText.includes(' gg '))   return 'GG';
+    if (lowerText.includes('datenschutz-grundverordnung') ||
+        lowerText.includes('gdpr') || lowerText.includes('dsgvo'))                 return 'EU-GDPR';
+
+    console.warn(`⚠️  Unknown statute for file: ${path.basename(filePath)}`);
+    return 'UNKNOWN';
   }
 
   // ✅ FIXED: RENAMED AND GENERALIZED - Split by exact paragraph boundaries for §-based statutes
@@ -149,6 +141,32 @@ class PdfDocumentService {
         };
       })
       .filter(Boolean);
+  }
+
+  splitByArtikel(text, statute) {
+    // GG PDF uses "\nArt N \n" format (no period, standalone line)
+    // Split on that boundary
+    const regex = /\nArt\s+(\d+[a-z]?)\s*\n([\s\S]*?)(?=\nArt\s+\d+[a-z]?\s*\n|$)/g;
+    const results = [];
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      const articleNum = m[1];
+      const body = m[2].trim();
+      if (!body) continue;
+      results.push({
+        content: `Art ${articleNum}\n${body}`,
+        chunk_index: results.length,
+        metadata: {
+          statute,
+          paragraph: articleNum.toLowerCase(),
+          isNormParagraph: true,
+          startsWithParagraph: true,
+          isArticle: true,
+          wordCount: body.split(/\s+/).length
+        }
+      });
+    }
+    return results;
   }
 
   createChunks(text) {

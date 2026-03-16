@@ -3,23 +3,11 @@ import { apiClient, ApiResponse, ChatResponse, Citation } from './client';
 
 export class ChatService {
   // Chat/RAG - Regular endpoint
+  // NOTE: 401 and 402 errors are intentionally NOT caught here so they propagate
+  // to useChat.ts → ChatScreen.tsx where the LoginModal / token-exhausted modal is shown.
   async askQuestion(question: string): Promise<ApiResponse<ChatResponse>> {
-    try {
-      const response = await apiClient.post('/chat/query', { question });
-      return response.data;
-    } catch (error) {
-      console.error('Failed to process question:', error);
-      return {
-        success: false,
-        error: 'Failed to process your question',
-        data: {
-          answer: 'Unable to process your request. Please try again later.',
-          sources: [],
-          confidence: 0,
-          documentsUsed: 0,
-        },
-      };
-    }
+    const response = await apiClient.post('/chat/query', { question });
+    return response.data;
   }
 
   // Chat with streaming (Server-Sent Events) - Fallback to regular chat
@@ -81,40 +69,15 @@ export class ChatService {
       } else {
         throw new Error(response.error || 'Failed to get response');
       }
-    } catch (error) {
-      console.error('Streaming failed, using fallback:', error);
-      
-      // Fallback: return an error response
-      yield { 
-        type: 'error', 
-        error: 'Streaming not available. Using regular response.',
-        timestamp: new Date().toISOString()
-      };
-      
-      // Provide a basic response
-      yield { 
-        type: 'token', 
-        token: 'Note: Streaming not available. Here is the regular response: ',
-        progress: 50
-      };
-      
-      const fallbackResponse = `I received your question: "${question}". Since the streaming endpoint is not available, I'm providing a regular response. Please check that your backend is running correctly.`;
-      
-      const words = fallbackResponse.split(' ');
-      for (let i = 0; i < words.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-        yield { 
-          type: 'token', 
-          token: words[i] + (i < words.length - 1 ? ' ' : ''),
-          progress: Math.round((i + 1) / words.length * 100)
-        };
+    } catch (error: any) {
+      // Re-throw auth/token errors so LoginModal fires in ChatScreen
+      const status = error?.response?.status;
+      if (status === 401 || status === 402) {
+        throw error;
       }
-      
-      yield { 
-        type: 'end', 
-        timestamp: new Date().toISOString(),
-        chatId: `fallback-${Date.now()}`
-      };
+      console.error('Streaming failed:', error);
+      yield { type: 'error', error: error?.message || 'Request failed', timestamp: new Date().toISOString() };
+      yield { type: 'end', timestamp: new Date().toISOString(), chatId: `error-${Date.now()}` };
     }
   }
 

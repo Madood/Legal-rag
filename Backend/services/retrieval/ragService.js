@@ -6,19 +6,22 @@ class RAGService {
     this.MAX_CHUNKS = 5;
     this.tfidf = new natural.TfIdf();
 
-    // Statute display names
+    // Statute display names — all keys UPPERCASE to match loaded document metadata
     this.statuteDisplayNames = {
-      StGB: "Strafgesetzbuch (StGB)",
-      BGB: "Bürgerliches Gesetzbuch (BGB)",
-      HGB: "Handelsgesetzbuch (HGB)",
-      GG: "Grundgesetz (GG)",
+      BGB:      "Bürgerliches Gesetzbuch (BGB)",
+      STGB:     "Strafgesetzbuch (StGB)",
+      HGB:      "Handelsgesetzbuch (HGB)",
+      GG:       "Grundgesetz (GG)",
+      ZPO:      "Zivilprozessordnung (ZPO)",
+      STPO:     "Strafprozessordnung (StPO)",
+      GMBHG:    "GmbH-Gesetz (GmbHG)",
       "EU-GDPR": "EU-Datenschutz-Grundverordnung (GDPR)",
     };
 
-    // ⭐⭐ DOCTRINE: Excluded statutes for specific domains
+    // ⭐⭐ DOCTRINE: Excluded statutes for specific domains — keys UPPERCASE
     this.excludedStatutesForDomain = {
-      "StGB": ["BGB", "HGB", "ZPO", "AO", "EU-GDPR"],
-      "BGB": ["StGB", "StPO", "OwiG", "VwVfG"],
+      "STGB": ["BGB", "HGB", "ZPO", "AO", "EU-GDPR"],
+      "BGB":  ["STGB", "STPO", "OwiG", "VwVfG"],
     };
 
     // ⭐⭐ DOCTRINE: Explicitly excluded statutes regardless of domain
@@ -351,6 +354,16 @@ class RAGService {
       // Continue anyway - Python has already done deep validation
     }
 
+    // Attach query keywords to chunks for header-keyword boosting in rerankWithWeights
+    // Only extract LEGAL TERMS (nouns ≥8 chars that aren't common German words)
+    const COMMON_WORDS = new Set(['zwischen', 'welche', 'welcher', 'welches', 'einer', 'eines', 'einem', 'beim', 'werden', 'worden', 'wurden', 'hatten', 'koennen', 'koeünnen', 'mussen', 'sollen', 'unterschied', 'unterschiede', 'voraussetzung', 'voraussetzungen', 'allgemeine', 'allgemeinen', 'besondere', 'besonderen', 'rechtliche', 'rechtlichen', 'definition', 'bedeutung', 'erklaerung']);
+    const queryKeywords = question
+      .toLowerCase()
+      .replace(/[^a-zäöüß\s]/gi, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 8 && !COMMON_WORDS.has(w));
+    filteredSemanticChunks.forEach(c => { c._queryKeywords = queryKeywords; });
+
     // ⭐⭐ DOCTRINE: FINAL RANKING with domain penalties
     let rankedChunks = this.rerankWithWeights(
       filteredSemanticChunks,
@@ -489,9 +502,16 @@ class RAGService {
       });
     }
 
-    // ⚠️ Unknown authority mode
-    console.log(`❓ Unknown authority_mode: ${authority_mode}, returning empty`);
-    return [];
+    // Null/unknown authority_mode — fall back to overview so documents aren't silently dropped
+    console.log(`⚠️ Unknown authority_mode "${authority_mode}" — falling back to overview filter`);
+    return allDocuments.filter(doc => {
+      const docStatute = this.extractStatuteFromDoc(doc);
+      if (docStatute === anchorStatute) return true;
+      if (this.alwaysExcludedStatutes.includes(docStatute)) return false;
+      const excludedForDomain = this.excludedStatutesForDomain[anchorStatute];
+      if (excludedForDomain && excludedForDomain.includes(docStatute)) return false;
+      return this.isRelatedStatute(docStatute, anchorStatute);
+    });
   }
 
   /* -------------------------------------------------
@@ -623,7 +643,7 @@ class RAGService {
     if (exactReferenceMatch) confidence += 0.2;
     
     // Base confidence for different statutes
-    if (statute === "BGB" || statute === "StGB") confidence *= 1.1;
+    if (statute === "BGB" || statute === "STGB") confidence *= 1.1;
     
     // Reduce confidence for domain-anchored mode (more restrictive)
     if (domain_anchor) confidence *= 0.9;
@@ -676,7 +696,27 @@ class RAGService {
     return chunks.sort((a, b) => {
       const scoreA = this.calculateChunkScore(a, statute, paragraph, isArticle, retrievalStrategy);
       const scoreB = this.calculateChunkScore(b, statute, paragraph, isArticle, retrievalStrategy);
-      return scoreB - scoreA;
+      if (scoreB !== scoreA) return scoreB - scoreA;
+
+      // Tiebreaker: prefer the chunk whose header has keyword as PRIMARY (first) content word
+      if (a._queryKeywords && b._queryKeywords) {
+        const keywords = a._queryKeywords;
+        const primaryWordA = (a.content || '').split('\n')[0].replace(/^§\s*\d+[a-z]?\s*/i, '').split(/[\s,;:()]+/)[0]?.toLowerCase() || '';
+        const primaryWordB = (b.content || '').split('\n')[0].replace(/^§\s*\d+[a-z]?\s*/i, '').split(/[\s,;:()]+/)[0]?.toLowerCase() || '';
+        const isPrimaryMatchA = keywords.some(kw => primaryWordA.startsWith(kw));
+        const isPrimaryMatchB = keywords.some(kw => primaryWordB.startsWith(kw));
+        if (isPrimaryMatchA && !isPrimaryMatchB) return -1;
+        if (isPrimaryMatchB && !isPrimaryMatchA) return 1;
+        // Fall back to keyword index order
+        const firstLineA = (a.content || '').split('\n')[0].toLowerCase();
+        const firstLineB = (b.content || '').split('\n')[0].toLowerCase();
+        const idxA = keywords.findIndex(kw => firstLineA.split(/[\s,;:()]+/).some(w => w.startsWith(kw)));
+        const idxB = keywords.findIndex(kw => firstLineB.split(/[\s,;:()]+/).some(w => w.startsWith(kw)));
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+      }
+      return 0;
     });
   }
 
@@ -734,6 +774,20 @@ class RAGService {
       score += 0.1;
     }
 
+    // Boost if the section header (first line of chunk) starts a word with a query keyword
+    // Uses word-start matching to avoid "unterschied" matching "unterschieden" in body text
+    if (chunk._queryKeywords && content) {
+      const firstLine = content.split('\n')[0].toLowerCase();
+      // Match keyword at word start: the word in firstLine must START with the keyword
+      const hasHeaderKeyword = chunk._queryKeywords.some(kw => {
+        const words = firstLine.split(/[\s,;:()]+/);
+        return words.some(word => word.startsWith(kw.toLowerCase()));
+      });
+      if (hasHeaderKeyword) {
+        score += 0.4;
+      }
+    }
+
     return Math.max(0, Math.min(score, 1.0));
   }
 
@@ -748,14 +802,21 @@ class RAGService {
   generateStructuredAnswer(legalRule, chunks, language, statute, paragraph, isArticle, domain_anchor, options = {}) {
     const statuteName = this.statuteDisplayNames[statute] || statute;
 
-    let answer = `**Legal situation according to ${statuteName}:**\n\n`;
+    const isGerman = language === 'german';
+    let answer = isGerman
+      ? `**Rechtslage nach ${statuteName}:**\n\n`
+      : `**Legal situation according to ${statuteName}:**\n\n`;
 
     // ✅ EPISTEMIC HANDLING: Derivative norms get special treatment
     if (options.retrievalStrategy === "CONSEQUENCE_ONLY") {
-      answer += `*[Consequence reasoning mode – reference norm analysis]*\n\n`;
-      
+      answer += isGerman
+        ? `*[Folgenbetrachtungs-Modus – Bezugsnorm-Analyse]*\n\n`
+        : `*[Consequence reasoning mode – reference norm analysis]*\n\n`;
+
       if (paragraph) {
-        answer += `**Reference Norm:** ${isArticle ? 'Article' : '§'} ${paragraph}\n\n`;
+        answer += isGerman
+          ? `**Bezugsnorm:** ${isArticle ? 'Artikel' : '§'} ${paragraph}\n\n`
+          : `**Reference Norm:** ${isArticle ? 'Article' : '§'} ${paragraph}\n\n`;
       }
       
       // No "Rule:" section for derivative norms
@@ -802,18 +863,24 @@ class RAGService {
     } else {
       // Standard operative norm handling
       if (domain_anchor) {
-        answer += `*[Domain-anchored overview mode - retrieval limited to anchor norms]*\n\n`;
+        answer += isGerman
+          ? `*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]*\n\n`
+          : `*[Domain-anchored overview mode - retrieval limited to anchor norms]*\n\n`;
       }
 
       if (paragraph) {
-        answer += `**Norm:** ${isArticle ? 'Article' : '§'} ${paragraph}\n\n`;
+        answer += isGerman
+          ? `**Norm:** ${isArticle ? 'Artikel' : '§'} ${paragraph}\n\n`
+          : `**Norm:** ${isArticle ? 'Article' : '§'} ${paragraph}\n\n`;
       }
 
-      answer += `**Rule:**\n${legalRule || "No specific rule extracted."}\n\n`;
+      const ruleLabel = isGerman ? 'Regelung' : 'Rule';
+      answer += `**${ruleLabel}:**\n${legalRule || (isGerman ? "Keine spezifische Regelung gefunden." : "No specific rule extracted.")}\n\n`;
 
       // Add context
       if (chunks.length > 0) {
-        answer += `**Context:**\n`;
+        const ctxLabel = isGerman ? 'Kontext' : 'Context';
+        answer += `**${ctxLabel}:**\n`;
         chunks.slice(0, 2).forEach((chunk) => {
           const content = chunk.content || "";
           const firstSentence = content.split(/[.!?]+/)[0];
@@ -826,10 +893,14 @@ class RAGService {
 
     // Add TF-IDF indicator if used
     if (chunks.some(chunk => chunk.tfidfScore > 0)) {
-      answer += `\n*Answer incorporates lexical precision via TF-IDF.*`;
+      answer += isGerman
+        ? `\n*Antwort nutzt lexikalische Präzision via TF-IDF.*`
+        : `\n*Answer incorporates lexical precision via TF-IDF.*`;
     }
 
-    answer += `\n*Based on German legal documents. This is not legal advice.*`;
+    answer += isGerman
+      ? `\n*Basierend auf deutschen Rechtsdokumenten. Keine Rechtsberatung.*`
+      : `\n*Based on German legal documents. This is not legal advice.*`;
     return answer.trim();
   }
 
@@ -839,6 +910,12 @@ class RAGService {
 
   tfidfRerank(chunks, query) {
     if (!chunks || chunks.length === 0 || !query || query.trim().length < 3) {
+      return chunks;
+    }
+
+    // Guard: O(n²) TF-IDF blocks the event loop above ~200 chunks. Return as-is when oversized.
+    if (chunks.length > 200) {
+      console.log(`⚠️ TF-IDF skipped: ${chunks.length} chunks exceeds safe limit (200). Returning pre-ranked results.`);
       return chunks;
     }
 
@@ -1135,6 +1212,30 @@ class RAGService {
       "zuletzt geändert",
       "Inhaltsübersicht",
       "Inhaltsverzeichnis",
+      // PDF page headers from gesetze-im-internet.de
+      "Bundesministerium",
+      "Bundesamts für Justiz",
+      "bundesamt für justiz",
+      "Ein Service des",
+      "www.gesetze",
+      "Seite ",          // "Seite 92 von 254"
+      "von 254",
+      "von 112",
+      "von 98",
+      // Transitional/ancillary law chunks
+      "BGBEG",
+      "EGGmbHG",
+      "EGStGB",
+      "EGStPO",
+      "+++",
+      "Zur Nichtanwendung",
+      "Zur Anwendung d.",
+      "Kreditinstituts-Rechnungslegungsverordnung",
+      "Rechnungslegungsverordnung",
+      "Telekommunikationsgesetzes",
+      "Binnenschifffahrtsgesetzes",
+      "Binnenschifffahrt",
+      "geltend zu machen, bleibt unberührt",
     ];
 
     const lower = text.toLowerCase();
@@ -1172,13 +1273,18 @@ class RAGService {
 
   selectDiverseTopChunks(chunks, limit) {
     const selected = [];
-    const usedDocuments = new Set();
+    // Deduplicate by paragraph (metadata.paragraph), falling back to documentId.
+    // Using documentId alone causes only 1 chunk when all chunks are from the same statute PDF.
+    const usedKeys = new Set();
 
     for (const chunk of chunks) {
       if (selected.length >= limit) break;
-      if (!usedDocuments.has(chunk.documentId)) {
+      const key = chunk.metadata?.paragraph
+        ? `${chunk.documentId}::${chunk.metadata.paragraph}`
+        : chunk.documentId;
+      if (!usedKeys.has(key)) {
         selected.push(chunk);
-        usedDocuments.add(chunk.documentId);
+        usedKeys.add(key);
       }
     }
 
@@ -1191,11 +1297,15 @@ class RAGService {
       let excerpt = content.replace(/\s+/g, " ").trim();
       if (excerpt.length > 150) excerpt = excerpt.substring(0, 150) + "...";
 
+      const simNum   = parseFloat(chunk.similarity)  || 0;
+      const tfidfNum = parseFloat(chunk.tfidfScore) || 0;
+      const combined = chunk.combinedScore || (simNum * 0.7 + tfidfNum * 0.3) || simNum || 0.5;
       return {
         id: index + 1,
         document: chunk.documentName,
         statute: statute,
         excerpt: excerpt,
+        relevance: Math.min(1, Math.max(0, combined)),
         similarity: chunk.similarity?.toFixed(3) || "0.500",
         tfidfScore: chunk.tfidfScore?.toFixed(3) || "0.000",
         domainPenalty: chunk.domainPenalty || 0,
@@ -1261,16 +1371,17 @@ class RAGService {
       : `**Doctrine Violation: Retrieval Blocked**\n\n${reason}\n\nThe request cannot be processed according to doctrine rules.`;
 
     return {
-      answer: message,
+      answer: "Keine gesicherte Grundlage gefunden. Bitte präzisieren Sie Ihre Frage.",
       citations: [],
-      confidence: 0.0,
+      confidence: 0,
+      refused: true,
       documentsUsed: 0,
       metadata: {
         processingTime: Date.now() - startTime,
         doctrineBlocked: true,
         blockReason: reason,
         authority_mode: authority_mode,
-        confidence: 0.0,
+        confidence: 0,
       },
     };
   }

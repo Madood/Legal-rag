@@ -1,0 +1,809 @@
+{
+  "summary": {
+    "total": 100,
+    "passed": 100,
+    "timestamp": "2026-03-16T08:20:48.979Z"
+  },
+  "results": [
+    {
+      "question": "Was ist ein Vertrag nach § 311 BGB und welche Voraussetzungen müssen für einen wirksamen Vertragsschluss vorliegen?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 311 BGB**\n\n§ 311 Rechtsgeschäftliche und rechtsgeschäftsähnliche Schuldverhältnisse\n\n(1) Z...",
+      "timestamp": "2026-03-16T08:17:47.423Z"
+    },
+    {
+      "question": "Was regelt § 242 BGB über Leistung nach Treu und Glauben?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 242 BGB**\n\n§ 242 Leistung nach Treu und Glauben\nDer Schuldner ist verpflichtet, die Leistu...",
+      "timestamp": "2026-03-16T08:17:49.241Z"
+    },
+    {
+      "question": "Was bedeutet Verjährung im BGB und welche Fristen gelten nach §§ 195, 196 BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Bürgerliches Gesetzbuch (BGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen b...",
+      "timestamp": "2026-03-16T08:17:51.238Z"
+    },
+    {
+      "question": "Kann ein Minderjähriger ohne Zustimmung der Eltern einen Kaufvertrag abschließen? Prüfung nach §§ 104 ff. BGB.",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Bürgerliches Gesetzbuch (BGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen b...",
+      "timestamp": "2026-03-16T08:17:53.263Z"
+    },
+    {
+      "question": "Was ist der Unterschied einem Darlehen und einer Schenkung nach BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Bürgerliches Gesetzbuch (BGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen b...",
+      "timestamp": "2026-03-16T08:17:55.201Z"
+    },
+    {
+      "question": "Welche Rechte hat der Käufer bei Sachmängeln nach § 437 BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 437 BGB**\n\n§ 437 Rechte des Käufers bei Mängeln\nIst die Sache mangelhaft, kann der Käufer,...",
+      "timestamp": "2026-03-16T08:17:56.938Z"
+    },
+    {
+      "question": "Was besagt § 823 BGB zur Schadensersatzpflicht?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 823 BGB**\n\n§ 823 Schadensersatzpflicht\n(1) Wer vorsätzlich oder fahrlässig das Leben, den ...",
+      "timestamp": "2026-03-16T08:17:58.672Z"
+    },
+    {
+      "question": "Wie berechnet sich der Pflichtteil nach §§ 2303 ff. BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Bürgerliches Gesetzbuch (BGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen b...",
+      "timestamp": "2026-03-16T08:18:00.641Z"
+    },
+    {
+      "question": "Was ist eine bewegliche Sache im Sinne des § 90 BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 90 BGB**\n\n§ 90 Begriff der Sache\nSachen im Sinne des Gesetzes sind nur körperliche Gegenst...",
+      "timestamp": "2026-03-16T08:18:02.446Z"
+    },
+    {
+      "question": "Welche Formvorschriften gelten für einen Grundstückskaufvertrag nach § 311b BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 311b BGB**\n\n§ 311b Abs. 2 \n     vgl.\n\n*Diese Angaben stammen aus deutschen Rechtsdokumente...",
+      "timestamp": "2026-03-16T08:18:04.158Z"
+    },
+    {
+      "question": "Was regelt § 433 BGB über Pflichten aus dem Kaufvertrag?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 433 BGB**\n\n§ 433 Vertragstypische Pflichten beim Kaufvertrag\n(1) Durch den Kaufvertrag wir...",
+      "timestamp": "2026-03-16T08:18:05.928Z"
+    },
+    {
+      "question": "Kann ein Vermieter die Miete wegen gestiegener Betriebskosten erhöhen? Prüfung nach §§ 558 ff. BGB.",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Bürgerliches Gesetzbuch (BGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen b...",
+      "timestamp": "2026-03-16T08:18:07.940Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Besitz und Eigentum nach BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Bürgerliches Gesetzbuch (BGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen b...",
+      "timestamp": "2026-03-16T08:18:09.828Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine wirksame Kündigung eines Mietverhältnisses nach § 573 BGB vorliegen?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 573 BGB**\n\n§ 573 bis 573d, 575, 575a Abs. 1, 3, 4, §\n\n*Diese Angaben stammen aus deutschen...",
+      "timestamp": "2026-03-16T08:18:11.541Z"
+    },
+    {
+      "question": "Was regelt § 985 BGB über den Herausgabeanspruch des Eigentümers?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 985 BGB**\n\n§ 985 Herausgabeanspruch\nDer Eigentümer kann von dem Besitzer die Herausgabe de...",
+      "timestamp": "2026-03-16T08:18:13.282Z"
+    },
+    {
+      "question": "Wie entsteht eine Bürgschaft und welche Form ist nach § 766 BGB erforderlich?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 766 BGB**\n\n§ 766 Schriftform der Bürgschaftserklärung\nZur Gültigkeit des Bürgschaftsvertra...",
+      "timestamp": "2026-03-16T08:18:15.042Z"
+    },
+    {
+      "question": "Was ist ein Widerrufsrecht bei Verbraucherverträgen nach § 355 BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 355 BGB**\n\n§ 355 Absatz 1 und 2 zu\nleisten;\n \n1a.  (Zahlungsfrist)\neine Bestimmung, durch ...",
+      "timestamp": "2026-03-16T08:18:16.790Z"
+    },
+    {
+      "question": "Welche Pflichten hat der Verkäufer bei Gefahrübergang nach § 446 BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 446 BGB**\n\n§ 446 Gefahr- und Lastenübergang\nMit der Übergabe der verkauften Sache geht die...",
+      "timestamp": "2026-03-16T08:18:18.548Z"
+    },
+    {
+      "question": "Was besagt § 812 BGB über die Herausgabe einer ungerechtfertigten Bereicherung?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 812 BGB**\n\n§ 812 Herausgabeanspruch\n(1) Wer durch die Leistung eines anderen oder in sonst...",
+      "timestamp": "2026-03-16T08:18:20.383Z"
+    },
+    {
+      "question": "Was ist eine unerlaubte Handlung im Sinne des § 823 BGB?",
+      "statute": "BGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Bürgerliches Gesetzbuch — § 823 BGB**\n\n§ 823 Schadensersatzpflicht\n(1) Wer vorsätzlich oder fahrlässig das Leben, den ...",
+      "timestamp": "2026-03-16T08:18:22.113Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Mord nach § 211 StGB und Totschlag nach § 212 StGB?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 211 STGB**\n\n§ 211 (Mord) verjähren nicht.\n(3) Soweit die Verfolgung verjährt, beträgt die Verjähru...",
+      "timestamp": "2026-03-16T08:18:23.818Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine Notwehr nach § 32 StGB vorliegen?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 32 STGB**\n\n§ 32 Notwehr\n(1) Wer eine Tat begeht, die durch Notwehr geboten ist, handelt nicht rech...",
+      "timestamp": "2026-03-16T08:18:25.550Z"
+    },
+    {
+      "question": "Was regelt § 263 StGB zum Betrug?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 263 STGB**\n\n§ 263,\n263a, 267, 269, 275, 276, 303a und 303b,\n \nb)\n\n*Diese Angaben stammen aus deuts...",
+      "timestamp": "2026-03-16T08:18:27.242Z"
+    },
+    {
+      "question": "Wann liegt eine Unterschlagung nach § 246 StGB vor?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 246 STGB**\n\n§ 246, die auf die Erlangung inländischer oder ausländischer\nZahlungskarten, Schecks, ...",
+      "timestamp": "2026-03-16T08:18:29.021Z"
+    },
+    {
+      "question": "Was ist Diebstahl nach § 242 StGB und wie unterscheidet er sich vom Raub?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 242 STGB**\n\n§ 242 oder\n\n*Diese Angaben stammen aus deutschen Rechtsdokumenten und ersetzen keine R...",
+      "timestamp": "2026-03-16T08:18:30.721Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine Strafbarkeit wegen Beihilfe nach § 27 StGB vorliegen?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 27 STGB**\n\n§ 27 Beihilfe\n(1) Als Gehilfe wird bestraft, wer vorsätzlich einem anderen zu dessen vo...",
+      "timestamp": "2026-03-16T08:18:32.512Z"
+    },
+    {
+      "question": "Was besagt § 223 StGB über Körperverletzung?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 223 STGB**\n\n§ 223 Körperverletzung\n(1) Wer eine andere Person körperlich mißhandelt oder an der Ge...",
+      "timestamp": "2026-03-16T08:18:34.202Z"
+    },
+    {
+      "question": "Was ist eine gefährliche Körperverletzung nach § 224 StGB?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 224 STGB**\n\n§ 224 oder\neiner Körperverletzung, die einem anderen Menschen schwere körperliche oder...",
+      "timestamp": "2026-03-16T08:18:36.001Z"
+    },
+    {
+      "question": "Wann liegt eine Urkundenfälschung nach § 267 StGB vor?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 267 STGB**\n\n§ 267 Urkundenfälschung\n(1) Wer zur Täuschung im Rechtsverkehr eine unechte Urkunde he...",
+      "timestamp": "2026-03-16T08:18:37.738Z"
+    },
+    {
+      "question": "Was regelt § 177 StGB zum sexuellen Übergriff?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 177 STGB**\n\n§ 177 Absatz 4 bis 8 oder des\n\n*Diese Angaben stammen aus deutschen Rechtsdokumenten u...",
+      "timestamp": "2026-03-16T08:18:39.430Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine Strafbarkeit wegen Untreue nach § 266 StGB vorliegen?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 266 STGB**\n\n§ 266 Untreue\n(1) Wer die ihm durch Gesetz, behördlichen Auftrag oder Rechtsgeschäft e...",
+      "timestamp": "2026-03-16T08:18:41.729Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Versuch und Vollendung einer Straftat nach §§ 22, 23 StGB?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafgesetzbuch (StGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschrän...",
+      "timestamp": "2026-03-16T08:18:43.536Z"
+    },
+    {
+      "question": "Was besagt § 315c StGB über Gefährdung des Straßenverkehrs?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 315c STGB**\n\n§ 315c Abs. 1 Nr. 1 Buchstabe a, Abs. 3 oder\n\n*Diese Angaben stammen aus deutschen Re...",
+      "timestamp": "2026-03-16T08:18:45.304Z"
+    },
+    {
+      "question": "Wann liegt eine Nötigung nach § 240 StGB vor?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 240 STGB**\n\n§ 240) oder tätlich angreifen,\n \n2.  gewaltsam ausbrechen oder\n \n3.  gewaltsam einem v...",
+      "timestamp": "2026-03-16T08:18:47.058Z"
+    },
+    {
+      "question": "Was ist eine Freiheitsberaubung nach § 239 StGB?",
+      "statute": "StGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafgesetzbuch — § 239 STGB**\n\n§ 239 Freiheitsberaubung\n(1) Wer einen Menschen einsperrt oder auf andere Weise der Fr...",
+      "timestamp": "2026-03-16T08:18:48.801Z"
+    },
+    {
+      "question": "Was ist ein Kaufmann nach § 1 HGB und welche Voraussetzungen müssen dafür vorliegen?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 1 HGB**\n\n§ 1 Abs. 1 Nr. 4 Buchst. a G v. 19.4.2006 I 866, 891 \n     (BMJMaßgabenBerG) mWv 25.4.2...",
+      "timestamp": "2026-03-16T08:18:50.593Z"
+    },
+    {
+      "question": "Was regelt § 343 HGB über Handelsgeschäfte?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 343 HGB**\n\n§ 343 Absatz 1 Satz 4 des Umwandlungsgesetzes.\n \nHierzu übermitteln die Landesjustizv...",
+      "timestamp": "2026-03-16T08:18:52.279Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen einer OHG und einer KG nach HGB?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Handelsgesetzbuch (HGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschrä...",
+      "timestamp": "2026-03-16T08:18:54.204Z"
+    },
+    {
+      "question": "Welche Pflichten hat ein Prokurist nach § 49 HGB?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 49 HGB**\n\n§ 49 \n(1) Die Prokura ermächtigt zu allen Arten von gerichtlichen und außergerichtlich...",
+      "timestamp": "2026-03-16T08:18:55.884Z"
+    },
+    {
+      "question": "Was besagt § 377 HGB zur Untersuchungs- und Rügepflicht im Handelskauf?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 377 HGB**\n\n§ 377 \n(1) Ist der Kauf für beide Teile ein Handelsgeschäft, so hat der Käufer die Wa...",
+      "timestamp": "2026-03-16T08:18:57.632Z"
+    },
+    {
+      "question": "Wie wird eine Prokura nach § 48 HGB erteilt und widerrufen?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 48 HGB**\n\n§ 48 \n(1) Die Prokura kann nur von dem Inhaber des Handelsgeschäfts oder seinem gesetz...",
+      "timestamp": "2026-03-16T08:18:59.339Z"
+    },
+    {
+      "question": "Was ist ein Handelsregister und welche Eintragungen sind nach HGB erforderlich?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Handelsgesetzbuch (HGB):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschrä...",
+      "timestamp": "2026-03-16T08:19:01.329Z"
+    },
+    {
+      "question": "Welche Regelungen enthält § 350 HGB zur Bürgschaft von Kaufleuten?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 350 HGB**\n\n§ 350 \nAuf eine Bürgschaft, ein Schuldversprechen oder ein Schuldanerkenntnis finden,...",
+      "timestamp": "2026-03-16T08:19:07.395Z"
+    },
+    {
+      "question": "Was ist eine Firma im Sinne des § 17 HGB?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 17 HGB**\n\n§ 17 \n(1) Die Firma eines Kaufmanns ist der Name, unter dem er seine Geschäfte betreib...",
+      "timestamp": "2026-03-16T08:19:09.154Z"
+    },
+    {
+      "question": "Was besagt § 15 HGB über das Vertrauen auf Registereintragungen?",
+      "statute": "HGB",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Handelsgesetzbuch — § 15 HGB**\n\n§ 15 \n(1) Solange eine in das Handelsregister einzutragende Tatsache nicht eingetragen...",
+      "timestamp": "2026-03-16T08:19:10.910Z"
+    },
+    {
+      "question": "Was garantiert Artikel 1 GG über die Menschenwürde?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 1 GG**\n\nArt 1\n(1) Die Würde des Menschen ist unantastbar. Sie zu achten und zu schützen ist Verpfli...",
+      "timestamp": "2026-03-16T08:19:12.661Z"
+    },
+    {
+      "question": "Welche Grundrechte sind in Artikel 2 GG enthalten?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 2 GG**\n\nArt 2\n(1) Jeder hat das Recht auf die freie Entfaltung seiner Persönlichkeit, soweit er nic...",
+      "timestamp": "2026-03-16T08:19:14.394Z"
+    },
+    {
+      "question": "Was besagt Artikel 3 GG zum Gleichheitsgrundsatz?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 3 GG**\n\nArt 3\n(1) Alle Menschen sind vor dem Gesetz gleich.\n(2) Männer und Frauen sind gleichberech...",
+      "timestamp": "2026-03-16T08:19:16.126Z"
+    },
+    {
+      "question": "Was regelt Artikel 5 GG zur Meinungsfreiheit?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 5 GG**\n\nArt 5\n(1) Jeder hat das Recht, seine Meinung in Wort, Schrift und Bild frei zu äußern und z...",
+      "timestamp": "2026-03-16T08:19:17.820Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine Einschränkung der Religionsfreiheit nach Artikel 4 GG vorliegen?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 4 GG**\n\nArt 4\n(1) Die Freiheit des Glaubens, des Gewissens und die Freiheit des religiösen und welt...",
+      "timestamp": "2026-03-16T08:19:19.488Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Grundrechten und Grundrechtschranken im GG?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Grundgesetz (GG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]*\n\n...",
+      "timestamp": "2026-03-16T08:19:21.314Z"
+    },
+    {
+      "question": "Was besagt Artikel 14 GG zum Eigentumsschutz?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 14 GG**\n\nArt 14\n(1) Das Eigentum und das Erbrecht werden gewährleistet. Inhalt und Schranken werden...",
+      "timestamp": "2026-03-16T08:19:23.090Z"
+    },
+    {
+      "question": "Welche Regelungen enthält Artikel 20 GG zu den Staatsstrukturprinzipien?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 20 GG**\n\nArt 20\n\nJustiz ‒ \n(1) Die Bundesrepublik Deutschland ist ein demokratischer und sozialer B...",
+      "timestamp": "2026-03-16T08:19:24.845Z"
+    },
+    {
+      "question": "Was garantiert Artikel 103 GG zum rechtlichen Gehör?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 103 GG**\n\nArt 103\n(1) Vor Gericht hat jedermann Anspruch auf rechtliches Gehör.\n(2) Eine Tat kann n...",
+      "timestamp": "2026-03-16T08:19:26.582Z"
+    },
+    {
+      "question": "Was regelt Artikel 38 GG zum Wahlrecht?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 38 GG**\n\nArt 38\n(1) Die Abgeordneten des Deutschen Bundestages werden in allgemeiner, unmittelbarer...",
+      "timestamp": "2026-03-16T08:19:28.432Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine Verfassungsbeschwerde nach Art. 93 GG vorliegen?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 93 GG**\n\nArt 93\n(1) Das Bundesverfassungsgericht ist ein allen übrigen Verfassungsorganen gegenüber...",
+      "timestamp": "2026-03-16T08:19:30.100Z"
+    },
+    {
+      "question": "Was besagt Artikel 12 GG zur Berufsfreiheit?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 12 GG**\n\nArt 12\n(1) Alle Deutschen haben das Recht, Beruf, Arbeitsplatz und Ausbildungsstätte frei ...",
+      "timestamp": "2026-03-16T08:19:31.775Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Grundrechten für Deutsche und Jedermann-Grundrechten?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Grundgesetz (GG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]*\n\n...",
+      "timestamp": "2026-03-16T08:19:33.628Z"
+    },
+    {
+      "question": "Was regelt Artikel 79 GG zur Verfassungsänderung?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 79 GG**\n\nArt 79\n(1) Das Grundgesetz kann nur durch ein Gesetz geändert werden, das den Wortlaut des...",
+      "timestamp": "2026-03-16T08:19:35.400Z"
+    },
+    {
+      "question": "Welche Bedeutung hat die Ewigkeitsklausel in Artikel 79 Absatz 3 GG?",
+      "statute": "GG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Grundgesetz — Art. 79 GG**\n\nArt 79\n(1) Das Grundgesetz kann nur durch ein Gesetz geändert werden, das den Wortlaut des...",
+      "timestamp": "2026-03-16T08:19:37.120Z"
+    },
+    {
+      "question": "Wie gründet man eine GmbH nach dem GmbHG und welche Voraussetzungen sind erforderlich?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach GmbH-Gesetz (GmbHG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]...",
+      "timestamp": "2026-03-16T08:19:39.396Z"
+    },
+    {
+      "question": "Was ist das Stammkapital einer GmbH und welche Regelungen enthält § 5 GmbHG dazu?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**GmbH-Gesetz — § 5 GMBHG**\n\n§ 5 Stammkapital; Geschäftsanteil\n(1) Das Stammkapital der Gesellschaft muß mindestens fünf...",
+      "timestamp": "2026-03-16T08:19:41.068Z"
+    },
+    {
+      "question": "Welche Pflichten hat ein GmbH-Geschäftsführer nach §§ 35 ff. GmbHG?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach GmbH-Gesetz (GmbHG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]...",
+      "timestamp": "2026-03-16T08:19:42.898Z"
+    },
+    {
+      "question": "Was regelt § 13 GmbHG zur Rechtsnatur der GmbH?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**GmbH-Gesetz — § 13 GMBHG**\n\n§ 13 Juristische Person; Handelsgesellschaft\n(1) Die Gesellschaft mit beschränkter Haftung...",
+      "timestamp": "2026-03-16T08:19:44.593Z"
+    },
+    {
+      "question": "Was ist eine Stammeinlage und wie wird sie nach § 7 GmbHG eingezahlt?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**GmbH-Gesetz — § 7 GMBHG**\n\n§ 7 Abs. 2 darf die Anmeldung erst erfolgen, wenn das Stammkapital in voller Höhe\neingezahl...",
+      "timestamp": "2026-03-16T08:19:46.297Z"
+    },
+    {
+      "question": "Welche Haftung trifft den Geschäftsführer bei Insolvenzverschleppung nach § 64 GmbHG?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**GmbH-Gesetz — § 64 GMBHG**\n\n§ 64(weggefallen)\n§ 65Anmeldung und Eintragung der Auflösung\n§ 66Liquidatoren\n§ 67Anmeldun...",
+      "timestamp": "2026-03-16T08:19:48.078Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen einer GmbH und einer UG (haftungsbeschränkt) nach GmbHG?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach GmbH-Gesetz (GmbHG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]...",
+      "timestamp": "2026-03-16T08:19:49.811Z"
+    },
+    {
+      "question": "Welche Rechte haben Gesellschafter einer GmbH nach §§ 45 ff. GmbHG?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach GmbH-Gesetz (GmbHG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]...",
+      "timestamp": "2026-03-16T08:19:51.513Z"
+    },
+    {
+      "question": "Was regelt § 30 GmbHG zur Erhaltung des Stammkapitals?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**GmbH-Gesetz — § 30 GMBHG**\n\n§ 30 Kapitalerhaltung\n(1) Das zur Erhaltung des Stammkapitals erforderliche Vermögen der G...",
+      "timestamp": "2026-03-16T08:19:53.187Z"
+    },
+    {
+      "question": "Wie wird eine GmbH aufgelöst und liquidiert nach §§ 60 ff. GmbHG?",
+      "statute": "GmbHG",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach GmbH-Gesetz (GmbHG):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen beschränkt]...",
+      "timestamp": "2026-03-16T08:19:54.919Z"
+    },
+    {
+      "question": "Wie reicht man eine Klage ein nach ZPO und welche Voraussetzungen müssen erfüllt sein?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Zivilprozessordnung (ZPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besch...",
+      "timestamp": "2026-03-16T08:19:56.975Z"
+    },
+    {
+      "question": "Was regelt § 253 ZPO über die Klageschrift?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Zivilprozessordnung — § 253 ZPO**\n\n§ 253 Klageschrift\n(1) Die Erhebung der Klage erfolgt durch Zustellung eines Schrif...",
+      "timestamp": "2026-03-16T08:19:58.816Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Urteilsverfahren und Mahnverfahren nach ZPO?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Zivilprozessordnung (ZPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besch...",
+      "timestamp": "2026-03-16T08:20:00.811Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für einen Arrest nach §§ 916 ff. ZPO vorliegen?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Zivilprozessordnung (ZPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besch...",
+      "timestamp": "2026-03-16T08:20:02.692Z"
+    },
+    {
+      "question": "Was besagt § 286 ZPO zur freien Beweiswürdigung?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Zivilprozessordnung — § 286 ZPO**\n\n§ 286 Freie Beweiswürdigung\n(1) Das Gericht hat unter Berücksichtigung des gesamten...",
+      "timestamp": "2026-03-16T08:20:04.489Z"
+    },
+    {
+      "question": "Was ist ein Versäumnisurteil nach §§ 330 ff. ZPO?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Zivilprozessordnung (ZPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besch...",
+      "timestamp": "2026-03-16T08:20:06.439Z"
+    },
+    {
+      "question": "Welche Regelungen enthält § 91 ZPO zur Kostentragungspflicht?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Zivilprozessordnung — § 91 ZPO**\n\n§ 91 Grundsatz und Umfang der Kostenpflicht\n(1) Die unterliegende Partei hat die Kos...",
+      "timestamp": "2026-03-16T08:20:08.136Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Berufung und Revision nach ZPO?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Zivilprozessordnung (ZPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besch...",
+      "timestamp": "2026-03-16T08:20:10.037Z"
+    },
+    {
+      "question": "Was regelt § 850 ZPO über pfändungsfreie Beträge?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Zivilprozessordnung — § 850 ZPO**\n\n§ 850 Pfändungsschutz für Arbeitseinkommen\n(1) Arbeitseinkommen, das in Geld zahlba...",
+      "timestamp": "2026-03-16T08:20:11.745Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine einstweilige Verfügung nach §§ 935 ff. ZPO vorliegen?",
+      "statute": "ZPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Zivilprozessordnung (ZPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besch...",
+      "timestamp": "2026-03-16T08:20:13.792Z"
+    },
+    {
+      "question": "Wie wird ein Strafverfahren eingeleitet nach StPO?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafprozessordnung (StPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besc...",
+      "timestamp": "2026-03-16T08:20:15.689Z"
+    },
+    {
+      "question": "Was regelt § 112 StPO über die Untersuchungshaft?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafprozessordnung — § 112 STPO**\n\n§ 112 Absatz 2 Nummer 3 nutzt oder in einer den Untersuchungszweck gefährdenden We...",
+      "timestamp": "2026-03-16T08:20:17.523Z"
+    },
+    {
+      "question": "Welche Rechte hat ein Beschuldigter im Strafverfahren nach StPO?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafprozessordnung (StPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besc...",
+      "timestamp": "2026-03-16T08:20:19.391Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Strafbefehl und Hauptverhandlung nach StPO?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafprozessordnung (StPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besc...",
+      "timestamp": "2026-03-16T08:20:21.134Z"
+    },
+    {
+      "question": "Was besagt § 136 StPO zur Belehrungspflicht bei der ersten Vernehmung?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafprozessordnung — § 136 STPO**\n\n§ 136 des Bürgerlichen Gesetzbuchs. Die Wirkung der Beschlagnahme wird von der Erö...",
+      "timestamp": "2026-03-16T08:20:22.832Z"
+    },
+    {
+      "question": "Welche Voraussetzungen müssen für eine Durchsuchung nach §§ 102 ff. StPO vorliegen?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafprozessordnung (StPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besc...",
+      "timestamp": "2026-03-16T08:20:24.620Z"
+    },
+    {
+      "question": "Was ist eine Beschlagnahme nach §§ 94 ff. StPO?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafprozessordnung (StPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besc...",
+      "timestamp": "2026-03-16T08:20:26.438Z"
+    },
+    {
+      "question": "Was regelt § 152 StPO zum Legalitätsprinzip?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafprozessordnung — § 152 STPO**\n\n§ 152 des Gerichtsverfassungsgesetzes) zu. Die Entnahme\neiner Blutprobe bedarf abw...",
+      "timestamp": "2026-03-16T08:20:28.260Z"
+    },
+    {
+      "question": "Welche Regelungen enthält § 163 StPO zur Polizei im Ermittlungsverfahren?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Strafprozessordnung — § 163 STPO**\n\n§ 163 Aufgaben der Polizei im Ermittlungsverfahren\n(1) Die Behörden und Beamten de...",
+      "timestamp": "2026-03-16T08:20:29.977Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen Privatklage und öffentlicher Klage nach StPO?",
+      "statute": "StPO",
+      "expected_pass": "ANSWER",
+      "actual_pass": true,
+      "answer_preview": "**Rechtslage nach Strafprozessordnung (StPO):**\n\n*[Domänen-verankerte Übersichtsdarstellung – Abruf auf Ankernormen besc...",
+      "timestamp": "2026-03-16T08:20:31.763Z"
+    },
+    {
+      "question": "Was regelt die DSGVO Artikel 17 zum Recht auf Löschung?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:33.898Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen deutschem und österreichischem Strafrecht?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:35.407Z"
+    },
+    {
+      "question": "Wer ist der aktuelle Bundeskanzler von Deutschland?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:36.920Z"
+    },
+    {
+      "question": "Was regelt das Arbeitsgerichtsgesetz (ArbGG)?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:38.434Z"
+    },
+    {
+      "question": "Bin ich schuldig, wenn ich zu schnell gefahren bin?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:39.941Z"
+    },
+    {
+      "question": "Was bedeutet die Europäische Menschenrechtskonvention für Deutschland?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:41.446Z"
+    },
+    {
+      "question": "Wie hoch ist die Mehrwertsteuer in Deutschland?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:42.952Z"
+    },
+    {
+      "question": "Was regelt das Verwaltungsverfahrensgesetz (VwVfG)?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:44.462Z"
+    },
+    {
+      "question": "Kann ich wegen einer Ordnungswidrigkeit ins Gefängnis kommen?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:45.965Z"
+    },
+    {
+      "question": "Was ist der Unterschied zwischen deutscher und schweizerischer Rechtsordnung?",
+      "statute": "REFUSAL",
+      "expected_pass": "REFUSE",
+      "actual_pass": true,
+      "answer_preview": "{\"error\":\"Too many requests, please try again later\"}",
+      "timestamp": "2026-03-16T08:20:47.476Z"
+    }
+  ]
+}

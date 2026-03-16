@@ -4,6 +4,8 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const TokenTransaction = require('../models/TokenTransaction');
+const PasswordResetToken = require('../models/PasswordResetToken');
+const { sendPasswordResetCode } = require('../services/email/emailService');
 const { isDbReady } = require('../config/db');
 
 // Use built-in crypto instead of uuid package (avoids ESM incompatibility)
@@ -151,6 +153,74 @@ router.get('/me', async (req, res) => {
     res.json({ success: true, data: { user: userPayload(user) } });
   } catch {
     res.status(401).json({ success: false, error: 'Invalid token' });
+  }
+});
+
+// POST /api/auth/forgot-password — generate & email a 6-digit reset code
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ success: false, error: 'E-Mail ist erforderlich' });
+
+  try {
+    const user = await User.findOne({ email: email.toLowerCase().trim(), isGuest: false });
+    // Always respond success to prevent user enumeration
+    if (!user) return res.json({ success: true });
+
+    // Generate a 6-digit code and store its SHA-256 hash
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    // Invalidate any previous tokens for this user
+    await PasswordResetToken.deleteMany({ userId: user._id });
+
+    await PasswordResetToken.create({
+      userId: user._id,
+      codeHash,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+    });
+
+    await sendPasswordResetCode(user.email, code);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Forgot password error:', error.message);
+    res.status(500).json({ success: false, error: 'Code konnte nicht gesendet werden. Prüfen Sie die SMTP-Konfiguration.' });
+  }
+});
+
+// POST /api/auth/reset-password — verify code and set new password
+router.post('/reset-password', async (req, res) => {
+  const { email, code, newPassword } = req.body;
+  if (!email || !code || !newPassword) {
+    return res.status(400).json({ success: false, error: 'E-Mail, Code und neues Passwort sind erforderlich' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ success: false, error: 'Passwort muss mindestens 6 Zeichen haben' });
+  }
+
+  try {
+    const user = await User.findOne({ email: email.toLowerCase().trim(), isGuest: false });
+    if (!user) return res.status(400).json({ success: false, error: 'Ungültiger Code oder E-Mail' });
+
+    const codeHash = crypto.createHash('sha256').update(code.trim()).digest('hex');
+    const token = await PasswordResetToken.findOne({
+      userId: user._id,
+      codeHash,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!token) return res.status(400).json({ success: false, error: 'Code ist ungültig oder abgelaufen' });
+
+    token.used = true;
+    await token.save();
+
+    user.password = newPassword; // pre-save hook hashes it
+    await user.save();
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Reset password error:', error.message);
+    res.status(500).json({ success: false, error: 'Passwort konnte nicht zurückgesetzt werden' });
   }
 });
 

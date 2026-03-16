@@ -85,7 +85,7 @@ class ResultFormatter {
           ...source,
           statute: source.statute || authority.statute,
           paragraph: source.paragraph || authority.paragraph,
-          relevance: 'authoritative',
+          relevance: 1.0,
           score: null
         }));
       }
@@ -255,15 +255,17 @@ class ResultFormatter {
       metadata: source.metadata || {}
     };
 
-    // Clean NaN from relevance score
-    if (safeSource.relevance !== undefined && isNaN(safeSource.relevance)) {
-      safeSource.relevance = null;
+    // Compute numeric relevance from available score fields
+    let rel = parseFloat(safeSource.relevance);
+    if (isNaN(rel)) {
+      // Fall back to similarity, then tfidfScore, then combined score
+      const sim   = parseFloat(safeSource.similarity);
+      const tfidf = parseFloat(safeSource.tfidfScore);
+      if (!isNaN(sim) && sim > 0)        rel = sim;
+      else if (!isNaN(tfidf) && tfidf > 0) rel = tfidf;
+      else                                 rel = null;
     }
-
-    // Add safe relevance indicator
-    if (safeSource.relevance === null || safeSource.relevance === undefined) {
-      safeSource.relevance = 'not_calculated';
-    }
+    safeSource.relevance = (rel !== null && !isNaN(rel)) ? Math.min(1, Math.max(0, rel)) : null;
 
     return safeSource;
   }

@@ -97,6 +97,7 @@ class DomainDiscovery:
             'gdpr': ('data_protection', 'EU-GDPR'),
             'stpo': ('criminal_procedure', 'StPO'),
             'zpo': ('civil_procedure', 'ZPO'),
+            'gmbhg': ('company_law', 'GMBHG'),
         }
         
         for statute_key, (domain, statute) in statute_mapping.items():

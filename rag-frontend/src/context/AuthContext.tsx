@@ -40,30 +40,86 @@ function saveToken(token: string) {
   localStorage.setItem('auth_token', token);
 }
 
+function cacheUser(user: AuthUser) {
+  localStorage.setItem('user_cache', JSON.stringify(user));
+}
+
 function clearToken() {
   localStorage.removeItem('auth_token');
+  localStorage.removeItem('user_cache');
   localStorage.removeItem('isAuthenticated');
   localStorage.removeItem('userType');
 }
 
+/** Decode JWT expiry locally — no network needed */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp ? Date.now() > payload.exp * 1000 : false;
+  } catch {
+    return true;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
+  const [user, setUser]       = useState<AuthUser | null>(null);
+  const [token, setToken]     = useState<string | null>(() => localStorage.getItem('auth_token'));
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount, try to restore session from stored token
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
+
     if (!storedToken) {
       setIsLoading(false);
       return;
     }
+
+    // Fast path: token is expired — clear immediately, no network call
+    if (isTokenExpired(storedToken)) {
+      clearToken();
+      setIsLoading(false);
+      return;
+    }
+
+    // Fast path: cached user available — restore instantly, verify in background
+    const cachedRaw = localStorage.getItem('user_cache');
+    if (cachedRaw) {
+      try {
+        const cached = JSON.parse(cachedRaw) as AuthUser;
+        setUser(cached);
+        setToken(storedToken);
+        setIsLoading(false); // UI unblocks immediately
+
+        // Background verification — silently refresh user data
+        apiClient
+          .get('/auth/me', { headers: { Authorization: `Bearer ${storedToken}` } })
+          .then((res) => {
+            if (res.data?.success) {
+              setUser(res.data.data.user);
+              cacheUser(res.data.data.user);
+            } else {
+              clearToken();
+              setUser(null);
+              setToken(null);
+            }
+          })
+          .catch(() => {
+            // Network down or server down — keep cached user, don't log out
+          });
+        return;
+      } catch {
+        // Corrupt cache — fall through to server verification
+      }
+    }
+
+    // Slow path: no cache — must hit server
     apiClient
       .get('/auth/me', { headers: { Authorization: `Bearer ${storedToken}` } })
       .then((res) => {
         if (res.data?.success) {
           setUser(res.data.data.user);
           setToken(storedToken);
+          cacheUser(res.data.data.user);
         } else {
           clearToken();
         }
@@ -76,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await apiClient.post('/auth/guest');
     const { user: u, token: t } = res.data.data;
     saveToken(t);
+    cacheUser(u);
     localStorage.setItem('isAuthenticated', 'true');
     localStorage.setItem('userType', 'guest');
     setToken(t);
@@ -86,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await apiClient.post('/auth/login', { email, password });
     const { user: u, token: t } = res.data.data;
     saveToken(t);
+    cacheUser(u);
     localStorage.setItem('isAuthenticated', 'true');
     localStorage.setItem('userType', 'authenticated');
     setToken(t);
@@ -96,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await apiClient.post('/auth/register', { username, email, password, tier });
     const { user: u, token: t } = res.data.data;
     saveToken(t);
+    cacheUser(u);
     localStorage.setItem('isAuthenticated', 'true');
     localStorage.setItem('userType', 'authenticated');
     setToken(t);
@@ -115,7 +174,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiClient.get('/auth/me', {
         headers: { Authorization: `Bearer ${stored}` },
       });
-      if (res.data?.success) setUser(res.data.data.user);
+      if (res.data?.success) {
+        setUser(res.data.data.user);
+        cacheUser(res.data.data.user);
+      }
     } catch {
       // ignore
     }

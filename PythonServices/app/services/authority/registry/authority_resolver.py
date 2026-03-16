@@ -904,9 +904,11 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
             }
         }
 
-    # Family law / Divorce -> BGB
+    # Family law / Divorce -> BGB (use word-boundary matching to avoid
+    # false positives, e.g. "ehe" inside "vergehen" or "verbrechen")
+    import re as _re
     family_keywords = ['scheidung', 'trennung', 'ehe', 'ehescheidung', 'unterhalt', 'sorgerecht', 'kinder', 'familie']
-    if any(keyword in lower_question for keyword in family_keywords):
+    if any(_re.search(r'\b' + _re.escape(kw) + r'\b', lower_question) for kw in family_keywords):
         return {
             'status': 'DOCTRINE_AUTHORIZED',
             'authority_info': {
@@ -1367,7 +1369,7 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
     # Stellvertretung (Agency / Representation) -> BGB §§ 164-181
     stellv_keywords = [
         'stellvertretung', 'vollmacht', 'bevollmächtigter', 'vertreter',
-        'prokura', 'agency', 'legal representation', 'vertretungsmacht'
+        'agency', 'legal representation', 'vertretungsmacht'
     ]
     if any(k in lower_question for k in stellv_keywords):
         return {
@@ -1436,7 +1438,7 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
         }
 
     # Prokura (HGB §§ 48-53) — for questions without explicit statute reference
-    prokura_keywords = ['prokurist', 'handlungsvollmacht']
+    prokura_keywords = ['prokura', 'prokurist', 'handlungsvollmacht']
     if any(k in lower_question for k in prokura_keywords):
         return {
             'status': 'DOCTRINE_AUTHORIZED',
@@ -1445,6 +1447,193 @@ def _simple_doctrine_fallback(question: str) -> Dict[str, Any]:
                 "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
                 "requiresClarification": False, "anchorNormMode": True,
                 "suggestedField": "prokura", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Treu und Glauben (BGB § 242)
+    tgb_keywords = ['treu und glauben', 'treu-und-glauben', 'grundsatz von treu', 'nach treu']
+    if any(k in lower_question for k in tgb_keywords):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "treu_und_glauben", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # Fix: also catch verb form "verjähren"
+    verjaehren_extra = ['verjähren', 'verjährt', 'verjähren ansprüche', 'wann verjähr']
+    if any(k in lower_question for k in verjaehren_extra):
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "BGB", "domain": "civil_doctrine", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": "verjaehrung", "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # GmbHG — GmbH law questions
+    gmbhg_keywords = [
+        'gmbh', 'gmbhg', 'gesellschaft mit beschränkter haftung',
+        'stammkapital', 'stammeinlage', 'gesellschaftsvertrag',
+        'unternehmergesellschaft', 'gesellschafter',
+        'gesellschafterbeschluss', 'kapitalerhöhung gmbh',
+        'insolvenzantrag gmbh', 'liquidation gmbh',
+    ]
+    if any(k in lower_question for k in gmbhg_keywords):
+        _gmbhg_field = 'gmbh_general'
+        if any(k in lower_question for k in ['gründen', 'gründung', 'errichten']):
+            _gmbhg_field = 'gruendung'
+        elif 'stammkapital' in lower_question or 'stammeinlage' in lower_question:
+            _gmbhg_field = 'stammkapital'
+        elif 'geschäftsführer' in lower_question:
+            _gmbhg_field = 'geschaeftsfuehrer'
+        elif any(k in lower_question for k in ['auflösung', 'liquidation']):
+            _gmbhg_field = 'aufloesung'
+        elif 'insolvenzantrag' in lower_question:
+            _gmbhg_field = 'insolvenz'
+        elif 'gesellschafterbeschluss' in lower_question:
+            _gmbhg_field = 'beschluss'
+        elif any(k in lower_question for k in ['kapitalerhöhung']):
+            _gmbhg_field = 'kapitalerhoehung'
+        elif any(k in lower_question for k in ['unternehmergesellschaft', 'ug']):
+            _gmbhg_field = 'ug'
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "GMBHG", "domain": "company_law", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": _gmbhg_field, "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # ZPO — civil procedure questions
+    zpo_keywords = [
+        'einstweilige verfügung', 'mahnbescheid', 'mahnverfahren',
+        'zwangsvollstreckung', 'vollstreckungsbescheid', 'vollstreckungsbefehl',
+        'klagerhebung', 'prozesskostenhilfe', 'klageschrift',
+        'klage einreichen', 'klage erheben', 'gericht zuständig',
+        'zuständiges gericht', 'welches gericht', 'örtlich zuständig',
+        'versäumnisurteil', 'berufung zivilprozess', 'revision zivilprozess',
+        'beweislast', 'arrest zpo', 'wie reicht man eine klage',
+        'berufung im zivilprozess', 'revision im zivilprozess',
+    ]
+    if any(k in lower_question for k in zpo_keywords):
+        _zpo_field = 'zpo_general'
+        if any(k in lower_question for k in ['einstweilige']):
+            _zpo_field = 'einstweilige_verfuegung'
+        elif any(k in lower_question for k in ['mahnbescheid', 'mahnverfahren']):
+            _zpo_field = 'mahnverfahren'
+        elif 'zwangsvollstreckung' in lower_question:
+            _zpo_field = 'zwangsvollstreckung'
+        elif any(k in lower_question for k in ['klagerhebung', 'klageschrift', 'klage einreichen', 'klage erheben', 'wie reicht man eine klage']):
+            _zpo_field = 'klagerhebung'
+        elif any(k in lower_question for k in ['gericht zuständig', 'zuständiges gericht', 'welches gericht', 'örtlich zuständig']):
+            _zpo_field = 'zustaendigkeit'
+        elif 'versäumnisurteil' in lower_question:
+            _zpo_field = 'versaeumnisurteil'
+        elif any(k in lower_question for k in ['berufung']):
+            _zpo_field = 'berufung'
+        elif any(k in lower_question for k in ['revision']):
+            _zpo_field = 'revision'
+        elif 'beweislast' in lower_question:
+            _zpo_field = 'beweislast'
+        elif 'arrest' in lower_question:
+            _zpo_field = 'arrest'
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "ZPO", "domain": "civil_procedure", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": _zpo_field, "doctrinal_match": True,
+                "isStatuteLocked": True, "isParagraphLocked": False,
+                "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
+                "requiresParagraphMatch": False, "allowedParagraphs": [],
+                "retrievalConstraint": "STATUTE_ONLY", "normFunction": "OPERATIVE",
+                "epistemicRole": "CONTENT_PROVIDING", "requiresSynthesis": False,
+                "prohibitsQuotation": False, "isDerivativeNorm": False,
+                "inferenceMethod": "none", "epistemicConfidence": 0.88,
+                "epistemicCertainty": "confirmed", "epistemicMetadata": {},
+            }
+        }
+
+    # StPO — criminal procedure questions
+    stpo_keywords = [
+        'untersuchungshaft', 'hauptverhandlung', 'haftbefehl', 'anklageschrift',
+        'beschuldigtenrechte', 'rechte des beschuldigten',
+        'hausdurchsuchung', 'durchsuchung polizei', 'polizei durchsuch',
+        'darf die polizei durchsuchen', 'wann darf die polizei',
+        'strafprozess', 'strafverfahren',
+        'strafbefehl', 'akteneinsicht', 'verfahrenseinstellung', 'vernehmung',
+        'revision im strafprozess', 'revision strafprozess',
+    ]
+    if any(k in lower_question for k in stpo_keywords):
+        _stpo_field = 'stpo_general'
+        if 'untersuchungshaft' in lower_question:
+            _stpo_field = 'untersuchungshaft'
+        elif 'hauptverhandlung' in lower_question:
+            _stpo_field = 'hauptverhandlung'
+        elif 'haftbefehl' in lower_question:
+            _stpo_field = 'haftbefehl'
+        elif any(k in lower_question for k in ['durchsuchung', 'durchsuch']):
+            _stpo_field = 'durchsuchung'
+        elif any(k in lower_question for k in ['beschuldigtenrechte', 'rechte des beschuldigten']):
+            _stpo_field = 'beschuldigtenrechte'
+        elif 'strafbefehl' in lower_question:
+            _stpo_field = 'strafbefehl'
+        elif 'akteneinsicht' in lower_question:
+            _stpo_field = 'akteneinsicht'
+        elif 'verfahrenseinstellung' in lower_question or 'einstellung' in lower_question:
+            _stpo_field = 'einstellung'
+        elif 'vernehmung' in lower_question:
+            _stpo_field = 'vernehmung'
+        elif 'revision' in lower_question:
+            _stpo_field = 'revision'
+        return {
+            'status': 'DOCTRINE_AUTHORIZED',
+            'authority_info': {
+                "statute": "STPO", "domain": "criminal_procedure", "confidence": 0.88,
+                "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+                "requiresClarification": False, "anchorNormMode": True,
+                "suggestedField": _stpo_field, "doctrinal_match": True,
                 "isStatuteLocked": True, "isParagraphLocked": False,
                 "reference": None, "referenceType": None, "referenceSource": "doctrine_fallback",
                 "requiresParagraphMatch": False, "allowedParagraphs": [],
@@ -1731,13 +1920,135 @@ def _determine_authority_state(statute: str, reference: str,
             print(f'📚 [Authority] Doctrinal mode authorized for HGB {suggested_field}')
             return result
 
+    # GG-specific constitutional handling for questions without explicit article reference
+    if statute == 'GG' and not has_reference:
+        lower_question = question.lower()
+        gg_topics = {
+            'meinungsfreiheit': ['meinungsfreiheit', 'redefreiheit', 'pressefreiheit'],
+            'menschenwuerde': ['menschenwürde'],
+            'eigentumsgarantie': ['eigentumsgarantie', 'eigentumsschutz', 'eigentum'],
+            'verhaeltnismaessigkeit': ['verhältnismäßigkeit', 'verhältnismäßig'],
+            'grundrechte_juristische_personen': ['juristische personen', 'art. 19', 'grundrechte juristischer'],
+            'allgemein': ['grundrecht', 'grundrechte'],
+        }
+        suggested_field = None
+        for field, keywords in gg_topics.items():
+            for keyword in keywords:
+                if keyword in lower_question:
+                    suggested_field = field
+                    break
+            if suggested_field:
+                break
+        result['state'] = AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN
+        result['confidence'] = 0.75
+        result['requiresClarification'] = False
+        result['anchorNormMode'] = True
+        result['suggestedField'] = suggested_field
+        result['retrievalConstraint'] = 'STATUTE_ONLY'
+        result['epistemicCertainty'] = 'confirmed'
+        result['doctrinal_match'] = True
+        print(f'📚 [Authority] Doctrinal mode authorized for GG {suggested_field or "general"}')
+        return result
+
+    # GMBHG-specific doctrinal handling
+    if statute == 'GMBHG' and not has_reference:
+        lower_question = question.lower()
+        gmbhg_topics = {
+            'gruendung': ['gründen', 'gründung', 'errichten', 'gründet'],
+            'stammkapital': ['stammkapital', 'stammeinlage', 'mindeststammkapital'],
+            'geschaeftsfuehrer': ['geschäftsführer', 'geschäftsführung'],
+            'gesellschafter': ['gesellschafter', 'gesellschaftsvertrag'],
+            'aufloesung': ['auflösung', 'liquidation', 'abwicklung'],
+            'ug': ['unternehmergesellschaft', 'ug haftungsbeschränkt'],
+            'haftung': ['haftet gmbh', 'haftung gmbh'],
+        }
+        suggested_field = None
+        for field, keywords in gmbhg_topics.items():
+            for keyword in keywords:
+                if keyword in lower_question:
+                    suggested_field = field
+                    break
+            if suggested_field:
+                break
+        result['state'] = AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN
+        result['confidence'] = 0.75
+        result['requiresClarification'] = False
+        result['anchorNormMode'] = True
+        result['suggestedField'] = suggested_field
+        result['retrievalConstraint'] = 'STATUTE_ONLY'
+        result['epistemicCertainty'] = 'confirmed'
+        result['doctrinal_match'] = True
+        print(f'📚 [Authority] Doctrinal mode authorized for GMBHG {suggested_field or "general"}')
+        return result
+
+    # ZPO-specific doctrinal handling
+    if statute == 'ZPO' and not has_reference:
+        lower_question = question.lower()
+        zpo_topics = {
+            'klagerhebung': ['klage einreichen', 'klage erheben', 'klagerhebung', 'klageschrift'],
+            'einstweilige_verfuegung': ['einstweilige verfügung'],
+            'mahnverfahren': ['mahnbescheid', 'mahnverfahren', 'vollstreckungsbescheid'],
+            'zwangsvollstreckung': ['zwangsvollstreckung', 'vollstreckung'],
+            'zustaendigkeit': ['zuständig', 'zuständigkeit'],
+            'prozesskostenhilfe': ['prozesskostenhilfe'],
+        }
+        suggested_field = None
+        for field, keywords in zpo_topics.items():
+            for keyword in keywords:
+                if keyword in lower_question:
+                    suggested_field = field
+                    break
+            if suggested_field:
+                break
+        result['state'] = AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN
+        result['confidence'] = 0.75
+        result['requiresClarification'] = False
+        result['anchorNormMode'] = True
+        result['suggestedField'] = suggested_field
+        result['retrievalConstraint'] = 'STATUTE_ONLY'
+        result['epistemicCertainty'] = 'confirmed'
+        result['doctrinal_match'] = True
+        print(f'📚 [Authority] Doctrinal mode authorized for ZPO {suggested_field or "general"}')
+        return result
+
+    # StPO-specific doctrinal handling
+    if statute == 'STPO' and not has_reference:
+        lower_question = question.lower()
+        stpo_topics = {
+            'untersuchungshaft': ['untersuchungshaft'],
+            'hauptverhandlung': ['hauptverhandlung'],
+            'durchsuchung': ['durchsuchung', 'durchsuchen', 'hausdurchsuchung'],
+            'beschuldigtenrechte': ['rechte des beschuldigten', 'beschuldigtenrechte', 'beschuldigter'],
+            'haftbefehl': ['haftbefehl'],
+            'anklage': ['anklage', 'anklageschrift'],
+            'strafprozess': ['strafprozess', 'strafverfahren'],
+        }
+        suggested_field = None
+        for field, keywords in stpo_topics.items():
+            for keyword in keywords:
+                if keyword in lower_question:
+                    suggested_field = field
+                    break
+            if suggested_field:
+                break
+        result['state'] = AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN
+        result['confidence'] = 0.75
+        result['requiresClarification'] = False
+        result['anchorNormMode'] = True
+        result['suggestedField'] = suggested_field
+        result['retrievalConstraint'] = 'STATUTE_ONLY'
+        result['epistemicCertainty'] = 'confirmed'
+        result['doctrinal_match'] = True
+        print(f'📚 [Authority] Doctrinal mode authorized for STPO {suggested_field or "general"}')
+        return result
+
     # For other statutes without reference, clarification needed
     result['state'] = AuthorityState.CLARIFICATION_REQUIRED
     result['confidence'] = 0.0
     result['requiresClarification'] = True
     result['anchorNormMode'] = False
     result['retrievalConstraint'] = 'NONE'
-    
+
     return result
 
 
@@ -1804,7 +2115,9 @@ def _simple_lock_statute(question: str) -> Dict[str, Any]:
             'confidence': 0.8
         }
     
-    if 'gg' in lower_question or 'constitution' in lower_question or 'grundgesetz' in lower_question:
+    if ('gg' in lower_question or 'constitution' in lower_question or 'grundgesetz' in lower_question
+            or 'grundrecht' in lower_question or 'meinungsfreiheit' in lower_question
+            or 'verhältnismäßigkeit' in lower_question or 'menschenwürde' in lower_question):
         return {
             'status': 'LOCKED',
             'statute': 'GG',
@@ -1821,7 +2134,36 @@ def _simple_lock_statute(question: str) -> Dict[str, Any]:
             'source': 'simple_pattern',
             'confidence': 0.8
         }
-    
+
+    if ('gmbhg' in lower_question or 'gmbh' in lower_question or
+            'gesellschaft mit beschränkter haftung' in lower_question or
+            'unternehmergesellschaft' in lower_question):
+        return {
+            'status': 'LOCKED',
+            'statute': 'GMBHG',
+            'domain': 'company_law',
+            'source': 'simple_pattern',
+            'confidence': 0.85
+        }
+
+    if 'stpo' in lower_question or 'strafprozessordnung' in lower_question or 'strafprozess' in lower_question:
+        return {
+            'status': 'LOCKED',
+            'statute': 'STPO',
+            'domain': 'criminal_procedure',
+            'source': 'simple_pattern',
+            'confidence': 0.85
+        }
+
+    if 'zpo' in lower_question or 'zivilprozessordnung' in lower_question or 'zivilprozess' in lower_question:
+        return {
+            'status': 'LOCKED',
+            'statute': 'ZPO',
+            'domain': 'civil_procedure',
+            'source': 'simple_pattern',
+            'confidence': 0.85
+        }
+
     # No statute found
     return {
         'status': 'MISSING',
@@ -1849,6 +2191,14 @@ def _simple_extract_reference(question: str):
             'type': 'PARAGRAPH'
         }
     
+    # Match article abbreviation: Art. 14 or Art 14
+    art_abbrev_match = re.search(r'\bart\.?\s+(\d+[a-z]?)', question, re.I)
+    if art_abbrev_match:
+        return {
+            'number': art_abbrev_match.group(1),
+            'type': 'ARTICLE'
+        }
+
     # Match article: Article 15 or Artikel 15
     article_match = re.search(r'(?:article|artikel)\s+(\d+[a-z]?)', question, re.I)
     if article_match:
@@ -1856,7 +2206,7 @@ def _simple_extract_reference(question: str):
             'number': article_match.group(1),
             'type': 'ARTICLE'
         }
-    
+
     return None
 
 

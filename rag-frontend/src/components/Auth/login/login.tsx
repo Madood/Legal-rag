@@ -104,7 +104,7 @@ export function Login() {
                 <input type="checkbox" className="checkbox" />
                 Angemeldet bleiben
               </label>
-              <a href="#" className="forgot-password">Passwort vergessen?</a>
+              <Link to="/forgot-password" className="forgot-password">Passwort vergessen?</Link>
             </div>
 
             <button type="submit" disabled={isSubmitting} className="login-button">
