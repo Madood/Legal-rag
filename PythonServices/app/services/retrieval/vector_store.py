@@ -307,11 +307,6 @@ class FAISSStore(BaseVectorStore):
         if self.index is None or self.index.ntotal == 0:
             return []
         
-        # For FAISS, we need filter_dict to be provided
-        if filter_dict is None:
-            logger.error("FAISS legal search requires filter_dict")
-            return []
-        
         # Normalize query vector
         query_normalized = self._normalize_vectors(query_embedding.reshape(1, -1))
         

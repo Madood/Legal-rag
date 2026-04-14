@@ -47,9 +47,9 @@ export function Login() {
         <div className="login-form-wrapper">
           <Link to="/" className="logo-link">
             <div className="logo-icon">
-              <span className="logo-text">LR</span>
+              <span className="logo-text">J</span>
             </div>
-            <span className="logo-title">LegalRAG</span>
+            <span className="logo-title">Jurisma AI</span>
           </Link>
 
           <div className="welcome-section">

@@ -63,9 +63,9 @@ export function ForgotPassword() {
           {/* Logo */}
           <Link to="/" className="fp-logo-link">
             <div className="fp-logo-icon">
-              <span className="fp-logo-text">LR</span>
+              <span className="fp-logo-text">J</span>
             </div>
-            <span className="fp-logo-title">LegalRAG</span>
+            <span className="fp-logo-title">Jurisma AI</span>
           </Link>
 
           {/* ── STEP 1: Enter email ── */}

@@ -1,56 +1,56 @@
 import { useNavigate } from 'react-router-dom';
-import { Check, Zap } from 'lucide-react';
+import { Check, Scale } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import '../Home/Home.css';
+import './PricingPage.css';
 
 const PLANS = [
   {
     tier: 'guest' as const,
-    name: 'Guest',
+    name: 'Starter',
     price: 'Free',
-    tokens: 30,
-    sessionLimit: 5,
-    description: 'Try out the system',
+    period: '',
+    description: 'Testen Sie das System kostenlos',
     features: [
-      '30 total tokens',
-      '5 queries per session',
-      'Standard queries',
-      'No account required',
+      '30 Token gesamt',
+      '5 Anfragen pro Sitzung',
+      'Standard-Anfragen',
+      'Kein Konto erforderlich',
     ],
-    cta: 'Continue as Guest',
-    color: 'gray',
+    cta: 'Als Gast fortfahren',
+    featured: false,
   },
   {
     tier: 'pro' as const,
-    name: 'Pro',
-    price: '€9/month',
-    tokens: 300,
-    sessionLimit: null,
-    description: 'For legal researchers',
+    name: 'Professional',
+    price: '9',
+    period: 'Monat',
+    description: 'Für rechtliche Recherche',
     features: [
-      '300 tokens / month',
-      'Unlimited sessions',
-      'All query types',
-      'Priority support',
+      '300 Token / Monat',
+      'Unbegrenzte Sitzungen',
+      'Alle Anfragetypen',
+      'Priority Support',
+      'API Zugang',
     ],
-    cta: 'Get Pro',
-    color: 'blue',
-    recommended: true,
+    cta: 'Pro starten',
+    featured: true,
   },
   {
     tier: 'business' as const,
     name: 'Business',
-    price: '€29/month',
-    tokens: 700,
-    sessionLimit: null,
-    description: 'For law firms & teams',
+    price: '29',
+    period: 'Monat',
+    description: 'Für Kanzleien & Teams',
     features: [
-      '700 tokens / month',
-      'Unlimited sessions',
-      'All query types',
-      'Team management (soon)',
+      '700 Token / Monat',
+      'Unbegrenzte Sitzungen',
+      'Alle Anfragetypen',
+      'Team-Verwaltung (bald)',
+      'Dedizierter Support',
     ],
-    cta: 'Get Business',
-    color: 'purple',
+    cta: 'Business starten',
+    featured: false,
   },
 ];
 
@@ -68,78 +68,91 @@ export function PricingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col items-center py-16 px-4">
-      <div className="text-center mb-12">
-        <div className="flex justify-center mb-3">
-          <Zap size={32} className="text-yellow-500" />
+    <div className="pricing-page">
+
+      {/* Page header */}
+      <div className="pricing-page-header">
+        <div className="pricing-page-header-inner">
+          <div className="pricing-page-badge">
+            <Scale size={14} />
+            <span>Transparente Preisgestaltung</span>
+          </div>
+          <h1 className="pricing-page-title">Einfache, transparente Preise</h1>
+          <p className="pricing-page-subtitle">
+            Token werden pro Anfrage verbraucht. Nicht verwendete Token werden
+            monatlich zurückgesetzt.
+          </p>
         </div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Simple Pricing</h1>
-        <p className="text-gray-500 dark:text-gray-400">
-          Tokens are consumed per query. Unused tokens reset monthly on paid plans.
+      </div>
+
+      {/* Cards */}
+      <div className="home-container">
+        <div className="home-pricing-grid">
+          {PLANS.map((plan) => {
+            const isCurrentTier = user?.tier === plan.tier;
+
+            return (
+              <div
+                key={plan.tier}
+                className={`home-pricing-card ${plan.featured ? 'home-pricing-card-featured' : ''}`}
+              >
+                {plan.featured && (
+                  <div className="pricing-badge-wrapper">
+                    <span className="pricing-recommended-badge">Empfohlen</span>
+                  </div>
+                )}
+
+                <div className="home-pricing-header">
+                  <h3 className={`home-pricing-title ${plan.featured ? 'home-pricing-title-featured' : ''}`}>
+                    {plan.name}
+                  </h3>
+                  <p className={`home-pricing-description ${plan.featured ? 'home-pricing-description-featured' : ''}`}>
+                    {plan.description}
+                  </p>
+                </div>
+
+                <div className="home-pricing-price">
+                  {plan.price === 'Free' ? (
+                    <div className="home-pricing-price-custom">Kostenlos</div>
+                  ) : (
+                    <div className="home-pricing-price-amount">
+                      <span className="home-pricing-price-value">€{plan.price}</span>
+                      <span className={`home-pricing-price-period ${plan.featured ? 'home-pricing-price-period-featured' : ''}`}>
+                        /{plan.period}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <ul className="home-pricing-features">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="home-pricing-feature">
+                      <Check className={`home-pricing-check ${plan.featured ? 'home-pricing-check-featured' : ''}`} />
+                      <span className={`home-pricing-feature-text ${plan.featured ? 'home-pricing-feature-text-featured' : ''}`}>
+                        {feature}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  disabled={isCurrentTier}
+                  onClick={() => handleSelect(plan.tier)}
+                  className={`home-pricing-button ${plan.featured ? 'home-pricing-button-featured' : ''} ${isCurrentTier ? 'pricing-button-current' : ''}`}
+                >
+                  {isCurrentTier ? 'Aktueller Plan' : plan.cta}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="pricing-token-note">
+          Standard-Anfragen kosten 1 Token · Vergleiche & Doctrine-Anfragen 2 Token ·
+          KI-Synthese 3 Token
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
-        {PLANS.map((plan) => {
-          const isCurrentTier = user?.tier === plan.tier;
-          const isRecommended = plan.recommended;
-
-          const borderClass =
-            plan.color === 'blue'
-              ? 'border-blue-500'
-              : plan.color === 'purple'
-              ? 'border-purple-500'
-              : 'border-gray-200 dark:border-gray-700';
-
-          const ctaClass =
-            plan.color === 'blue'
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : plan.color === 'purple'
-              ? 'bg-purple-600 hover:bg-purple-700 text-white'
-              : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100';
-
-          return (
-            <div
-              key={plan.tier}
-              className={`relative flex flex-col rounded-2xl border-2 ${borderClass} bg-white dark:bg-gray-900 p-6 shadow-sm`}
-            >
-              {isRecommended && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="rounded-full bg-blue-600 text-white text-xs font-semibold px-3 py-1">
-                    Recommended
-                  </span>
-                </div>
-              )}
-
-              <div className="mb-4">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">{plan.name}</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{plan.description}</p>
-              </div>
-
-              <div className="mb-6">
-                <span className="text-3xl font-bold text-gray-900 dark:text-white">{plan.price}</span>
-              </div>
-
-              <ul className="space-y-2 mb-8 flex-1">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <Check size={14} className="text-green-500 flex-shrink-0" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-
-              <button
-                disabled={isCurrentTier}
-                onClick={() => handleSelect(plan.tier)}
-                className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-default ${ctaClass}`}
-              >
-                {isCurrentTier ? 'Current Plan' : plan.cta}
-              </button>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

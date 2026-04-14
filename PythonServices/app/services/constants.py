@@ -11,14 +11,30 @@ import re
 # This is the single source of truth for statute domains
 # ALL KEYS ARE UPPERCASE to match system-wide normalization
 STATUTE_DOMAIN_MAP: Dict[str, str] = {
-    "BGB": "civil",
-    "STGB": "criminal",      # Uppercase to match authority resolver output
-    "HGB": "commercial",
-    "GG": "constitutional",
-    "EU-GDPR": "data_protection",
-    "GMBHG": "company_law",
-    "ZPO": "civil_procedure",
-    "STPO": "criminal_procedure",
+    # ── Eager (loaded at startup) ──────────────────────────────────────────
+    "BGB":     "civil",
+    "STGB":    "criminal",
+    "HGB":     "commercial",
+    "GG":      "constitutional",
+    "ZPO":     "civil_procedure",
+    "STPO":    "criminal_procedure",
+    "GMBHG":   "company_law",
+    # ── Lazy (loaded on first query) ──────────────────────────────────────
+    "EU-GDPR":    "data_protection",
+    "INSO":       "insolvency",
+    "AKTG":       "company_law",
+    "AGG":        "civil",               # Allgemeines Gleichbehandlungsgesetz
+    "AO":         "tax",                 # Abgabenordnung
+    "AMG":        "pharmaceutical",      # Arzneimittelgesetz
+    "AENTG":      "labor",               # Arbeitnehmer-Entsendegesetz
+    "ASYLG":      "immigration",         # Asylgesetz
+    "AUFENTHG":   "immigration",         # Aufenthaltsgesetz
+    "ANTIDOPG":   "criminal",            # Anti-Doping-Gesetz
+    "ARBSTAETTV": "labor",               # Arbeitsstättenverordnung
+    "ABGG":       "constitutional",      # Abgeordnetengesetz
+    "ADVERIMG":   "commercial",          # Gesetz gegen unlauteren Wettbewerb (UWG-adjacent)
+    "EGAKTG":     "company_law",         # Einführungsgesetz zum Aktiengesetz
+    "NKRG":       "administrative",      # Normenkontrollgesetz (Raumordnung)
 }
 
 # Reverse mapping for looking up statutes by domain

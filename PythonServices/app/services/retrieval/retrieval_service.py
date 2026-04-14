@@ -1,2810 +1,268 @@
-import re
 import numpy as np
-import faiss
-import json
-
-try:
-    import chromadb
-except ImportError:
-    chromadb = None  # type: ignore
 import os
 from typing import List, Dict, Any, Optional, Tuple
 import logging
-from datetime import datetime
+from .authority_enforcement import AuthorityEnforcement
+from .paragraph_identity import ParagraphExtractor, ParagraphNormalizer
+from .doctrine_guard import DoctrineGuard, DOCTRINAL_QUESTION_TYPES, SETTLED_DOCTRINES, DOCTRINE_LOOKUP
+from .statute_index_manager import StatuteFirstValidator, STATUTE_CHAINS
+from app.services.retrieval.vector_store import FAISSStore
+from .document_store import DocumentStore
+import json
+import glob
+
+# Import embedding service and constants
+from app.services.embeddings.embedding_service import embedding_service
+from app.services.constants import get_domain_from_statute, JURISDICTION, get_store_name
+from app.services.authority.registry.authority_resolver import resolve_authority as _real_resolve_authority
 
 logger = logging.getLogger(__name__)
 
-# ========== FIX 1: CANONICAL DOCTRINE IDENTIFIERS ==========
-DOCTRINAL_QUESTION_TYPES = {
-    "DOCTRINE",
-    "LEGAL_PRINCIPLE", 
-    "GRUNDSATZ",
-    "PRINCIPLE",
-    "DOCTRINAL_ANALYSIS"
-}
+# ── Startup loading policy ─────────────────────────────────────────────────
+# EAGER: loaded at startup — core German statutes, queried on every request
+EAGER_STATUTES: frozenset = frozenset([
+    "BGB", "STGB", "HGB", "GG", "ZPO", "STPO", "GMBHG",
+])
 
-# Canonical mapping: lowercase query term → canonical identifier
-CANONICAL_DOCTRINES = {
-    "schuldprinzip": "SCHULDPRINZIP",
-    "nulla poena sine lege": "NULLA_POENA_SINE_LEGE",
-    "verhältnismäßigkeitsprinzip": "VERHAELTNISMAESSIGKEIT",
-    "rechtsstaatsprinzip": "RECHTSSTAATSPRINZIP",
-    "bestimmtheitsgrundsatz": "BESTIMMTHEITSGRUNDSATZ",
-    "vertrauensschutzprinzip": "VERTRAUENSSCHUTZPRINZIP",
-    "ne bis in idem": "NE_BIS_IN_IDEM",
-    "in dubio pro reo": "IN_DUBIO_PRO_REO",
-    "unmittelbarkeitsgrundsatz": "UNMITTELBARKEITSGRUNDSATZ",
-    "öffentlichkeitsgrundsatz": "OEFFENTLICHKEITSGRUNDSATZ",
-    "gesetzlicher richter": "GESETZLICHER_RICHTER",
-    "waffengleichheit": "WAFFENGLEICHHEIT", 
-    "rechtliches gehör": "RECHTLICHES_GEHOER",
-    "fair trial": "FAIR_TRIAL"
-}
-
-# Lowercase lookup for detection
-SETTLED_DOCTRINES = set(CANONICAL_DOCTRINES.keys())
-
-# ⭐⭐ FIX 2: STATUTE CHAIN DEFINITIONS (extended)
-STATUTE_CHAINS = {
-    "BGB": {
-        "119": ["121", "122"],        # Anfechtung chain
-        "433": ["434", "437", "440"], # Kaufvertrag chain
-        "823": ["826", "249", "253"], # Deliktsrecht chain
-        "985": ["986", "987", "1004"],# Eigentum chain
-        "195": ["197", "199"],        # Verjährung chain
-        "286": ["288", "280", "249"], # Verzug chain
-        "241": ["242", "243"],        # Schuldverhältnis chain
-        "626": ["627", "628"],        # Kündigung chain
-        "1564": ["1565", "1566", "1567", "1568", "1569"], # Scheidung chain
-        "631": ["632", "633", "634"], # Werkvertrag chain
-        "535": ["536", "537", "543"], # Mietvertrag chain
-        "280": ["281", "282", "283", "284"], # Schadensersatz chain
-        "346": ["347", "348"],        # Rücktritt chain
-        "313": ["314"],               # Störung der Geschäftsgrundlage
-    },
-    "StGB": {
-        "211": ["212", "213"],        # Mord/Totschlag chain
-        "223": ["224", "226", "227"], # Körperverletzung chain
-        "242": ["243", "244", "248b"],# Diebstahl chain
-        "263": ["264", "265"],        # Betrug chain
-        "249": ["250", "251", "252"], # Raub chain
-        "303": ["304", "305"],        # Sachbeschädigung chain
-        "185": ["186", "187", "188"], # Beleidigung chain
-        "13": ["14", "15", "16"],     # Unterlassen chain
-        "20": ["21"],                 # Schuldunfähigkeit chain
-        "32": ["33", "34", "35"],     # Rechtfertigungsgründe chain
-    },
-    "HGB": {
-        "377": ["378", "379", "380"], # Rügepflicht chain
-        "343": ["344", "345"],        # Kaufmann chain
-        "48": ["49", "50", "51"],     # Prokura chain
-        "84": ["85", "86", "87"],     # Handelsvertreter chain
-        "161": ["162", "163"],        # KG chain
-        "105": ["106", "107"],        # OHG chain
-        "230": ["231", "232"],        # Stille Gesellschaft
-        "407": ["408", "409"],        # Frachtvertrag chain
-        "425": ["426", "427"],        # Haftung Frachtführer
-    }
-}
-
-# Extended cross-reference maps for semantic enrichment
-BGB_CROSS_REFERENCES = {
-    "119": ["121", "122", "142", "143"],  # Anfechtung: Frist, Schaden, Wirkung, Bestätigung
-    "433": ["434", "435", "437", "439", "440", "441", "442", "443"],  # Kauf
-    "275": ["276", "277", "278", "280"],  # Leistungsstörung
-    "280": ["281", "282", "283", "284", "285", "286"],  # Schadensersatz
-    "823": ["826", "249", "253", "254"],  # Delikt
-    "985": ["986", "987", "988", "989", "1004"],  # Vindikation
-    "195": ["196", "197", "198", "199", "200"],  # Verjährung §§195-200
-    "1564": ["1565", "1566", "1567", "1568", "1569", "1570", "1571", "1572",
-             "1573", "1574", "1575", "1576", "1577", "1578", "1579", "1580",
-             "1581", "1582", "1583", "1584", "1585", "1586", "1587", "1588"],  # Scheidung
-    "242": ["157", "241"],  # Treu und Glauben chain
-    "346": ["347", "348", "349", "350", "351", "352", "353", "354"],  # Rücktritt
-    "535": ["536", "537", "538", "539", "540", "541", "542", "543"],  # Miete
-    "631": ["632", "633", "634", "635", "636", "637", "638", "639"],  # Werkvertrag
-}
-
-STGB_CROSS_REFERENCES = {
-    "211": ["212", "213", "214", "216"],  # Töten
-    "223": ["224", "225", "226", "227", "228", "229", "230"],  # Körperverletzung
-    "242": ["243", "244", "244a", "247", "248a", "248b", "248c"],  # Diebstahl
-    "263": ["264", "264a", "265", "265a", "265b", "266", "267"],  # Betrug
-    "249": ["250", "251"],  # Raub
-    "185": ["186", "187", "188", "189", "190", "191", "192", "193", "194"],  # Beleidigung
-    "32": ["33", "34", "35"],  # Notwehr/Notstand
-    "20": ["21", "17", "16"],  # Schuld
-    "13": ["14"],  # Begehen durch Unterlassen
-    "25": ["26", "27", "28", "29", "30"],  # Täterschaft/Teilnahme
-}
-
-HGB_CROSS_REFERENCES = {
-    "377": ["378", "379", "380", "381"],  # Rüge/Handelskauf
-    "343": ["344", "345", "346", "347", "348", "349", "350"],  # Kaufmann/Handelsrecht
-    "48": ["49", "50", "51", "52", "53", "54", "55", "56", "57", "58"],  # Prokura/Vollmacht
-    "84": ["85", "86", "86a", "87", "87a", "87b", "87c", "88", "89", "89a", "89b"],  # Handelsvertreter
-    "105": ["106", "107", "108", "109", "110", "111", "112", "113"],  # OHG
-    "161": ["162", "163", "164", "165", "166", "167", "168", "169", "170",
-            "171", "172", "173", "174", "175", "176", "177"],  # KG
-    "407": ["408", "409", "410", "411", "412", "413", "414", "415", "416",
-            "417", "418", "419", "420", "421", "422", "423", "424"],  # Frachtvertrag
-    "425": ["426", "427", "428", "429", "430", "431", "432"],  # Haftung Frachtführer
-}
-
-
-# ===========================================================================
-# FIX 1: RANGE EXPANSION
-# ===========================================================================
-
-def expand_section_range(query: str) -> List[str]:
-    """
-    Parse range patterns from a query and return all paragraph numbers in range.
-
-    Handles:
-        §§ 195-197     → ["195", "196", "197"]
-        §§195–197      → ["195", "196", "197"]
-        §§ 195 bis 197 → ["195", "196", "197"]
-        § 195 ff.      → ["195", "196", "197", "198", "199", "200"]  (next 5)
-        § 195 f.       → ["195", "196"]  (immediately following)
-
-    Returns empty list if no range pattern found.
-    """
-    results: List[str] = []
-
-    # §§ NNN-MMM  or  §§ NNN–MMM  (double-§, dash or en-dash)
-    m = re.search(r'§§\s*(\d+)\s*[-–]\s*(\d+)', query)
-    if m:
-        start, end = int(m.group(1)), int(m.group(2))
-        if start <= end and (end - start) <= 50:  # sanity cap: max 50 paragraphs
-            return [str(n) for n in range(start, end + 1)]
-
-    # §§ NNN bis MMM
-    m = re.search(r'§§\s*(\d+)\s+bis\s+(\d+)', query, re.IGNORECASE)
-    if m:
-        start, end = int(m.group(1)), int(m.group(2))
-        if start <= end and (end - start) <= 50:
-            return [str(n) for n in range(start, end + 1)]
-
-    # § NNN ff. (folgende — forward references, expand 5 ahead)
-    m = re.search(r'§\s*(\d+)\s+ff\.?', query, re.IGNORECASE)
-    if m:
-        start = int(m.group(1))
-        return [str(n) for n in range(start, start + 6)]
-
-    # § NNN f. (immediately following — just the next one)
-    m = re.search(r'§\s*(\d+)\s+f\.(?!\s*f)', query, re.IGNORECASE)
-    if m:
-        start = int(m.group(1))
-        return [str(start), str(start + 1)]
-
-    return results
-
-
-# ===========================================================================
-# FIX 3: QUERY INTENT DETECTION
-# ===========================================================================
-
-def detect_query_intent(query: str) -> Dict:
-    """
-    Classify the query to determine retrieval strategy.
-
-    Returns a dict with:
-        intent:       "single" | "multi" | "range" | "comparative"
-        paragraphs:   List[str]  — all paragraph numbers involved
-        statute_hint: Optional[str] — statute detected from query
-        range_str:    Optional[str] — raw range string (e.g. "§§195-197")
-    """
-    query_lower = query.lower()
-
-    # 1. RANGE: §§195-197 or §§ 195 bis 197 or § 195 ff.
-    range_paragraphs = expand_section_range(query)
-    if range_paragraphs:
-        return {
-            "intent": "range",
-            "paragraphs": range_paragraphs,
-            "statute_hint": None,
-            "range_str": query,
-        }
-
-    # 2. COMPARATIVE: "Unterschied zwischen § X und § Y" / "vergleich" / "vs" / "versus"
-    comparative_signals = [
-        "unterschied", "vergleich", "verglichen", "vs", "versus",
-        "gegenüber", "im vergleich", "unterscheiden", "abgrenzung",
-        "difference between", "compare", "contrast", "versus",
-    ]
-    is_comparative = any(sig in query_lower for sig in comparative_signals)
-
-    # Collect all single § references
-    single_re = re.compile(r'§\s*(\d+[a-z]?)', re.IGNORECASE)
-    all_refs = [ParagraphNormalizer.normalize_paragraph(r) for r in single_re.findall(query)]
-    unique_refs = list(dict.fromkeys(all_refs))  # preserve order, deduplicate
-
-    if is_comparative and len(unique_refs) >= 2:
-        return {
-            "intent": "comparative",
-            "paragraphs": unique_refs[:4],  # cap at 4 sections
-            "statute_hint": None,
-            "range_str": None,
-        }
-
-    # 3. MULTI: multiple § references without comparative language
-    if len(unique_refs) >= 2:
-        return {
-            "intent": "multi",
-            "paragraphs": unique_refs[:6],  # cap at 6 sections
-            "statute_hint": None,
-            "range_str": None,
-        }
-
-    # 4. SINGLE: zero or one § reference
-    return {
-        "intent": "single",
-        "paragraphs": unique_refs[:1] if unique_refs else [],
-        "statute_hint": None,
-        "range_str": None,
-    }
-
-# NEW: Paragraph normalization utility
-class ParagraphNormalizer:
-    """Normalize paragraph identifiers for strict matching"""
-    
-    @staticmethod
-    def normalize_paragraph(paragraph: str) -> str:
-        """
-        Extract canonical base paragraph from various formats.
-        
-        Examples:
-        - "286" → "286"
-        - "286a" → "286"
-        - "286 Abs. 1" → "286"
-        - "286(1)" → "286"
-        - "§286" → "286"
-        - "§ 286" → "286"
-        """
-        if not paragraph:
-            return ""
-        
-        # Remove § symbol and whitespace
-        clean = paragraph.replace('§', '').strip()
-        
-        # Extract base number (digits only)
-        match = re.match(r'(\d+)', clean)
-        if match:
-            return match.group(1)
-        
-        return clean
-    
-    @staticmethod
-    def normalize_paragraph_list(paragraphs: List[str]) -> List[str]:
-        """Normalize a list of paragraphs"""
-        return [ParagraphNormalizer.normalize_paragraph(p) for p in paragraphs if p]
-    
-    @staticmethod
-    def paragraph_matches(target: str, candidate: str) -> bool:
-        """Check if paragraphs match after normalization"""
-        return (ParagraphNormalizer.normalize_paragraph(target) == 
-                ParagraphNormalizer.normalize_paragraph(candidate))
-
-
-class StatuteFirstIndexer:
-    """Specialized indexer for German statutes that preserves legal authority"""
-    
-    @staticmethod
-    def extract_stgb_paragraphs(text: str, statute: str = "StGB") -> List[Dict]:
-        """
-        Extract individual paragraphs from StGB text with proper authority metadata
-        Returns: List of documents with paragraph, statute, and content
-        """
-        documents = []
-        
-        # Pattern for German law paragraphs with optional letters
-        paragraph_pattern = r'(?:§|Artikel)\s*(\d+[a-z]?)'
-        
-        # Split by paragraph markers while keeping them
-        lines = text.split('\n')
-        current_paragraph = None
-        current_content = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # Check if this line starts a new paragraph
-            match = re.match(paragraph_pattern, line)
-            if match:
-                # Save previous paragraph if exists
-                if current_paragraph and current_content:
-                    doc = {
-                        "content": ' '.join(current_content),
-                        "statute": statute,
-                        "paragraph": current_paragraph,
-                        "paragraph_base": ParagraphNormalizer.normalize_paragraph(current_paragraph),
-                        "norm_type": "criminal_offense",
-                        "is_normative": True,
-                        "authority_level": "statutory"
-                    }
-                    documents.append(doc)
-                
-                # Start new paragraph
-                current_paragraph = match.group(1)
-                current_content = [line]
-            elif current_paragraph:
-                # Continue current paragraph
-                current_content.append(line)
-        
-        # Don't forget the last paragraph
-        if current_paragraph and current_content:
-            doc = {
-                "content": ' '.join(current_content),
-                "statute": statute,
-                "paragraph": current_paragraph,
-                "paragraph_base": ParagraphNormalizer.normalize_paragraph(current_paragraph),
-                "norm_type": "criminal_offense",
-                "is_normative": True,
-                "authority_level": "statutory"
-            }
-            documents.append(doc)
-        
-        return documents
-    
-    @staticmethod
-    def extract_bgb_paragraphs(text: str, statute: str = "BGB") -> List[Dict]:
-        """Extract BGB paragraphs (civil code)"""
-        documents = []
-        
-        # BGB uses § for paragraphs
-        lines = text.split('\n')
-        current_paragraph = None
-        current_content = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # BGB paragraph pattern
-            if line.startswith('§'):
-                # Extract paragraph number
-                parts = line.split()
-                if parts and parts[0] == '§' and len(parts) > 1:
-                    # Save previous
-                    if current_paragraph and current_content:
-                        doc = {
-                            "content": ' '.join(current_content),
-                            "statute": statute,
-                            "paragraph": current_paragraph,
-                            "paragraph_base": ParagraphNormalizer.normalize_paragraph(current_paragraph),
-                            "norm_type": "civil_norm",
-                            "is_normative": True,
-                            "authority_level": "statutory"
-                        }
-                        documents.append(doc)
-                    
-                    # Start new
-                    current_paragraph = parts[1].rstrip('.')
-                    current_content = [line]
-            elif current_paragraph:
-                current_content.append(line)
-        
-        if current_paragraph and current_content:
-            doc = {
-                "content": ' '.join(current_content),
-                "statute": statute,
-                "paragraph": current_paragraph,
-                "paragraph_base": ParagraphNormalizer.normalize_paragraph(current_paragraph),
-                "norm_type": "civil_norm",
-                "is_normative": True,
-                "authority_level": "statutory"
-            }
-            documents.append(doc)
-        
-        return documents
-
-
-class StatuteFirstValidator:
-    """Validate that responses have proper statutory authority"""
-    
-    @staticmethod
-    def validate_response(response_text: str, statute: str, paragraph: str) -> Dict:
-        """
-        Validate that response cites the correct statute and paragraph
-        Returns validation result with score
-        """
-        validation = {
-            "is_valid": False,
-            "statute_found": False,
-            "paragraph_found": False,
-            "security_score": 0,
-            "issues": []
-        }
-        
-        # Check for statute
-        if statute.upper() in response_text.upper():
-            validation["statute_found"] = True
-        
-        # Check for paragraph (with various formats)
-        paragraph_base = ParagraphNormalizer.normalize_paragraph(paragraph)
-        
-        # Extract all paragraphs from response
-        response_paragraphs = re.findall(r'§\s*(\d+[a-z]?)', response_text)
-        for resp_para in response_paragraphs:
-            if ParagraphNormalizer.paragraph_matches(resp_para, paragraph):
-                validation["paragraph_found"] = True
-                break
-        
-        # Also check for other formats
-        if not validation["paragraph_found"]:
-            # Check for "paragraph X" format
-            para_patterns = [
-                rf'paragraph\s+{paragraph_base}\b',
-                rf'art\.\s*{paragraph_base}\b',
-                rf'artikel\s+{paragraph_base}\b'
-            ]
-            for pattern in para_patterns:
-                if re.search(pattern, response_text, re.IGNORECASE):
-                    validation["paragraph_found"] = True
-                    break
-        
-        # Determine validity
-        validation["is_valid"] = validation["statute_found"] and validation["paragraph_found"]
-        
-        # Calculate security score
-        if validation["is_valid"]:
-            validation["security_score"] = 95
-        elif validation["statute_found"] and not validation["paragraph_found"]:
-            validation["security_score"] = 40
-            validation["issues"].append("Paragraph not cited")
-        elif not validation["statute_found"] and validation["paragraph_found"]:
-            validation["security_score"] = 30
-            validation["issues"].append("Statute not cited")
-        else:
-            validation["security_score"] = 0
-            validation["issues"].append("No statutory authority cited")
-        
-        return validation
-
-
-class VectorStore:
-    """Base class for vector store implementations"""
-    
-    def __init__(self, store_type: str = "faiss"):
-        self.store_type = store_type
-        self.dimension = 768  # Default for multilingual MPNet
-        self.index = None
-        self.metadata = {}
-        self.indices_dir = os.getenv("INDICES_DIR", "./data/indices")
-        os.makedirs(self.indices_dir, exist_ok=True)
-    
-    def create_index(self, dimension: int):
-        """Create empty index"""
-        raise NotImplementedError
-    
-    def add_vectors(self, vectors: np.ndarray, metadatas: List[Dict]):
-        """Add vectors to index"""
-        raise NotImplementedError
-    
-    def search(self, query_vector: np.ndarray, k: int = 5, filter_dict: Optional[Dict] = None) -> List[Dict]:
-        """Search for similar vectors"""
-        raise NotImplementedError
-    
-    def save(self, index_name: str):
-        """Save index to disk"""
-        raise NotImplementedError
-    
-    def load(self, index_name: str):
-        """Load index from disk"""
-        raise NotImplementedError
-
-
-class FAISSStore(VectorStore):
-    """FAISS vector store implementation"""
-    
-    def __init__(self):
-        super().__init__("faiss")
-        self.ids = []
-    
-    def create_index(self, dimension: int = 768):
-        """Create FAISS index - SIMPLE VERSION for Windows compatibility"""
-        self.dimension = dimension
-        # ⭐⭐ FIX: Use IndexFlatIP (not IndexIDMap) for Windows compatibility
-        self.index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
-        self.metadata = {}
-        self.ids = []
-        logger.info(f"Created FAISS index with dimension {dimension}")
-    
-    def add_vectors(self, vectors: np.ndarray, metadatas: List[Dict]):
-        """Add vectors to FAISS index"""
-        if self.index is None:
-            self.create_index(vectors.shape[1])
-        
-        # Convert to float32 for FAISS
-        vectors_f32 = vectors.astype('float32')
-        
-        # Add to index
-        start_id = len(self.ids)
-        
-        # ⭐⭐ FIX: Direct add for Windows compatibility
-        if self.index.ntotal == 0:
-            self.index.add(vectors_f32)
-        else:
-            # For additional vectors
-            self.index.add(vectors_f32)
-        
-        # Store metadata WITH VECTOR_ID
-        for i, metadata in enumerate(metadatas):
-            vector_id = start_id + i
-            self.ids.append(vector_id)
-            # Store vector_id in metadata for reliable retrieval
-            metadata["vector_id"] = vector_id
-            self.metadata[vector_id] = metadata
-    
-    def search(self, query_vector: np.ndarray, k: int = 5, filter_dict: Optional[Dict] = None) -> List[Dict]:
-        """Search in FAISS index"""
-        if self.index is None or self.index.ntotal == 0:
-            return []
-        
-        # Convert query to float32
-        query_f32 = query_vector.astype('float32').reshape(1, -1)
-        
-        # Search
-        distances, indices = self.index.search(query_f32, min(k, self.index.ntotal))
-        
-        results = []
-        for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
-            if idx >= 0 and idx in self.metadata:
-                metadata = self.metadata[idx]
-                results.append({
-                    "id": idx,
-                    "score": float(distance),
-                    "metadata": metadata,
-                    "content": metadata.get("content", ""),
-                    "statute": metadata.get("statute", ""),
-                    "paragraph": metadata.get("paragraph", ""),
-                    "paragraph_base": metadata.get("paragraph_base", ""),
-                    "document_id": metadata.get("document_id", ""),
-                    "is_normative": metadata.get("is_normative", False)
-                })
-        
-        return results
-    
-    def save(self, index_name: str):
-        """Save FAISS index - SIMPLE VERSION for Windows"""
-        try:
-            save_path = os.path.join(self.indices_dir, f"{index_name}.faiss")
-            metadata_path = os.path.join(self.indices_dir, f"{index_name}_meta.json")
-
-            # ⭐⭐ FIX: Check if index can be saved
-            if self.index is None or self.index.ntotal == 0:
-                print(f"⚠️ No vectors to save for {index_name}")
-                return False
-
-            # Save FAISS index
-            faiss.write_index(self.index, save_path)
-
-            # Save metadata as JSON (safe alternative to pickle)
-            with open(metadata_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "metadata": self.metadata,
-                    "ids": self.ids,
-                    "dimension": self.dimension
-                }, f)
-
-            logger.info(f"Saved FAISS index to {save_path}")
-            return True
-
-        except Exception as e:
-            print(f"⚠️ Could not save FAISS index {index_name}: {e}")
-            print("   Using in-memory index only (Windows FAISS limitation)")
-            return False
-
-    def load(self, index_name: str):
-        """Load FAISS index - SIMPLE VERSION for Windows"""
-        try:
-            save_path = os.path.join(self.indices_dir, f"{index_name}.faiss")
-            metadata_path = os.path.join(self.indices_dir, f"{index_name}_meta.json")
-
-            if not os.path.exists(save_path) or not os.path.exists(metadata_path):
-                print(f"ℹ️ No existing index found: {index_name}")
-                return False
-
-            # Load FAISS index
-            self.index = faiss.read_index(save_path)
-
-            # Load metadata from JSON (safe, no code execution)
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.metadata = data["metadata"]
-                self.ids = data["ids"]
-                self.dimension = data["dimension"]
-
-            logger.info(f"Loaded FAISS index from {save_path}")
-            return True
-
-        except Exception as e:
-            print(f"⚠️ Could not load FAISS index {index_name}: {e}")
-            print("   Creating new index instead")
-            return False
+# LAZY: deferred until first query for that statute
+# Avoids allocating ~200-400 MB per index for rarely-queried corpora at boot.
+LAZY_STATUTES: frozenset = frozenset([
+    "EU-GDPR", "INSO", "AKTG", "AGG", "AO", "AMG", "AENTG",
+    "ASYLG", "AUFENTHG", "ANTIDOPG", "ARBSTAETTV", "ABGG",
+    "ADVERIMG", "EGAKTG", "NKRG",
+])
 
 
 class RetrievalService:
-    """Main retrieval service with Authority-Contracted Retrieval"""
-    
-    def __init__(self, vector_store_type: str = "faiss"):
+    """Thin orchestrator for authority-contracted retrieval"""
+
+    def __init__(self, vector_store_type: str = "faiss", document_store_path: str = "data/document_store.json"):
         self.vector_store_type = vector_store_type
-        self.vector_store = self._create_vector_store(vector_store_type)
-        self.statute_indices = {}  # Separate indices per statute
+        self.vector_store = FAISSStore("default")
+        self.document_store = DocumentStore(document_store_path)
+        self.statute_indices = {}
         self.validator = StatuteFirstValidator()
-        self.indices_loaded = False  # Track if real indices are loaded
-        
-        # ⭐⭐ FIX 2: Initialize statute chains
         self.statute_chains = STATUTE_CHAINS
-        
-        # ===========================================================================
-        # FIX: LAZY LOADING FOR AUTHORITY SERVICES (NO IMMEDIATE IMPORTS)
-        # ===========================================================================
+        self.paragraph_extractor = ParagraphExtractor()
+
         self.authority_resolver = None
         self.source_authority_resolver = None
         self.authority_available = False
-        print("⚖️  Authority services: Will load on-demand (source authority optional)")
-        
-        # ===========================================================================
-        # FIX 5: DOCTRINE ENFORCEMENT VS BLOCKING INVARIANT
-        # ===========================================================================
         self.doctrine_enforcement_enabled = False
         self.doctrine_inductor = None
-        print("⚖️  Doctrine system: Hard blocking takes precedence over enforcement")
-        
+        self.indices_loaded = False
+        self.has_real_corpus = False  # Track if we have actual vector data
+
         logger.info(f"RetrievalService initialized with {vector_store_type}")
         
-        # Try to load statute indices on startup
+        # Check for legacy lowercase indices and warn
+        self._check_for_legacy_indices()
+        
         self._try_load_existing_statute_indices()
-    
-    def _try_load_existing_statute_indices(self):
-        """
-        Scan the indices directory for *_index.faiss files and load every one.
-        Replaces the old hardcoded list so any ingested statute is auto-discovered.
-        load_statute_indices(statute) uses statute.lower() internally for the
-        filename, so we always pass the UPPERCASE canonical name here.
-        """
-        print("🔍 Scanning for existing statute indices on startup...")
-        indices_dir = self.vector_store.indices_dir
-        loaded_any = False
-        try:
-            files = os.listdir(indices_dir)
-        except FileNotFoundError:
-            print("ℹ️ Indices directory not found")
-            self.indices_loaded = False
-            return
+        
+        # Load documents on initialization
+        if os.path.exists(document_store_path):
+            self.document_store.load()
 
-        for fname in sorted(files):
-            if not fname.endswith("_index.faiss"):
-                continue
-            # Derive canonical uppercase statute name from filename
-            # e.g. "bgb_index.faiss" → "BGB"
-            statute = fname.replace("_index.faiss", "").upper()
-            if statute == "LEGAL":   # skip the empty legacy placeholder
-                continue
-            if self.load_statute_indices(statute):
-                print(f"✅ Loaded {statute} index on startup")
-                loaded_any = True
+    def _check_for_legacy_indices(self):
+        """Check for legacy lowercase index files and warn"""
+        base_path = "data/faiss_indices/"
+        if os.path.exists(base_path):
+            legacy_files = glob.glob(os.path.join(base_path, "*.faiss"))
+            for file_path in legacy_files:
+                filename = os.path.basename(file_path)
+                if filename[0].islower() and not filename.startswith("STGB") and not filename.startswith("BGB"):
+                    logger.warning(f"Legacy lowercase index found: {filename}. Re-ingestion recommended for proper statute key normalization.")
 
-        if loaded_any:
-            self.indices_loaded = True
-        else:
-            print("ℹ️ No statute indices found on startup")
-            self.indices_loaded = False
-    
-    def _load_authority_services(self):
+    # ======================================================================
+    # 🔧 COMPATIBILITY METHOD — REQUIRED BY API LAYER
+    # ======================================================================
+
+    def resolve_authority_and_retrieve(
+        self,
+        query: str,
+        question_type: str = "GENERAL",
+        available_documents: Optional[List[Dict]] = None,
+    ) -> Dict[str, Any]:
         """
-        Lazily load authority services when first needed
-        This fixes the import timing issue
+        Compatibility wrapper expected by /api/query/search/authoritative
+
+        - Preserves authority-first epistemics
+        - Does NOT introduce fallback
+        - Delegates to existing authoritative pipeline
         """
-        if self.authority_available:
-            return True
-            
-        try:
-            # CRITICAL FIX: Make source_authority_resolver optional
-            from app.services import resolve_authority
-            self.authority_resolver = resolve_authority
-            
-            # Source authority resolver is OPTIONAL - retrieval can proceed without it
-            try:
-                from app.services import source_authority_resolver
-                self.source_authority_resolver = source_authority_resolver
-                print("✅ Loaded source authority resolver for document filtering")
-            except ImportError as source_error:
-                print(f"⚠️  Source authority resolver not available: {source_error}")
-                print("   Continuing retrieval WITHOUT document filtering")
-                self.source_authority_resolver = None
-            
-            self.authority_available = True
-            print("✅ Authority services loaded for retrieval contract")
-            return True
-        except ImportError as e:
-            print(f"⚠️  Authority services not available: {e}")
-            self.authority_available = False
-            return False
-    
-    def _load_doctrine_inductor(self):
-        """
-        Lazily load doctrine inductor for doctrine enforcement
-        """
-        if self.doctrine_inductor is not None:
-            return True
-            
-        try:
-            from app.services.doctrine_induction import DoctrineInductor
-            self.doctrine_inductor = DoctrineInductor()
-            self.doctrine_enforcement_enabled = True
-            print("✅ Doctrine inductor loaded - doctrine enforcement enabled")
-            return True
-        except ImportError as e:
-            print(f"⚠️  Doctrine inductor not available: {e}")
-            print("   Continuing retrieval WITHOUT doctrine enforcement")
-            self.doctrine_enforcement_enabled = False
-            return False
-    
-    # ========== FIX 1 + FIX 2: PRECISE DOCTRINAL DETECTION ==========
-    def _is_doctrinal_question(self, question_type: str, query: str = "") -> Tuple[bool, Optional[str]]:
-        """
-        Determine if this is a doctrinal question that should block retrieval.
-        
-        FIX 1: Returns canonical doctrine ID, not free text
-        FIX 2: Checks if query mentions specific paragraphs before blocking
-        
-        Returns:
-            Tuple of (is_doctrinal: bool, canonical_doctrine_id: Optional[str])
-        """
-        # ===========================================================================
-        # FIX 2: NEVER block if query mentions specific paragraphs
-        # ===========================================================================
-        if self._mentions_specific_paragraph(query):
-            print(f"   Mixed question detected: Doctrine + paragraph in '{query[:50]}...'")
-            print("   ⚠️  ALLOWING retrieval (doctrine + norm application)")
-            return False, None
-        
-        # Check question type first
-        if question_type in DOCTRINAL_QUESTION_TYPES:
-            # Check if it's about a settled doctrine
-            query_lower = query.lower()
-            for doctrine_term, canonical_id in CANONICAL_DOCTRINES.items():
-                if doctrine_term in query_lower:
-                    return True, canonical_id
-            return True, None
-        
-        # Check for doctrinal keywords in query (only if no paragraphs)
-        doctrinal_keywords = {
-            "prinzip", "grundsatz", "doctrine", "lehre", "theorie",
-            "maxim", "canon", "tenet", "precept", "axiom"
-        }
-        
-        if any(keyword in query.lower() for keyword in doctrinal_keywords):
-            # FIX 1: Return generic canonical ID, not free text
-            return True, "GENERAL_DOCTRINE"
-        
-        return False, None
-    
-    def _mentions_specific_paragraph(self, query: str) -> bool:
-        """
-        FIX 2: Check if query mentions specific legal paragraphs.
-        This prevents over-blocking for mixed doctrine+norm questions.
-        
-        Examples:
-        - "Was besagt das Schuldprinzip?" → False (no paragraph)
-        - "Schuldprinzip und § 46 StGB" → True (has paragraph)
-        - "Verhältnismäßigkeit in § 34 StGB" → True
-        """
-        # Pattern for German law paragraphs
-        paragraph_pattern = r'§\s*\d+[a-z]?'
-        return bool(re.search(paragraph_pattern, query))
-    
-    # ========== FIX 3: IMPROVED DOCTRINAL EMPTY RESULT ==========
-    def _get_doctrinal_empty_result(self, doctrine_mode: bool = True, canonical_doctrine: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Return empty result for doctrinal questions to prevent retrieval.
-        
-        FIX 3: Do not fabricate GG articles, indicate hierarchy instead
-        
-        Args:
-            doctrine_mode: Whether this is a doctrinal question
-            canonical_doctrine: Canonical doctrine ID if detected
-            
-        Returns:
-            Empty retrieval result with doctrinal metadata
-        """
-        message = "No retrieval performed for doctrinal question"
-        if canonical_doctrine:
-            message = f"No retrieval performed for settled doctrine: {canonical_doctrine}"
-        
-        # ===========================================================================
-        # FIX 5: ENFORCE INVARIANT - Doctrine blocking → No doctrine enforcement
-        # ===========================================================================
-        if self.doctrine_enforcement_enabled:
-            print("⚠️  INVARIANT VIOLATION: Doctrine blocking active but enforcement enabled")
-            print("   Disabling doctrine enforcement for pure doctrinal question")
-            self.doctrine_enforcement_enabled = False
-        
-        # ===========================================================================
-        # FIX 3: Return hierarchical metadata, not interpretive GG articles
-        # ===========================================================================
-        return {
-            "results": [],  # Empty array - NO RETRIEVAL
-            "authority_metadata": {
-                "statute": None,  # Doctrines are not statutory
-                "paragraph": None,  # Do not fabricate GG articles
-                "constitutional_basis": ["Art. 20 GG", "Art. 103 GG"],  # Reference only
-                "legal_hierarchy": "constitutional",
-                "doctrine_mode": doctrine_mode,
-                "canonical_doctrine": canonical_doctrine,  # FIX 1: Canonical ID
-                "retrieval_performed": False,
-                "retrieval_blocked": True,  # Explicit flag
-                "reason": "doctrinal_question_no_retrieval",
-                "has_real_norms": False,
-                "doctrinal_template": "constitutional_principle",
-                # FIX 5: Explicit doctrine blocking marker
-                "doctrine_blocking_applied": True,
-                "doctrine_enforcement_blocked": True
-            },
-            "authority_validation": {
-                "status": "doctrinal_early_exit",
-                "message": message,
-                "doctrine": {
-                    "applied": True,
-                    "status": "settled_doctrine_no_retrieval",
-                    "canonical_doctrine": canonical_doctrine,  # FIX 1: Canonical ID
-                    "blocking_invariant": "enforced"  # FIX 5
-                }
-            },
-            "requires_clarification": False,
-            "doctrine_metadata": {
-                "status": "settled_doctrine_no_retrieval",
-                "canonical_doctrine": canonical_doctrine,  # FIX 1: Canonical ID
-                "doctrinal_template": "constitutional_principle",
-                "applied": True,
-                "retrieval_blocked": True,
-                # FIX 5: Clear separation marker
-                "type": "blocking_not_enforcement",
-                "hierarchy_level": "constitutional"
-            }
-        }
-    
-    def ensure_indices_loaded(self, force_reload: bool = False) -> bool:
-        """
-        CRITICAL FIX: Ensure indices are loaded before any search
-        Returns True if indices are ready, False if empty
-        """
-        if self.indices_loaded and not force_reload:
-            return True
-        
-        print("\n🔍 Ensuring indices are loaded...")
-        
-        # First check if we have any loaded statute indices
-        if self.statute_indices and self._check_indices_populated():
-            self.indices_loaded = True
-            print(f"✅ Using in-memory statute indices: {list(self.statute_indices.keys())}")
-            return True
-        
-        # Try to load from disk
-        print("   Attempting to load indices from disk...")
-        
-        # Try BGB first (most common)
-        if self.load_statute_indices("BGB"):
-            if self._check_indices_populated():
-                self.indices_loaded = True
-                print("✅ Loaded BGB corpus from disk")
-                return True
-        
-        # Try StGB second
-        if self.load_statute_indices("StGB"):
-            if self._check_indices_populated():
-                self.indices_loaded = True
-                print("✅ Loaded StGB corpus from disk")
-                return True
-        
-        # Check for general index (backward compatibility)
-        if self.load_indices("legal_index"):
-            if self._check_indices_populated():
-                self.indices_loaded = True
-                print("✅ Loaded general index from disk")
-                return True
-        
-        # If no real indices, DO NOT create fake test indices
-        print("""
-        ⚠️ NO REAL LEGAL CORPUS FOUND
-        =============================
-        The system cannot answer legal questions because:
-        1. No legal corpus has been ingested
-        2. No vector indices exist on disk
-        3. The norms layer requires REAL legal text
-        
-        To fix this:
-        1. Upload real BGB/StGB documents using /ingestion/bgb endpoint
-        2. System will extract REAL norms using NormExtractor
-        3. REAL norms will be indexed for legal reasoning
-        
-        Fake test norms are NOT created to maintain:
-        • Epistemic integrity (no hallucinations)
-        • Legal defensibility (real sources only)
-        • System credibility (no made-up law)
-        """)
-        
-        self.indices_loaded = False
-        return False
-    
-    def _check_indices_populated(self) -> bool:
-        """Check if indices actually contain real data (not just test data)"""
-        stats = self.get_stats()
-        
-        # Check for real BGB data (should have more than test sections)
-        bgb_count = stats["statute_indices"].get("BGB", {}).get("vectors", 0)
-        
-        # If BGB has more than 10 vectors, assume it's real corpus
-        if bgb_count > 10:
-            print(f"✅ Found real BGB corpus with {bgb_count} vectors")
-            return True
-        
-        # Check for StGB
-        stgb_count = stats["statute_indices"].get("StGB", {}).get("vectors", 0)
-        if stgb_count > 10:
-            print(f"✅ Found real StGB corpus with {stgb_count} vectors")
-            return True
-        
-        # Check total vectors across all indices
-        total_vectors = stats["general_index"]["vectors"] + sum(
-            idx["vectors"] for idx in stats["statute_indices"].values()
+
+        print("\n⚖️ resolve_authority_and_retrieve() invoked")
+        print(f"   Query: {query}")
+
+        result = self.search_authoritative(
+            query=query,
+            question_type=question_type
         )
-        
-        if total_vectors > 20:  # More than just test data
-            print(f"✅ Found real corpus with {total_vectors} vectors")
-            return True
-        
-        return False
-    
-    def _create_vector_store(self, store_type: str) -> VectorStore:
-        """Create vector store instance"""
-        if store_type == "faiss":
-            return FAISSStore()
-        elif store_type == "chroma":
-            # ChromaDB implementation
-            raise NotImplementedError("ChromaDB not implemented yet")
-        elif store_type == "qdrant":
-            raise NotImplementedError("Qdrant not implemented yet. Install qdrant-client package.")
-        else:
-            raise ValueError(f"Unknown vector store type: {store_type}")
-    
-    def create_test_indices(self, save_to_disk: bool = True):
+
+        return {
+            "results": result.get("retrieval_results", {}).get("documents", []),
+            "authority_metadata": result.get("authority_result"),
+            "requires_clarification": result.get("authority_result", {}).get(
+                "requiresClarification", False
+            ),
+            "clarification": result.get("authority_result", {}).get("clarification"),
+        }
+
+    # ======================================================================
+    # 🔧 DIRECT AUTHORITY RESOLUTION METHODS (NO API DEPENDENCIES)
+    # ======================================================================
+
+    def _resolve_authority_directly(self, query: str, question_type: str = "GENERAL") -> Dict[str, Any]:
         """
-        [DEPRECATED - DO NOT USE]
-        
-        This method previously created FAKE legal norms, which violates:
-        1. Norms layer purity (norms must come from real legal text)
-        2. Epistemic integrity (no hallucinations)
-        3. Legal defensibility (real sources only)
-        
-        Use /ingestion/bgb endpoint with REAL BGB text instead.
+        Direct authority resolution - delegates to the real authority_resolver.py
+        Always returns statute codes in UPPERCASE for consistent index lookup.
         """
-        print("""
-        ❌ create_test_indices() IS DEPRECATED AND DISABLED
+        print(f"\n🔍 [Direct Authority] Delegating to real resolver: '{query}'")
+        print(f"   Question Type: {question_type}")
         
-        WHY: Fake legal norms violate architectural principles:
-        
-        1. Norms Layer Purity: Norms must only come from real legal text extraction
-        2. Epistemic Integrity: No hallucinations or made-up law
-        3. Legal Defensibility: Every norm must be traceable to real source
-        4. System Credibility: No made-up legal content
-        
-        SOLUTION: 
-        Upload REAL BGB text using /ingestion/bgb endpoint.
-        The system will extract REAL norms using NormExtractor.
-        
-        """)
-        
-        # Return empty indices
-        return False
-    
-    def index_documents(self, documents: List[Dict], statute: Optional[str] = None, 
-                       embeddings: Optional[np.ndarray] = None):
+        # Delegate to the real authority resolver
+        return _real_resolve_authority(query)
+
+    def enforce_authority_final_constraint(self, authority_result: Dict, retrieval_results: Dict) -> Dict:
         """
-        Index REAL documents with embeddings - STATUTE-FIRST VERSION
-        
-        This method ONLY indexes REAL legal content, not test data.
+        Enforce authority_final contract - NO FALLBACKS ALLOWED
         """
-        if not documents:
-            return
-        
-        print(f"📝 Indexing {len(documents)} REAL documents for {statute or 'general'}")
-        
-        # Validate these are REAL documents, not test data
-        real_docs = []
-        for doc in documents:
-            content = doc.get("content", "")
-            doc_id = doc.get("id", "")
-            
-            # Check for fake/test indicators
-            if "test_" in doc_id or "example_" in doc_id or "fake_" in doc_id:
-                print(f"❌ Skipping fake/test document: {doc_id}")
-                continue
-            
-            if not content or content.strip() == "":
-                print(f"❌ Skipping empty document: {doc_id}")
-                continue
-            
-            # Check if this looks like a real legal document
-            if not self._is_real_legal_content(content):
-                print(f"⚠️ Document {doc_id} may not be real legal content")
-                # Still index it, but with warning
-            
-            real_docs.append(doc)
-        
-        if not real_docs:
-            print("❌ No real documents to index")
-            return
-        
-        # PARAGRAPH EXTRACTION FOR STATUTES
-        if statute and statute.upper() in ["STGB", "BGB"]:
-            # Extract structured norms from statute text
-            all_norms = []
-            for doc in real_docs:
-                content = doc.get("content", "")
-                if statute.upper() == "STGB":
-                    norms = StatuteFirstIndexer.extract_stgb_paragraphs(content, statute)
-                elif statute.upper() == "BGB":
-                    norms = StatuteFirstIndexer.extract_bgb_paragraphs(content, statute)
-                else:
-                    norms = []
-                
-                if norms:
-                    all_norms.extend(norms)
-            
-            if all_norms:
-                # Use the extracted norms instead of raw chunks
-                real_docs = all_norms
-                print(f"📖 Extracted {len(all_norms)} REAL legal norms from {statute}")
-        
-        # Prepare metadata - NOW WITH PARAGRAPH IDENTITY AND VECTOR_ID PLACEHOLDER
-        metadatas = []
-        for doc in real_docs:
-            # Check if this is already a structured norm
-            paragraph = doc.get("paragraph", "")
-            paragraph_base = doc.get("paragraph_base", ParagraphNormalizer.normalize_paragraph(paragraph))
-            
-            metadata = {
-                "content": doc.get("content", ""),
-                "document_id": doc.get("id", ""),
-                "filename": doc.get("filename", ""),
-                "statute": statute or doc.get("statute", ""),
-                # CRITICAL: Store paragraph identity with base normalization
-                "paragraph": paragraph,
-                "paragraph_base": paragraph_base,
-                # Determine if this is a true legal norm
-                "is_normative": doc.get("is_normative", bool(paragraph)),
-                "norm_type": doc.get("norm_type", ""),
-                "authority_level": doc.get("authority_level", "unknown"),
-                "authority_score": doc.get("authority_score", 1.0 if bool(paragraph) else 0.5),
-                "document_type": doc.get("document_type", "statutory" if bool(paragraph) else "other"),
-                "chunk_index": doc.get("chunk_index", 0),
-                "page": doc.get("page", 0),
-                # FIX: Use correct paragraph symbol
-                "has_paragraph": "§" in doc.get("content", "") or bool(paragraph),
-                "has_article": "Artikel" in doc.get("content", "") or 
-                              "article" in doc.get("content", "").lower(),
-                "is_real_legal_content": True,  # Mark as real
-                "timestamp": datetime.now().isoformat(),
-                # Vector ID will be added by FAISSStore.add_vectors()
-            }
-            metadatas.append(metadata)
-        
-        # Use provided embeddings or generate them
-        if embeddings is None:
-            from app.services.embeddings.embedding_service import embedding_service
-            texts = [doc.get("content", "") for doc in real_docs]
-            embeddings = np.array(embedding_service.embed_batch(texts))
-            print(f"🔧 Generated embeddings for {len(real_docs)} REAL documents: {embeddings.shape}")
-        
-        # Index by statute if specified
-        if statute and statute not in self.statute_indices:
-            self.statute_indices[statute] = self._create_vector_store(self.vector_store_type)
-            self.statute_indices[statute].create_index(embeddings.shape[1])
-        
-        if statute:
-            self.statute_indices[statute].add_vectors(embeddings, metadatas)
-            print(f"✅ Indexed {len(real_docs)} REAL normative documents for statute {statute}")
-        else:
-            self.vector_store.add_vectors(embeddings, metadatas)
-            print(f"✅ Indexed {len(real_docs)} REAL documents in general index")
-        
-        # Mark indices as loaded
-        self.indices_loaded = True
-    
-    def _is_real_legal_content(self, content: str) -> bool:
-        """
-        Heuristic check if content looks like real legal text.
-        Not perfect, but helps filter obvious non-legal content.
-        """
-        content_lower = content.lower()
-        
-        # Indicators of real legal content
-        legal_indicators = [
-            "§", "artikel", "paragraph", "gesetz", "recht",
-            "shall", "must", "may not", "prohibited", "entitled",
-            "gericht", "court", "verfahren", "procedure"
-        ]
-        
-        # Check for legal markers
-        for indicator in legal_indicators:
-            if indicator in content_lower:
-                return True
-        
-        # Check length (very short content unlikely to be real legal text)
-        if len(content.split()) < 20:
-            return False
-        
-        return True
-    
-    # ===========================================================================
-    # NEW: STATUTE-AWARE PERSISTENCE METHODS (CRITICAL FIX)
-    # ===========================================================================
-    
-    def save_statute_indices(self, statute: str) -> bool:
-        """
-        NEW: Persist statute-specific FAISS index to disk.
-        This is the CORRECT method to call after ingesting a statute.
-        
-        Args:
-            statute: The statute code (e.g., "BGB", "StGB")
-        
-        Returns:
-            bool: True if saved successfully, False otherwise
-        """
-        if statute not in self.statute_indices:
-            logger.warning(f"No statute index found for {statute}")
-            return False
-        
-        store = self.statute_indices[statute]
-        
-        if not store.index or store.index.ntotal == 0:
-            logger.warning(f"No vectors to save for statute {statute}")
-            return False
-        
-        # Use lowercase for filename
-        index_name = f"{statute.lower()}_index"
-        success = store.save(index_name)
-        
-        if success:
-            print(f"💾 Saved statute index for {statute} as {index_name}.faiss")
-            # Also update the general index reference for backward compatibility
-            self.save_indices("legal_index")
-        else:
-            print(f"⚠️ Could not save statute index for {statute}")
-        
-        return success
-    
-    def load_statute_indices(self, statute: str) -> bool:
-        """
-        NEW: Load statute-specific FAISS index from disk.
-        
-        Args:
-            statute: The statute code (e.g., "BGB", "StGB")
-        
-        Returns:
-            bool: True if loaded successfully, False otherwise
-        """
-        # Use lowercase for filename
-        index_name = f"{statute.lower()}_index"
-        
-        # Create new vector store
-        store = self._create_vector_store(self.vector_store_type)
-        
-        # Try to load
-        if not store.load(index_name):
-            logger.info(f"No existing index found for statute {statute}")
-            return False
-        
-        # Store in statute indices
-        self.statute_indices[statute] = store
-        self.indices_loaded = True
-        
-        print(f"✅ Loaded statute index for {statute} with {store.index.ntotal} vectors")
-        return True
-    
-    # ===========================================================================
-    # ⭐⭐ MAIN RETRIEVAL METHOD WITH ALL FIXES APPLIED
-    # ===========================================================================
-    
-    def resolve_authority_and_retrieve(self, query: str, question_type: str = "GENERAL",
-                                       available_documents: Optional[List[Dict]] = None,
-                                       authority_constraints: Optional[Dict] = None) -> Dict[str, Any]:
-        """
-        ENFORCE AUTHORITY → RETRIEVAL CONTRACT - WITH ALL FIXES APPLIED
-        
-        FIX 1: Canonical doctrine IDs
-        FIX 2: No over-blocking for mixed questions
-        FIX 3: Proper hierarchical metadata
-        FIX 5: Clear blocking vs enforcement separation
-        """
-        # ===========================================================================
-        # 🔴🔴🔴 FIX 2 + FIX 5: PRECISE DOCTRINAL CHECK WITH INVARIANT
-        # ===========================================================================
-        is_doctrinal, canonical_doctrine = self._is_doctrinal_question(question_type, query)
-        if is_doctrinal:
-            print(f"⚖️  DOCTRINAL QUESTION DETECTED: {question_type} - '{query[:50]}...'")
-            print(f"   Canonical doctrine: {canonical_doctrine}")
-            print("   🔒 HARD STOP: No retrieval performed for pure doctrinal question")
-            
-            # ===========================================================================
-            # FIX 5: ENFORCE INVARIANT
-            # ===========================================================================
-            if self.doctrine_enforcement_enabled:
-                print("   ⚠️  Disabling doctrine enforcement (blocking takes precedence)")
-                self.doctrine_enforcement_enabled = False
-            
-            return self._get_doctrinal_empty_result(
-                doctrine_mode=True, 
-                canonical_doctrine=canonical_doctrine  # FIX 1: Canonical ID
-            )
-        # ===========================================================================
-        # END HARD STOP
-        # ===========================================================================
-        
-        # CRITICAL FIX: Ensure indices are loaded before proceeding
-        if not self.ensure_indices_loaded():
-            return self._get_empty_index_error()
-        
-        print(f"\n⚖️  AUTHORITY-CONTRACTED RETRIEVAL for: '{query[:50]}...'")
-        
-        # ===========================================================================
-        # STEP 1: Check for paragraph-strict mode BEFORE doing anything else
-        # ===========================================================================
-        strict_mode = False
-        requires_paragraph = False
-        allowed_paragraphs = []
-        
-        if authority_constraints:
-            # Check for strict mode activation
-            if authority_constraints.get("retrievalConstraint") == "PARAGRAPH_STRICT":
-                strict_mode = True
-                print("🔒 PARAGRAPH_STRICT mode activated - No fallbacks allowed")
-            
-            requires_paragraph = authority_constraints.get("requiresParagraphMatch", False)
-            allowed_paragraphs = authority_constraints.get("allowedParagraphs", [])
-            
-            if strict_mode and requires_paragraph and allowed_paragraphs:
-                # Normalize allowed paragraphs for matching
-                allowed_paragraphs_base = ParagraphNormalizer.normalize_paragraph_list(allowed_paragraphs)
-                print(f"🔒 Strict mode requires exact paragraphs: {allowed_paragraphs} (normalized: {allowed_paragraphs_base})")
-        
-        # ===========================================================================
-        # FIX: LAZY LOAD AUTHORITY SERVICES HERE (IMPORT TIMING FIX)
-        # ===========================================================================
-        if not self.authority_available:
-            if not self._load_authority_services():
-                print("⚠️  Authority services not available - cannot perform authority-contracted retrieval")
-                return self._get_authority_unavailable_error()
-        
-        # STEP 2: Resolve legal authority
-        authority_result = self.authority_resolver(query)
-        print(f"   Legal Authority Result: {authority_result}")
-        
+        if not authority_result.get("authority_final"):
+            return retrieval_results
+
+        # Authority is final - enforce strict rules
         statute = authority_result.get("statute")
         paragraph = authority_result.get("paragraph")
-        
-        # ===========================================================================
-        # STEP 3: PARAGRAPH-STRICT ENFORCEMENT CORE LOGIC (WITH ALL FIXES APPLIED)
-        # ===========================================================================
-        if strict_mode and requires_paragraph and allowed_paragraphs:
-            print(f"🔒 ENFORCING PARAGRAPH-STRICT: Statute={statute}, Paragraphs={allowed_paragraphs}")
-            
-            # CRITICAL: Validate we have a statute for filtering
-            if not statute:
-                return self._get_strict_mode_error(
-                    code="no_statute_in_strict_mode",
-                    statute="UNKNOWN",
-                    allowed_paragraphs=allowed_paragraphs,
-                    message="Cannot enforce paragraph-strict mode without a statute"
-                )
-            
-            # Get all documents from the statute index
-            if statute not in self.statute_indices:
-                return self._get_strict_mode_error(
-                    code="statute_index_not_found",
-                    statute=statute,
-                    allowed_paragraphs=allowed_paragraphs,
-                    message=f"No index found for statute {statute}"
-                )
-            
-            # Step A: Hard filter corpus by exact paragraphs BEFORE similarity search
-            store = self.statute_indices[statute]
-            all_metadata = list(store.metadata.values())
-            
-            print(f"   Filtering {len(all_metadata)} documents for exact paragraphs...")
-            
-            filtered_docs = []
-            for meta in all_metadata:
-                # Check if this is a REAL legal document (not test data)
-                if not meta.get("is_real_legal_content", True):
-                    continue
-                
-                # Check statute match
-                if meta.get("statute", "").upper() != statute.upper():
-                    continue
-                
-                # FIX 2: Use paragraph_base for normalization matching
-                doc_paragraph_base = meta.get("paragraph_base", "")
-                if not doc_paragraph_base:
-                    # Fallback to normalize paragraph if base not stored
-                    doc_paragraph_base = ParagraphNormalizer.normalize_paragraph(meta.get("paragraph", ""))
-                
-                # Check paragraph match using normalized base paragraphs
-                for allowed_para in allowed_paragraphs:
-                    allowed_base = ParagraphNormalizer.normalize_paragraph(allowed_para)
-                    if doc_paragraph_base == allowed_base:
-                        filtered_docs.append(meta)
-                        break
-            
-            print(f"   Found {len(filtered_docs)} documents matching exact paragraphs (after normalization)")
-            
-            # Step B: ENFORCE BINARY OUTCOME (the critical fix)
-            if not filtered_docs:
-                print(f"❌ PARAGRAPH-STRICT FAILURE: No documents found for {statute} §§ {', '.join(allowed_paragraphs)}")
-                return self._get_strict_mode_error(
-                    code="paragraph_not_found_in_corpus",
-                    statute=statute,
-                    allowed_paragraphs=allowed_paragraphs,
-                    message=f"No authoritative documents found for {statute} §§ {', '.join(allowed_paragraphs)}. Retrieval aborted due to PARAGRAPH_STRICT constraint."
-                )
-            
-            # Step C: Only now proceed with similarity search on filtered documents
-            print(f"✅ PARAGRAPH-STRICT PASSED: Found {len(filtered_docs)} matching documents")
-            
-            # FIX 1: Use stored vector_id from metadata (RELIABLE METHOD)
-            filtered_ids = []
-            for meta in filtered_docs:
-                vector_id = meta.get("vector_id")
-                if vector_id is not None:
-                    filtered_ids.append(vector_id)
-                else:
-                    # Fallback: find by metadata equality
-                    for vec_id, stored_meta in store.metadata.items():
-                        if stored_meta == meta:
-                            filtered_ids.append(vec_id)
-                            break
-            
-            if not filtered_ids:
-                print(f"⚠️ Could not find vector IDs for filtered documents")
-                return self._get_strict_mode_error(
-                    code="vector_id_not_found",
-                    statute=statute,
-                    allowed_paragraphs=allowed_paragraphs,
-                    message=f"Could not retrieve vector IDs for matching documents"
-                )
-            
-            # Create a custom search that ONLY searches filtered vectors
-            from app.services.embeddings.embedding_service import embedding_service
-            query_embedding = np.array(embedding_service.embed_query(query, statute))
-            
-            # Search ONLY in filtered documents
-            paragraph_results = []
-            
-            for vec_id in filtered_ids:
-                if vec_id in store.metadata:
-                    metadata = store.metadata[vec_id]
-                    # Get the vector from the index
-                    # Note: For strict mode, we use perfect score for exact match
-                    result = {
-                        "id": vec_id,
-                        "score": 1.0,  # Perfect score for exact match
-                        "metadata": metadata,
-                        "content": metadata.get("content", ""),
-                        "statute": statute,
-                        "paragraph": metadata.get("paragraph", ""),
-                        "paragraph_base": metadata.get("paragraph_base", ""),
-                        "document_id": metadata.get("document_id", ""),
-                        "is_authoritative": True,
-                        "match_type": "exact_paragraph_strict",
-                        "legal_relevance": 1.0,
-                        "confidence": 1.0,
-                        "authority_score": 1.0,
-                        "is_real_legal_content": metadata.get("is_real_legal_content", True),
-                        "strict_mode_guarantee": True,
-                        "paragraph_normalization_applied": True
-                    }
-                    paragraph_results.append(result)
-            
-            # Use these as our results
-            all_paragraph_results = paragraph_results
-            
-            # Skip general search - we already have our strict results
-            general_results = []
-        
-        else:
-            # ===========================================================================
-            # NORMAL MODE (non-strict) - Original logic
-            # ===========================================================================
-            
-            # Check if this is a statute overview request (no specific paragraph)
-            is_overview_query = statute and not paragraph
-            
-            if is_overview_query:
-                print(f"   Detected statute overview query for {statute}")
-                
-                # Use special overview retrieval
-                overview_results = self.search_statute_overview(statute, query)
-                
-                return {
-                    "results": overview_results,
-                    "authority_metadata": {
-                        "statute": statute,
-                        "paragraph": None,
-                        "query_type": "statute_overview",
-                        "total_norms_returned": len(overview_results),
-                        "has_real_norms": len(overview_results) > 0,
-                        # Forward resolver flags so Node can handle statute-only queries correctly
-                        "anchorNormMode": authority_result.get("anchorNormMode", False),
-                        "isStatuteLocked": authority_result.get("isStatuteLocked", False),
-                        "isParagraphLocked": authority_result.get("isParagraphLocked", False),
-                        "question_type": authority_result.get("question_type", "GENERAL"),
-                        "doctrinal_match": authority_result.get("doctrinal_match", False),
-                        "suggestedField": authority_result.get("suggestedField"),
-                        "epistemicCertainty": authority_result.get("epistemicCertainty", "uncertain"),
-                    },
-                    "authority_validation": {
-                        "status": "valid" if len(overview_results) > 0 else "no_norms",
-                        "message": f"Returned {len(overview_results)} key norms from {statute}",
-                        "is_overview": True
-                    },
-                    "requires_clarification": False
-                }
-            
-            if authority_result.get("requiresClarification"):
-                return {
-                    "requires_clarification": True,
-                    "clarification": authority_result.get("clarification"),
-                    "statute": authority_result.get("statute"),
-                    "results": [],
-                    "authority_validation": {
-                        "status": "requires_clarification",
-                        "message": "Statute needs clarification before retrieval"
-                    }
-                }
-            
-            if not statute:
-                return {
-                    "requires_clarification": True,
-                    "clarification": {
-                        "english": "Could not identify applicable statute. Please specify which law you're asking about (e.g., StGB, BGB, GDPR).",
-                        "german": "Anwendbare Rechtsnorm konnte nicht identifiziert werden. Bitte spezifizieren Sie, welches Gesetz Sie meinen (z.B. StGB, BGB, GDPR)."
-                    },
-                    "results": [],
-                    "authority_validation": {"status": "no_statute"}
-                }
-            
-            # FIX 1+2+3: Unified expansion — range, multi, comparative, or chain
-            related_paragraphs = self._expand_query_paragraphs(query, statute, paragraph)
-            print(f"📚 Expanded paragraphs for {statute} §{paragraph}: {related_paragraphs}")
-            
-            # Apply source authority filtering if documents provided AND resolver exists
-            allowed_documents = []
-            if available_documents and self.source_authority_resolver:
-                try:
-                    # Use source authority to filter documents
-                    source_auth_result = self.source_authority_resolver.resolve(
-                        question=query,
-                        statute=statute,
-                        question_type=question_type,
-                        all_documents=available_documents
-                    )
-                    allowed_documents = source_auth_result.get("allowed_documents", [])
-                    print(f"   Source Authority: Allowed {len(allowed_documents)}/{len(available_documents)} documents")
-                except Exception as e:
-                    print(f"⚠️  Source authority filtering failed: {e}")
-                    allowed_documents = available_documents  # Fallback to all
-            elif available_documents and not self.source_authority_resolver:
-                print(f"   ⚠️  Source authority resolver not available, using all {len(available_documents)} documents")
-                allowed_documents = available_documents
-            
-            # Retrieve with statute lock and chain expansion
-            from app.services.embeddings.embedding_service import embedding_service
-            query_embedding = np.array(embedding_service.embed_query(query, statute))
-            
-            # ⭐⭐ FIX 2: Search for ALL related paragraphs in the chain
-            all_paragraph_results = []
-            for para in related_paragraphs:
-                para_results = self.search_by_paragraph(
-                    statute=statute,
-                    paragraph=para,
-                    query_embedding=query_embedding,
-                    k=5
-                )
-                if para_results:
-                    # Mark chain relationship
-                    for result in para_results:
-                        result["chain_position"] = related_paragraphs.index(para)
-                        result["chain_length"] = len(related_paragraphs)
-                        result["chain_primary"] = (para == paragraph)
-                    all_paragraph_results.extend(para_results)
-            
-            # Second: Get general statute results (fallback)
-            general_results = []
-            if not all_paragraph_results:
-                general_results = self.search(
-                    query_embedding=query_embedding,
-                    statute=statute,
-                    k=10
-                )
-                all_paragraph_results = general_results
-        
-        # ===========================================================================
-        # STEP 3b: Apply keyword boost to non-strict semantic results
-        # (exact paragraph matches already have score=1.0 and don't need boosting)
-        # ===========================================================================
-        if not strict_mode:
-            all_paragraph_results = self._apply_keyword_boost(all_paragraph_results, query)
+        constraint = authority_result.get("retrieval", {}).get("constraint")
 
-        # ===========================================================================
-        # STEP 4: Combine and apply authority filtering
-        # ===========================================================================
-        all_results = all_paragraph_results + (general_results if 'general_results' in locals() else [])
-        
-        # Filter by source authority if applicable
-        if 'allowed_documents' in locals() and allowed_documents:
-            allowed_ids = {doc.get("id", "") for doc in allowed_documents}
-            filtered_results = []
-            for result in all_results:
-                doc_id = result.get("metadata", {}).get("document_id", "")
-                if not doc_id or doc_id in allowed_ids:
-                    filtered_results.append(result)
-            all_results = filtered_results
-        
-        # ===========================================================================
-        # STEP 5: Apply authority scoring
-        # ===========================================================================
-        authority_enhanced_results = []
-        for result in all_results:
-            authority_score = self._calculate_authority_score(result, statute)
-            similarity_score = result.get("score", 0.0)
-            
-            # Combined score: authority × similarity (authority prioritized)
-            combined_score = authority_score * (0.6 + 0.4 * similarity_score)
-            
-            enhanced_result = {
-                **result,
-                "authority_score": authority_score,
-                "combined_score": combined_score,
-                "is_statutory": result.get("metadata", {}).get("is_normative", False),
-                "document_type": result.get("metadata", {}).get("document_type", "unknown"),
-                "is_real_legal_content": result.get("metadata", {}).get("is_real_legal_content", False)
-            }
-            authority_enhanced_results.append(enhanced_result)
-        
-        # Sort by combined score (authority-weighted)
-        authority_enhanced_results.sort(key=lambda x: x["combined_score"], reverse=True)
-        
-        # ===========================================================================
-        # STEP 6: 🔴🔴🔴 FIX 5: CLEAR SEPARATION OF DOCTRINE BLOCKING VS ENFORCEMENT
-        # ===========================================================================
-        doctrine_results = None
-        doctrinal_template = "not_applied"  # Default value
-        
-        # INVARIANT: If we passed the doctrinal check earlier, doctrine_enforcement is optional
-        # Mixed questions (doctrine + norm) CAN have doctrine enforcement
-        can_enforce_doctrine = self._should_enforce_doctrine(question_type, strict_mode, authority_constraints)
-        
-        if can_enforce_doctrine:
-            print("⚖️  DOCTRINE ENFORCEMENT: Applying legal doctrine to results")
-            
-            # ===========================================================================
-            # FIX 5: ENFORCEMENT IS OPTIONAL, NOT MANDATORY
-            # ===========================================================================
-            if not self._load_doctrine_inductor():
-                # Enforcement service unavailable - this is NOT an error
-                print("⚠️  Doctrine enforcement service unavailable - continuing without")
-                doctrine_results = {
-                    "status": "service_unavailable",
-                    "template": "not_applied",
-                    "doctrine_type": "not_applied"
-                }
-            elif self.doctrine_inductor and authority_enhanced_results:
-                try:
-                    # Apply doctrine induction to enhance results
-                    doctrine_results = self.doctrine_inductor.induct(
-                        query=query,
-                        statute=statute,
-                        paragraph=paragraph,
-                        retrieval_results=authority_enhanced_results[:5],  # Top 5 for doctrine
-                        question_type=question_type
-                    )
-                    
-                    # Mark results with doctrine metadata
-                    if doctrine_results and doctrine_results.get("status") == "applied":
-                        for result in authority_enhanced_results:
-                            result["doctrine_applied"] = True
-                            result["doctrine_confidence"] = doctrine_results.get("confidence", 0.5)
-                            result["doctrine_validation"] = doctrine_results.get("validation", {})
-                        
-                        doctrinal_template = doctrine_results.get("template", "applied")
-                        print(f"✅ Doctrine applied: {doctrine_results.get('doctrine_type', 'unknown')}")
-                    else:
-                        doctrine_results = {
-                            "status": "not_applied",
-                            "template": "not_applied",
-                            "doctrine_type": "not_applied"
-                        }
-                        print("ℹ️  Doctrine not applied to results (inductor returned not_applied)")
-                    
-                except Exception as e:
-                    print(f"⚠️  Doctrine application failed: {e}")
-                    doctrine_results = {
-                        "status": "exception",
-                        "template": "not_applied",
-                        "doctrine_type": "not_applied",
-                        "error": str(e)
-                    }
-        
-        # ===========================================================================
-        # STEP 7: Validation
-        # ===========================================================================
-        validation_stats = self._validate_authority_results(
-            authority_enhanced_results, 
-            statute, 
-            paragraph,
-            related_paragraphs if 'related_paragraphs' in locals() else None,
-            strict_mode
-        )
-        
-        # Add doctrine validation if doctrine was applied
-        if doctrine_results and doctrine_results.get("status") == "applied":
-            validation_stats["doctrine"] = {
-                "applied": True,
-                "doctrine_type": doctrine_results.get("doctrine_type", "unknown"),
-                "confidence": doctrine_results.get("confidence", 0.0),
-                "completeness": doctrine_results.get("completeness", 0.0),
-                "template": doctrinal_template,
-                "status": "enforced"  # Not "hard" - enforcement is optional
-            }
-        else:
-            validation_stats["doctrine"] = {
-                "applied": False,
-                "status": doctrine_results.get("status", "not_required") if doctrine_results else "not_required",
-                "template": doctrinal_template,
-                "message": "Doctrine not applied or not required"
-            }
-        
-        # ===========================================================================
-        # FINAL RETURN WITH EXPLICIT DOCTRINAL FLAGS
-        # ===========================================================================
+        print(f"🔒 AUTHORITY-FINAL ENFORCEMENT: {statute} §{paragraph} ({constraint})")
+        print("   ⛔ NO fallback retrieval allowed")
+        print("   ⛔ NO doctrine overview allowed")
+        print("   ⛔ NO TF-IDF fallback allowed")
+
+        # Mark retrieval results as authority_final
+        retrieval_results["authority_final"] = True
+        retrieval_results["strict_enforcement"] = True
+
+        # Add metadata about enforcement
+        retrieval_results["authority_metadata"] = {
+            "statute_locked": authority_result.get("isStatuteLocked"),
+            "paragraph_locked": authority_result.get("isParagraphLocked"),
+            "constraint": constraint,
+            "fallback_allowed": False,
+            "overview_allowed": False,
+            "doctrine_allowed": False,
+            "tfidf_allowed": False
+        }
+
+        # If no documents found, mark as missing corpus
+        if not retrieval_results.get("documents") or len(retrieval_results["documents"]) == 0:
+            retrieval_results["authority_final_corpus_missing"] = True
+            retrieval_results["requires_ingestion"] = True
+
+        return retrieval_results
+
+    def handle_authority_final_failure(self, authority_result: Dict) -> Dict:
+        """
+        Handle authority_final cases where no chunks are found
+        """
+        statute = authority_result.get("statute")
+        paragraph = authority_result.get("paragraph")
+        constraint = authority_result.get("retrieval", {}).get("constraint")
+
+        print(f"🚨 AUTHORITY-FINAL FAILURE: {statute} §{paragraph} not found in corpus")
+        print("   ℹ️  No fallback allowed - returning empty with ingestion required")
+
         return {
-            "results": authority_enhanced_results[:10],
-            "authority_metadata": {
-                "statute": statute,
-                "paragraph": paragraph,
-                "paragraph_source": authority_result.get("paragraph_source", "explicit"),
-                "confidence": authority_result.get("confidence", 1.0),
-                "question_type": question_type,
-                "statute_chain_used": 'related_paragraphs' in locals() and len(related_paragraphs) > 1,
-                "related_paragraphs": related_paragraphs if 'related_paragraphs' in locals() else None,
-                "total_documents_considered": len(all_results),
-                "authority_filtered_count": len(authority_enhanced_results),
-                "has_real_norms": len(authority_enhanced_results) > 0,
-                "strict_mode_enforced": strict_mode,
-                "paragraph_strict_success": strict_mode and len(authority_enhanced_results) > 0,
-                "paragraph_normalization_applied": strict_mode,
-                "doctrine_enforced": bool(doctrine_results and doctrine_results.get("status") == "applied"),
-                # Anchor norm mode — forwarded from authority resolver so Node can detect statute-only queries
-                "anchorNormMode": authority_result.get("anchorNormMode", False),
-                "isStatuteLocked": authority_result.get("isStatuteLocked", False),
-                "isParagraphLocked": authority_result.get("isParagraphLocked", False),
-                # 🔴🔴🔴 EXPLICIT SEPARATION MARKERS (FIX 5)
-                "doctrinal_template": doctrinal_template,
-                "legal_hierarchy": "statutory",  # Always statutory for non-doctrinal questions
-                "doctrine_blocking_applied": False,  # Explicit: blocking was not applied
-                "doctrine_enforcement_applied": bool(doctrine_results and doctrine_results.get("status") == "applied")
-            },
-            "authority_validation": validation_stats,
-            "requires_clarification": False,
-            # ALWAYS INCLUDE DOCTRINE METADATA (FIX 5)
-            "doctrine_metadata": doctrine_results if doctrine_results else {
-                "status": doctrinal_template,
-                "doctrinal_template": doctrinal_template,
-                "applied": False,
-                "type": "not_applied"  # FIX 5: Clear type
-            }
-        }
-    
-    def _should_enforce_doctrine(self, question_type: str, strict_mode: bool, authority_constraints: Optional[Dict]) -> bool:
-        """Determine if doctrine should be enforced (optional, not mandatory)"""
-        # Always enforce doctrine in strict mode (when available)
-        if strict_mode:
-            return True
-        
-        # Check authority constraints for doctrine requirement
-        if authority_constraints and authority_constraints.get("requiresDoctrine", False):
-            return True
-        
-        # For certain question types, consider enforcement
-        doctrinal_question_types = ["LEGAL_ANALYSIS", "LEGAL_ADVICE", "EXAMINER_QUESTION"]
-        if question_type in doctrinal_question_types:
-            return True
-        
-        # For general questions, use default
-        return False
-    
-    def _get_strict_mode_error(self, code: str, statute: str, allowed_paragraphs: List[str], message: str) -> Dict:
-        """Return structured error for paragraph-strict mode failures"""
-        error_response = {
-            "error": {
-                "code": code,
-                "type": "paragraph_not_found_in_corpus",
-                "statute": statute,
-                "requested_paragraphs": allowed_paragraphs,
-                "retrievalConstraint": "PARAGRAPH_STRICT",
-                "action": "ingest_or_fix_paragraph_index",
-                "message": message,
-                "requires_ingestion": True,
-                "action_required": "Upload missing paragraphs to the legal corpus"
-            },
-            "results": [],
-            "authority_metadata": {
-                "statute": statute,
-                "paragraph": None,
-                "error": "paragraph_strict_failure",
-                "has_real_norms": False,
-                "strict_mode_enforced": True,
-                "paragraph_strict_success": False,
-                "paragraph_normalization_applied": True,
-                # FIX 3: Proper hierarchy indication
-                "doctrinal_template": "not_applied_due_to_error",
-                "legal_hierarchy": "statutory",  # Still statutory context
-                "doctrine_blocking_applied": False
-            },
-            "authority_validation": {
-                "status": "paragraph_strict_failure",
-                "message": message,
-                "requires_ingestion": True,
-                "strict_mode_failure": True,
-                "doctrine": {
-                    "applied": False,
-                    "status": "not_applied_due_to_error"
-                }
-            },
-            "requires_clarification": False,
-            "doctrine_metadata": {
-                "status": "not_applied_due_to_error",
-                "doctrinal_template": "not_applied_due_to_error",
-                "applied": False,
-                "type": "not_applied"  # FIX 5
-            }
-        }
-        
-        print(f"❌ PARAGRAPH-STRICT ERROR: {message}")
-        return error_response
-    
-    # ===========================================================================
-    # § NUMBER KEYWORD BOOSTING
-    # ===========================================================================
-
-    _QUERY_PARA_RE = re.compile(r'§\s*(\d+[a-z]?)', re.IGNORECASE)
-
-    # Legal doctrine / concept terms that contribute to keyword boost when found
-    # in both query and chunk content
-    _LEGAL_KEYWORDS = [
-        'garantenstellung', 'mordmerkmale', 'tatbestand', 'rechtswidrigkeit',
-        'schuld', 'vorsatz', 'fahrlässigkeit', 'täterschaft', 'notwehr',
-        'notstand', 'unterlassen', 'beihilfe', 'anstiftung', 'mittäterschaft',
-        'willenserklärung', 'anfechtung', 'schadensersatz', 'kaufvertrag',
-        'rügepflicht', 'handelskauf', 'haftung', 'eigentum',
-    ]
-
-    def _extract_query_paragraph_refs(self, query: str) -> List[str]:
-        """
-        Return normalised paragraph numbers explicitly cited in the query.
-        Now handles range patterns (§§195-197) via expand_section_range().
-        """
-        # FIX 1: Check for range patterns first
-        range_refs = expand_section_range(query)
-        if range_refs:
-            return range_refs
-
-        # Fall back to individual § references
-        refs = self._QUERY_PARA_RE.findall(query)
-        return [ParagraphNormalizer.normalize_paragraph(r) for r in refs]
-
-    def _apply_keyword_boost(self, results: List[Dict], query: str) -> List[Dict]:
-        """
-        Post-FAISS hybrid boost:
-          score = 0.7 × vector_similarity + 0.3 × keyword_boost
-
-        keyword_boost = 1.0 when the result's paragraph_base matches an
-        explicit § reference in the query, or 0.5 when a legal doctrine
-        keyword appears in both query and chunk content, else 0.0.
-
-        The original 'score' is preserved as 'vector_score'.
-        """
-        if not results:
-            return results
-
-        query_lower = query.lower()
-        query_para_refs = self._extract_query_paragraph_refs(query)
-        query_keywords = [kw for kw in self._LEGAL_KEYWORDS if kw in query_lower]
-
-        boosted = []
-        for result in results:
-            para_base = result.get("paragraph_base", "") or ParagraphNormalizer.normalize_paragraph(
-                result.get("paragraph", ""))
-            content_lower = result.get("content", "").lower()
-            vector_score = result.get("score", 0.0)
-
-            # Paragraph-number boost (hard match)
-            if query_para_refs and para_base in query_para_refs:
-                keyword_boost = 1.0
-            # Soft boost: legal keyword present in both query and chunk
-            elif query_keywords and any(kw in content_lower for kw in query_keywords):
-                keyword_boost = 0.5
-            else:
-                keyword_boost = 0.0
-
-            hybrid_score = 0.7 * vector_score + 0.3 * keyword_boost
-
-            boosted.append({
-                **result,
-                "vector_score": vector_score,
-                "keyword_boost": keyword_boost,
-                "score": hybrid_score,
-            })
-
-        boosted.sort(key=lambda x: x["score"], reverse=True)
-        return boosted
-
-    def _expand_query_paragraphs(self, query: str, statute: str, paragraph: Optional[str]) -> List[str]:
-        """
-        FIX 1+2+3: Unified paragraph expansion combining intent detection,
-        range expansion, and statute chain lookup.
-
-        Priority:
-          1. Range pattern in query   → expand range (§§195-197)
-          2. Comparative / multi refs → use all cited paragraphs
-          3. Statute chain            → chain expansion for single paragraph
-          4. Single paragraph         → [paragraph]
-        """
-        intent_info = detect_query_intent(query)
-        intent = intent_info["intent"]
-
-        if intent == "range":
-            print(f"📐 RANGE intent: {intent_info['paragraphs']}")
-            return intent_info["paragraphs"]
-
-        if intent in ("comparative", "multi") and intent_info["paragraphs"]:
-            print(f"🔀 {intent.upper()} intent: {intent_info['paragraphs']}")
-            return intent_info["paragraphs"]
-
-        # Single paragraph — use chain expansion
-        if paragraph:
-            return self._get_statute_chain_paragraphs(statute, paragraph)
-
-        return []
-
-    def enrich_paragraph_metadata(self, doc: Dict, statute: str) -> Dict:
-        """
-        FIX 4: Enrich a paragraph document with cross-reference metadata.
-        Called during indexing to add semantic relationship data.
-        """
-        para_base = doc.get("paragraph_base") or ParagraphNormalizer.normalize_paragraph(
-            doc.get("paragraph", ""))
-
-        cross_ref_map = {
-            "BGB": BGB_CROSS_REFERENCES,
-            "STGB": STGB_CROSS_REFERENCES,
-            "HGB": HGB_CROSS_REFERENCES,
-        }.get(statute.upper(), {})
-
-        related = cross_ref_map.get(para_base, [])
-
-        # Also check if this paragraph IS a target in any chain
-        is_chain_target = False
-        for src, targets in cross_ref_map.items():
-            if para_base in targets:
-                is_chain_target = True
-                related = list(dict.fromkeys([src] + related))  # add source
-                break
-
-        doc["cross_references"] = related[:10]  # cap to 10
-        doc["is_chain_target"] = is_chain_target
-        doc["has_cross_references"] = len(related) > 0
-        return doc
-
-    def _get_statute_chain_paragraphs(self, statute: str, paragraph: str) -> List[str]:
-        """
-        ⭐⭐ FIX 2: Get related paragraphs in statutory chain
-        e.g., §119 → ["119", "121", "122"]
-        """
-        if not statute or not paragraph:
-            return [paragraph] if paragraph else []
-        
-        # Get chain for this statute
-        statute_chains = self.statute_chains.get(statute, {})
-        
-        # Find chain for this paragraph
-        for chain_key, chain_values in statute_chains.items():
-            # Check if this paragraph starts a chain
-            if ParagraphNormalizer.paragraph_matches(chain_key, paragraph):
-                return [paragraph] + chain_values
-            
-            # Check if paragraph is in a chain
-            for chain_para in chain_values:
-                if ParagraphNormalizer.paragraph_matches(chain_para, paragraph):
-                    return [chain_key] + chain_values
-        
-        # No chain found, return just the paragraph
-        return [paragraph]
-    
-    def _validate_authority_results(self, results: List[Dict], statute: str, paragraph: Optional[str], 
-                                   related_paragraphs: List[str] = None, strict_mode: bool = False) -> Dict:
-        """Validate that results meet authority requirements - ENHANCED FOR CHAINS"""
-        if not results:
-            failure_status = "strict_mode_failure" if strict_mode else "no_results"
-            return {
-                "status": failure_status,
-                "message": "No documents found for the specified statute",
-                "statute_compliance": 0.0,
-                "has_statutory_norms": False,
-                "has_real_norms": False,
-                "strict_mode_failure": strict_mode,
-                "doctrine": {
-                    "applied": False,
-                    "status": "not_applied_no_results"
-                }
-            }
-        
-        # Count REAL norms
-        real_norms = [r for r in results if r.get("is_real_legal_content", False)]
-        
-        if not real_norms:
-            return {
-                "status": "no_real_norms",
-                "message": "No real legal norms found (possibly using test data)",
-                "statute_compliance": 0.0,
-                "has_statutory_norms": False,
-                "has_real_norms": False,
-                "strict_mode_failure": strict_mode,
-                "doctrine": {
-                    "applied": False,
-                    "status": "not_applied_no_real_norms"
-                }
-            }
-        
-        statutory_count = sum(1 for r in real_norms if r.get("is_statutory", False))
-        statute_compliance = sum(1 for r in real_norms if r.get("metadata", {}).get("statute", "").upper() == statute.upper()) / len(real_norms)
-        
-        validation = {
-            "status": "valid" if statute_compliance > 0.7 else "partial",
-            "message": f"Found {statutory_count} REAL statutory norms among {len(real_norms)} results",
-            "statute_compliance": statute_compliance,
-            "has_statutory_norms": statutory_count > 0,
-            "has_real_norms": len(real_norms) > 0,
-            "statutory_count": statutory_count,
-            "total_results": len(real_norms),
-            "strict_mode": strict_mode,
-            "doctrine": {
-                "applied": False,
-                "status": "not_yet_evaluated"
-            }
-        }
-        
-        # Check paragraph compliance in strict mode
-        if strict_mode and paragraph:
-            paragraphs_found = []
-            for r in real_norms:
-                meta = r.get("metadata", {})
-                para = meta.get("paragraph", "")
-                if para:
-                    paragraphs_found.append(para)
-            
-            validation["strict_paragraph_compliance"] = {
-                "requested_paragraph": paragraph,
-                "found_paragraphs": paragraphs_found,
-                "exact_match": any(ParagraphNormalizer.paragraph_matches(para, paragraph) for para in paragraphs_found)
-            }
-        
-        # ⭐⭐ FIX 2: Check for chain completeness
-        if paragraph and related_paragraphs and len(related_paragraphs) > 1:
-            found_paragraphs = set()
-            for r in real_norms:
-                meta = r.get("metadata", {})
-                para = meta.get("paragraph", "")
-                if para:
-                    found_paragraphs.add(para)
-            
-            # Normalize for comparison
-            found_bases = [ParagraphNormalizer.normalize_paragraph(p) for p in found_paragraphs]
-            required_bases = [ParagraphNormalizer.normalize_paragraph(p) for p in related_paragraphs]
-            
-            chain_coverage = len([p for p in required_bases if p in found_bases])
-            chain_completeness = chain_coverage / len(required_bases)
-            
-            validation["chain_coverage"] = {
-                "required_paragraphs": related_paragraphs,
-                "found_paragraphs": list(found_paragraphs),
-                "coverage": chain_completeness,
-                "is_complete": chain_completeness >= 0.5  # At least half the chain
-            }
-            
-            if chain_completeness < 0.5:
-                validation["status"] = "partial_chain"
-                validation["message"] += f" (chain coverage: {chain_coverage}/{len(related_paragraphs)} paragraphs)"
-        
-        return validation
-    
-    def _get_empty_index_error(self) -> Dict:
-        """Return error when indices cannot be loaded"""
-        return {
-            "results": [],
-            "authority_metadata": {
-                "statute": None,
-                "paragraph": None,
-                "error": "No legal corpus found",
-                "required_action": "Upload real BGB/StGB documents using /ingestion/bgb endpoint",
-                "has_real_norms": False,
-                # FIX 3: Proper hierarchy
-                "doctrinal_template": "not_applied_no_corpus",
-                "legal_hierarchy": "unknown",
-                "doctrine_blocking_applied": False
-            },
-            "authority_validation": {
-                "status": "no_corpus",
-                "message": "No legal corpus available. Please ingest real BGB/StGB documents first.",
-                "requires_ingestion": True,
-                "doctrine": {
-                    "applied": False,
-                    "status": "not_applied_no_corpus"
-                }
-            },
-            "requires_clarification": False,
-            "doctrine_metadata": {
-                "status": "not_applied_no_corpus",
-                "doctrinal_template": "not_applied_no_corpus",
-                "applied": False,
-                "type": "not_applied"  # FIX 5
-            }
-        }
-    
-    def _get_authority_unavailable_error(self) -> Dict:
-        """Return error when authority services are unavailable"""
-        return {
-            "results": [],
-            "authority_metadata": {
-                "statute": None,
-                "paragraph": None,
-                "error": "Authority services unavailable",
-                "has_real_norms": False,
-                # FIX 3: Proper hierarchy
-                "doctrinal_template": "not_applied_no_authority",
-                "legal_hierarchy": "unknown",
-                "doctrine_blocking_applied": False
-            },
-            "authority_validation": {
-                "status": "authority_unavailable",
-                "message": "Legal authority resolution service is not available.",
-                "doctrine": {
-                    "applied": False,
-                    "status": "not_applied_no_authority"
-                }
-            },
-            "requires_clarification": False,
-            "doctrine_metadata": {
-                "status": "not_applied_no_authority",
-                "doctrinal_template": "not_applied_no_authority",
-                "applied": False,
-                "type": "not_applied"  # FIX 5
-            }
-        }
-    
-    def _calculate_authority_score(self, result: Dict, target_statute: str) -> float:
-        """Calculate authority score based on document type and statute match"""
-        metadata = result.get("metadata", {})
-        
-        base_score = metadata.get("authority_score", 0.5)
-        is_normative = metadata.get("is_normative", False)
-        statute_match = metadata.get("statute", "").upper() == target_statute.upper()
-        doc_type = metadata.get("document_type", "other")
-        is_real = metadata.get("is_real_legal_content", False)
-        
-        # CRITICAL: Penalize non-real content heavily
-        if not is_real:
-            return 0.1
-        
-        # Authority hierarchy
-        if is_normative and statute_match:
-            return 1.0  # Perfect match: statutory norm
-        elif doc_type == "case_law" and statute_match:
-            return 0.8  # Case law on point
-        elif doc_type == "academic" and statute_match:
-            return 0.5  # Academic commentary
-        elif statute_match:
-            return 0.7  # Other relevant documents
-        else:
-            return 0.3  # Wrong statute
-    
-    def search_statute_overview(self, statute: str, query: str = "", k: int = 20) -> List[Dict]:
-        """
-        Special method for statute overview queries (when no specific paragraph is requested)
-        Returns key REAL norms from the statute
-        """
-        # CRITICAL FIX: Ensure indices are loaded
-        if not self.ensure_indices_loaded():
-            return []
-        
-        print(f"📖 Retrieving statute overview for {statute}")
-        
-        from app.services.embeddings.embedding_service import embedding_service
-        
-        # Use a general query about the statute if none provided
-        if not query or query.strip() == "":
-            query = f"key provisions of {statute} German law"
-        
-        # ✅ STANDARDIZED: Use embed_query consistently
-        query_embedding = np.array(embedding_service.embed_query(query, statute))
-        
-        # First, try to get all norms from the statute index
-        if statute in self.statute_indices:
-            all_results = []
-            store = self.statute_indices[statute]
-            
-            # Get all documents from this statute index
-            all_metadata = list(store.metadata.values())
-            
-            # Filter for REAL normative documents
-            real_normative_docs = [
-                meta for meta in all_metadata 
-                if meta.get("is_normative", False) and 
-                meta.get("is_real_legal_content", True)
-            ]
-            
-            # If we have specific norms, return them with semantic ranking
-            if real_normative_docs:
-                # Convert to search result format
-                for meta in real_normative_docs:
-                    # Create a dummy result
-                    result = {
-                        "id": -1,
-                        "score": 0.7,
-                        "metadata": meta,
-                        "content": meta.get("content", ""),
-                        "statute": statute,
-                        "paragraph": meta.get("paragraph", ""),
-                        "paragraph_base": meta.get("paragraph_base", ""),
-                        "document_id": meta.get("document_id", ""),
-                        "is_authoritative": True,
-                        "match_type": "statutory_norm",
-                        "legal_relevance": 1.0,
-                        "confidence": 0.9,
-                        "authority_score": 1.0,
-                        "is_real_legal_content": meta.get("is_real_legal_content", True)
-                    }
-                    all_results.append(result)
-                
-                # Sort by paragraph number (for logical ordering)
-                def extract_paragraph_number(para):
-                    try:
-                        if not para:
-                            return 0
-                        # Get base number
-                        base = ParagraphNormalizer.normalize_paragraph(str(para))
-                        return int(base) if base.isdigit() else 0
-                    except:
-                        return 0
-                
-                all_results.sort(key=lambda x: extract_paragraph_number(x["paragraph"]))
-                
-                # Limit to top k
-                return all_results[:k]
-        
-        # Fallback to regular search
-        return self.search(query_embedding, statute, k)
-    
-    # ===========================================================================
-    # UPDATED SEARCH METHODS WITH ALL FIXES
-    # ===========================================================================
-    
-    def search_by_paragraph(self, statute: str, paragraph: str, 
-                           query_embedding: Optional[np.ndarray] = None,
-                           k: int = 5, paragraphSource: str = "explicit") -> List[Dict]:
-        """
-        Statute-First search: Find specific paragraph with authority guarantee
-        Now includes paragraphSource parameter for confidence adjustment
-        """
-        # CRITICAL FIX: Ensure indices are loaded
-        if not self.ensure_indices_loaded():
-            return []
-        
-        if statute not in self.statute_indices:
-            print(f"⚠️ No index found for statute: {statute}")
-            return []
-        
-        # FIX 2: Normalize paragraph for matching
-        paragraph_base = ParagraphNormalizer.normalize_paragraph(paragraph)
-        
-        # First: Try exact paragraph match (AUTHORITY SEARCH)
-        all_metadata = list(self.statute_indices[statute].metadata.values())
-        exact_matches = []
-        
-        for meta in all_metadata:
-            # Check if this is REAL legal content
-            if not meta.get("is_real_legal_content", True):
-                continue  # Skip fake/test content
-
-            # Check statute match (case-insensitive: metadata stores "STGB", resolver returns "StGB")
-            if meta.get("statute", "").upper() != statute.upper():
-                continue
-
-            # FIX 2: Use paragraph_base for matching
-            meta_paragraph_base = meta.get("paragraph_base", "")
-            if not meta_paragraph_base:
-                meta_paragraph_base = ParagraphNormalizer.normalize_paragraph(meta.get("paragraph", ""))
-            
-            if meta_paragraph_base == paragraph_base:
-                # This is the authoritative norm
-                result = {
-                    "id": meta.get("vector_id", -1),
-                    "score": 1.0,
-                    "metadata": meta,
-                    "content": meta.get("content", ""),
-                    "statute": statute,
-                    "paragraph": meta.get("paragraph", ""),
-                    "paragraph_base": meta_paragraph_base,
-                    "document_id": meta.get("document_id", ""),
-                    "is_authoritative": True,
-                    "match_type": "exact_paragraph",
-                    "legal_relevance": 1.0,
-                    "confidence": 1.0,
-                    "authority_score": 1.0,
-                    "is_real_legal_content": True,
-                    "paragraph_normalization_applied": True
-                }
-                
-                # CRITICAL SAFETY ADJUSTMENT: Down-weight inferred paragraphs
-                if paragraphSource == "inferred":
-                    result["confidence"] = 0.85
-                    result["authority_note"] = "paragraph inferred, not explicitly cited"
-                    result["legal_relevance"] = 0.85
-                    result["authority_score"] = 0.85
-                    print(f"⚠️ Down-weighted confidence for inferred paragraph: {statute} §{paragraph}")
-                
-                exact_matches.append(result)
-        
-        if exact_matches:
-            print(f"✅ Found REAL authoritative match for {statute} §{paragraph} (normalized: {paragraph_base})")
-            return exact_matches[:k]
-        
-        # Second: Fall back to semantic search if no exact match
-        if query_embedding is not None:
-            semantic_results = self.statute_indices[statute].search(query_embedding, k)
-            
-            # Filter for REAL content only
-            real_semantic_results = []
-            for result in semantic_results:
-                metadata = result.get("metadata", {})
-                if not metadata.get("is_real_legal_content", True):
-                    continue  # Skip fake/test content
-                
-                # Enhance results with paragraph awareness
-                result["is_authoritative"] = False
-                result["match_type"] = "semantic"
-                result["legal_relevance"] = self._calculate_legal_relevance(result)
-                result["confidence"] = result["score"]
-                result["authority_score"] = self._calculate_authority_score(result, statute)
-                result["is_real_legal_content"] = True
-                
-                # Apply paragraph source adjustment
-                if paragraphSource == "inferred":
-                    result["confidence"] = min(result["confidence"] * 0.85, 0.95)
-                    result["authority_note"] = "search based on inferred paragraph"
-                
-                # Check if result contains the requested paragraph
-                content = result.get("content", "")
-                if f"§{paragraph}" in content or f"§ {paragraph}" in content:
-                    result["is_authoritative"] = True
-                    result["match_type"] = "paragraph_in_content"
-                    result["score"] = max(result["score"], 0.9)
-                    result["legal_relevance"] = min(result["legal_relevance"] * 1.3, 1.0)
-                    result["confidence"] = max(result["confidence"], 0.9)
-                    result["authority_score"] = max(result["authority_score"], 0.9)
-                
-                real_semantic_results.append(result)
-
-            # Apply keyword boost to semantic results before returning
-            boosted = self._apply_keyword_boost(real_semantic_results, query)
-            return boosted[:k]
-
-        return []
-
-    def search_with_validation(self, query: str, statute: str, paragraph: str, 
-                              k: int = 10, paragraphSource: str = "explicit",
-                              authority_constraints: Optional[Dict] = None,
-                              question_type: str = "GENERAL") -> Dict:  # FIX 4: Added question_type
-        """
-        Complete Statute-First search with validation
-        WITH ALL FIXES APPLIED
-        """
-        # ===========================================================================
-        # 🔴🔴🔴 FIX 4: Use actual question_type, not "GENERAL" placeholder
-        # ===========================================================================
-        is_doctrinal, canonical_doctrine = self._is_doctrinal_question(question_type, query)
-        if is_doctrinal:
-            print(f"⚖️  DOCTRINAL SEARCH BLOCKED: '{query[:50]}...'")
-            print(f"   Canonical doctrine: {canonical_doctrine}")
-            print("   🔒 HARD STOP: No retrieval performed for doctrinal question in search_with_validation")
-            return {
-                "results": [],
-                "validation": {
-                    "statute": statute,
-                    "paragraph": paragraph,
-                    "error": "doctrinal_question_no_retrieval",
-                    "total_results": 0,
-                    "has_real_norms": False,
-                    "strict_mode": False,
-                    "strict_mode_failure": False,
-                    "doctrine": {
-                        "applied": True,
-                        "status": "settled_doctrine_no_retrieval",
-                        "canonical_doctrine": canonical_doctrine  # FIX 1: Canonical ID
-                    }
-                },
-                "query_info": {
-                    "statute": statute,
-                    "paragraph": paragraph,
-                    "paragraph_source": paragraphSource,
-                    "query": query,
-                    "strict_mode": False,
-                    "doctrinal_template": "constitutional_principle",
-                    "legal_hierarchy": "constitutional",
-                    "doctrine_blocking_applied": True  # FIX 5
-                },
-                "doctrine_metadata": {
-                    "status": "settled_doctrine_no_retrieval",
-                    "canonical_doctrine": canonical_doctrine,  # FIX 1: Canonical ID
-                    "doctrinal_template": "constitutional_principle",
-                    "applied": True,
-                    "retrieval_blocked": True,
-                    "type": "blocking_not_enforcement"  # FIX 5
-                }
-            }
-        # ===========================================================================
-        # END HARD STOP
-        # ===========================================================================
-        
-        # Check for strict mode
-        strict_mode = False
-        if authority_constraints and authority_constraints.get("retrievalConstraint") == "PARAGRAPH_STRICT":
-            strict_mode = True
-            print(f"🔒 STRICT MODE in search_with_validation for {statute} §{paragraph}")
-        
-        # CRITICAL FIX: Ensure indices are loaded
-        if not self.ensure_indices_loaded():
-            return {
-                "results": [],
-                "validation": {
-                    "statute": statute,
-                    "paragraph": paragraph,
-                    "error": "No legal corpus found",
-                    "total_results": 0,
-                    "has_real_norms": False,
-                    "strict_mode": strict_mode,
-                    "strict_mode_failure": strict_mode,  # Always fails in strict mode with no corpus
-                    "doctrine": {
-                        "applied": False,
-                        "status": "not_applied_no_corpus"
-                    }
-                },
-                "query_info": {
-                    "statute": statute,
-                    "paragraph": paragraph,
-                    "paragraph_source": paragraphSource,
-                    "query": query,
-                    "strict_mode": strict_mode,
-                    "doctrinal_template": "not_applied_no_corpus",
-                    "legal_hierarchy": "unknown",
-                    "doctrine_blocking_applied": False
-                },
-                "doctrine_metadata": {
-                    "status": "not_applied_no_corpus",
-                    "doctrinal_template": "not_applied_no_corpus",
-                    "applied": False,
-                    "type": "not_applied"  # FIX 5
-                }
-            }
-        
-        from app.services.embeddings.embedding_service import embedding_service
-        
-        # ✅ STANDARDIZED: Use embed_query consistently
-        query_embedding = np.array(embedding_service.embed_query(query, statute))
-        
-        # FIX 2: Normalize paragraph
-        paragraph_base = ParagraphNormalizer.normalize_paragraph(paragraph)
-        
-        # Check if we're in strict mode
-        if strict_mode:
-            # Get all documents from statute index
-            if statute not in self.statute_indices:
-                return {
-                    "results": [],
-                    "validation": {
-                        "statute": statute,
-                        "paragraph": paragraph,
-                        "error": "No index found for statute in strict mode",
-                        "total_results": 0,
-                        "has_real_norms": False,
-                        "strict_mode": True,
-                        "strict_mode_failure": True,
-                        "doctrine": {
-                            "applied": False,
-                            "status": "not_applied_strict_mode_failure"
-                        }
-                    },
-                    "query_info": {
-                        "statute": statute,
-                        "paragraph": paragraph,
-                        "paragraph_source": paragraphSource,
-                        "query": query,
-                        "strict_mode": True,
-                        "doctrinal_template": "not_applied_strict_mode_failure",
-                        "legal_hierarchy": "statutory",
-                        "doctrine_blocking_applied": False
-                    },
-                    "doctrine_metadata": {
-                        "status": "not_applied_strict_mode_failure",
-                        "doctrinal_template": "not_applied_strict_mode_failure",
-                        "applied": False,
-                        "type": "not_applied"  # FIX 5
-                    }
-                }
-            
-            # Filter for exact paragraph using normalized base
-            store = self.statute_indices[statute]
-            all_metadata = list(store.metadata.values())
-            
-            exact_matches = []
-            for meta in all_metadata:
-                if not meta.get("is_real_legal_content", True):
-                    continue
-                if meta.get("statute", "").upper() != statute.upper():
-                    continue
-                
-                # Use paragraph_base for matching
-                meta_paragraph_base = meta.get("paragraph_base", "")
-                if not meta_paragraph_base:
-                    meta_paragraph_base = ParagraphNormalizer.normalize_paragraph(meta.get("paragraph", ""))
-                
-                if meta_paragraph_base == paragraph_base:
-                    result = {
-                        "id": meta.get("vector_id", -1),
-                        "score": 1.0,
-                        "metadata": meta,
-                        "content": meta.get("content", ""),
-                        "statute": statute,
-                        "paragraph": meta.get("paragraph", ""),
-                        "paragraph_base": meta_paragraph_base,
-                        "document_id": meta.get("document_id", ""),
-                        "is_authoritative": True,
-                        "match_type": "exact_paragraph_strict",
-                        "legal_relevance": 1.0,
-                        "confidence": 1.0,
-                        "authority_score": 1.0,
-                        "is_real_legal_content": True,
-                        "strict_mode_guarantee": True,
-                        "paragraph_normalization_applied": True
-                    }
-                    exact_matches.append(result)
-            
-            if not exact_matches:
-                return {
-                    "results": [],
-                    "validation": {
-                        "statute": statute,
-                        "paragraph": paragraph,
-                        "error": "Paragraph not found in strict mode",
-                        "total_results": 0,
-                        "has_real_norms": False,
-                        "strict_mode": True,
-                        "strict_mode_failure": True,
-                        "strict_mode_message": f"No documents found for {statute} §{paragraph} in strict mode",
-                        "doctrine": {
-                            "applied": False,
-                            "status": "not_applied_strict_mode_failure"
-                        }
-                    },
-                    "query_info": {
-                        "statute": statute,
-                        "paragraph": paragraph,
-                        "paragraph_source": paragraphSource,
-                        "query": query,
-                        "strict_mode": True,
-                        "doctrinal_template": "not_applied_strict_mode_failure",
-                        "legal_hierarchy": "statutory",
-                        "doctrine_blocking_applied": False
-                    },
-                    "doctrine_metadata": {
-                        "status": "not_applied_strict_mode_failure",
-                        "doctrinal_template": "not_applied_strict_mode_failure",
-                        "applied": False,
-                        "type": "not_applied"  # FIX 5
-                    }
-                }
-            
-            paragraph_results = exact_matches
-        
-        else:
-            # Normal mode: Search by paragraph first (with normalization)
-            paragraph_results = self.search_by_paragraph(statute, paragraph, query_embedding, k, paragraphSource)
-        
-        # Filter for REAL results only
-        real_paragraph_results = [r for r in paragraph_results if r.get("is_real_legal_content", True)]
-        
-        # In strict mode, we already have our results (or error)
-        # In normal mode, fall back to general search if needed
-        if not strict_mode and not real_paragraph_results:
-            general_results = self.search(query_embedding, statute, k)
-            real_paragraph_results = [r for r in general_results if r.get("is_real_legal_content", True)]
-        
-        # Validate results
-        validation_results = []
-        
-        for result in real_paragraph_results:
-            content = result.get("content", "")
-            validation = self.validator.validate_response(content, statute, paragraph)
-            
-            # Adjust validation based on paragraph source
-            if paragraphSource == "inferred":
-                validation["security_score"] = max(validation["security_score"] - 15, 0)
-                if not validation.get("issues"):
-                    validation["issues"] = []
-                validation["issues"].append("Paragraph was inferred from context")
-            
-            result["validation"] = validation
-            validation_results.append(validation)
-        
-        # Determine overall validation
-        overall_validation = {
+            "documents": [],
+            "total_documents": 0,
+            "authority_final": True,
+            "authority_final_enforced": True,
+            "authority_final_corpus_missing": True,
+            "requires_ingestion": True,
             "statute": statute,
             "paragraph": paragraph,
-            "paragraph_source": paragraphSource,
-            "total_results": len(real_paragraph_results),
-            "real_norm_count": len(real_paragraph_results),
-            "authoritative_results": sum(1 for r in real_paragraph_results 
-                                       if r.get("is_authoritative", False)),
-            "inferred_paragraph": paragraphSource == "inferred",
-            "has_real_norms": len(real_paragraph_results) > 0,
-            "strict_mode": strict_mode,
-            "strict_mode_failure": strict_mode and len(real_paragraph_results) == 0,
-            "validation_summary": {
-                "valid_count": sum(1 for v in validation_results if v["is_valid"]),
-                "avg_security_score": np.mean([v["security_score"] for v in validation_results]) 
-                                   if validation_results else 0
-            },
-            "doctrine": {
-                "applied": False,
-                "status": "not_required_for_search"
-            }
+            "retrieval_constraint": constraint,
+            "no_fallback": True,
+            "no_overview": True,
+            "no_doctrine": True,
+            "no_tfidf": True,
+            "strict_enforcement": True
         }
+
+    # ======================================================================
+    # INDEX MANAGEMENT METHODS
+    # ======================================================================
+
+    def load_statute_indices(self, statute: str) -> bool:
+        """Load statute-specific FAISS index from disk using consistent naming"""
+        # Use uppercase for consistent key storage
+        statute_upper = statute.upper()
         
-        # FIX 5: Clear separation markers
-        doctrinal_template = "not_required_for_search"
+        # Use get_store_name from constants for consistent naming
+        index_name = get_store_name(statute_upper)
+
+        # Create new vector store
+        store = FAISSStore(index_name)
+
+        # Try to load — no path arg: FAISSStore uses index_path/collection_name automatically
+        if not store.load():
+            logger.info(f"No existing index found for statute {statute_upper}")
+            return False
+
+        # Store in statute indices with uppercase key
+        self.statute_indices[statute_upper] = store
         
-        return {
-            "results": real_paragraph_results[:k],
-            "validation": overall_validation,
-            "query_info": {
-                "statute": statute,
-                "paragraph": paragraph,
-                "paragraph_source": paragraphSource,
-                "query": query,
-                "strict_mode": strict_mode,
-                "doctrinal_template": doctrinal_template,
-                "legal_hierarchy": "statutory",  # Always statutory for non-doctrinal search
-                "doctrine_blocking_applied": False  # FIX 5: Explicit
-            },
-            "doctrine_metadata": {
-                "status": doctrinal_template,
-                "doctrinal_template": doctrinal_template,
-                "applied": False,
-                "type": "not_applied"  # FIX 5
-            }
-        }
-    
-    def search(self, query_embedding: np.ndarray, statute: Optional[str] = None,
-               k: int = 10, filters: Optional[Dict] = None) -> List[Dict]:
-        """
-        Search for similar documents - FIXED TO ENSURE INDICES ARE LOADED
-        Only returns REAL legal content
-        """
-        # CRITICAL FIX: Ensure indices are loaded
-        if not self.ensure_indices_loaded():
-            return []
-        
-        # Check if indices are empty
-        if self.vector_store.index is None or self.vector_store.index.ntotal == 0:
-            print(f"⚠️ Warning: Vector index is empty. No real legal corpus found.")
-            return []
-        
-        results = []
-        
-        # CRITICAL FIX: Always search statute index when statute is known
-        if statute and statute in self.statute_indices:
-            try:
-                statute_results = self.statute_indices[statute].search(query_embedding, k, filters)
-                if statute_results:
-                    # Filter for REAL content
-                    real_statute_results = [
-                        r for r in statute_results 
-                        if r.get("metadata", {}).get("is_real_legal_content", True)
-                    ]
-                    if real_statute_results:
-                        print(f"✅ Found {len(real_statute_results)} REAL results in statute index for {statute}")
-                        results.extend(real_statute_results)
-            except Exception as e:
-                print(f"⚠️ Error searching statute index for {statute}: {e}")
-        
-        # Also search in general index
-        general_results = self.vector_store.search(query_embedding, k, filters)
-        
-        # Filter for REAL content
-        real_general_results = [
-            r for r in general_results 
-            if r.get("metadata", {}).get("is_real_legal_content", True)
-        ]
-        
-        # Filter out duplicates
-        seen_ids = set(r["id"] for r in results)
-        for result in real_general_results:
-            if result["id"] not in seen_ids:
-                results.append(result)
-                seen_ids.add(result["id"])
-        
-        # Sort by score
-        results.sort(key=lambda x: x["score"], reverse=True)
-        
-        # Apply post-filtering if needed
-        if filters:
-            filtered_results = []
-            for result in results:
-                metadata = result["metadata"]
-                match = True
-                for key, value in filters.items():
-                    if metadata.get(key) != value:
-                        match = False
-                        break
-                if match:
-                    filtered_results.append(result)
-            results = filtered_results[:k]
-        else:
-            results = results[:k]
-        
-        # CRITICAL: Boost statute-matching results when statute was specified
-        if statute:
-            boosted_results = []
-            for result in results:
-                result_statute = result["metadata"].get("statute", "")
-                is_matching_statute = result_statute == statute
-                
-                # Major boost for exact statute match
-                if is_matching_statute:
-                    result["score"] = min(result["score"] * 1.3, 0.99)
-                    result["statute_match_boost"] = True
-                else:
-                    result["statute_match_boost"] = False
-                
-                result["legal_relevance"] = self._calculate_legal_relevance(result)
-                result["is_authoritative"] = result.get("is_authoritative", False)
-                result["match_type"] = result.get("match_type", "semantic")
-                result["confidence"] = result.get("score", 0.0)
-                result["authority_score"] = self._calculate_authority_score(result, statute)
-                result["is_real_legal_content"] = result.get("metadata", {}).get("is_real_legal_content", True)
-                
-                boosted_results.append(result)
+        # Check if we have real vectors
+        vector_count = store.index.ntotal if store.index else 0
+        if vector_count > 0:
+            self.has_real_corpus = True
             
-            # Re-sort after boosting
-            boosted_results.sort(key=lambda x: x["score"], reverse=True)
-            results = boosted_results
+        self.indices_loaded = True
+
+        print(f"✅ Loaded statute index for {statute_upper} with {vector_count} vectors")
+        return True
+
+    def save_statute_indices(self, statute: str) -> bool:
+        """Persist statute-specific FAISS index to disk using consistent naming"""
+        statute_upper = statute.upper()
         
-        return results
-    
-    def _calculate_legal_relevance(self, result: Dict) -> float:
-        """
-        FIX 5: Calculate legal relevance score.
-        Never returns 0.0 for ingested documents — minimum floor of 0.05
-        so relevance is never displayed as "0%".
-        """
-        score = result.get("score", 0.0)
-        metadata = result.get("metadata", {})
+        if statute_upper not in self.statute_indices:
+            logger.warning(f"No statute index found for {statute_upper}")
+            return False
 
-        is_normative = metadata.get("is_normative", False)
-        has_paragraph = bool(metadata.get("paragraph") or metadata.get("paragraph_base"))
-        is_real = metadata.get("is_real_legal_content", True)  # default True for ingested docs
+        store = self.statute_indices[statute_upper]
 
-        # FIX 5: Penalise but never zero-out non-real content
-        if not is_real:
-            return max(score * 0.1, 0.05)
+        if not store.index or store.index.ntotal == 0:
+            logger.warning(f"No vectors to save for statute {statute_upper}")
+            return False
 
-        if is_normative:
-            score = score * 1.5
-        elif has_paragraph:
-            score = score * 1.2
+        # Use get_store_name from constants for consistent naming
+        index_name = get_store_name(statute_upper)
+            
+        success = store.save(index_name)
 
-        # Boost for statute match
-        if metadata.get("statute"):
-            score = score * 1.05
-
-        # Penalize very short content (but never to zero)
-        content = metadata.get("content", "")
-        if len(content.split()) < 10:
-            score = score * 0.8
-
-        # FIX 5: Minimum floor — never 0%
-        return max(min(score, 1.0), 0.05)
-    
-    # ===========================================================================
-    # UPDATED PERSISTENCE METHODS
-    # ===========================================================================
-    
-    def save_indices(self, base_name: str = "legal_index") -> bool:
-        """Save all indices to disk"""
-        # Save general index
-        general_success = self.vector_store.save(base_name) if self.vector_store.index and self.vector_store.index.ntotal > 0 else False
-        
-        # Save statute indices
-        statute_success = False
-        for statute, index in self.statute_indices.items():
-            if index.index and index.index.ntotal > 0:
-                # Use statute-specific naming
-                success = index.save(f"{statute.lower()}_index")
-                if success:
-                    statute_success = True
-                    print(f"💾 Saved statute index for {statute}")
-        
-        success = general_success or statute_success
-        
         if success:
-            print(f"💾 Saved indices to disk")
+            print(f"💾 Saved statute index for {statute_upper} as {index_name}.faiss")
+            self.save_indices("legal_index")
         else:
-            print(f"⚠️ Could not save indices to disk (no vectors or Windows FAISS limitation)")
-        
+            print(f"⚠️ Could not save statute index for {statute_upper}")
+
         return success
-    
-    def load_indices(self, base_name: str = "legal_index") -> bool:
-        """Load indices from disk"""
-        # First try general index
-        general_success = self.vector_store.load(base_name)
-        
-        # Try to load statute indices
-        statute_files = [f for f in os.listdir(self.vector_store.indices_dir) 
-                        if f.endswith("_index.faiss")]
-        
-        for file in statute_files:
-            # Extract statute name from filename
-            statute = file.replace("_index.faiss", "").upper()
-            if statute:
-                store = self._create_vector_store(self.vector_store_type)
-                if store.load(f"{statute.lower()}_index"):
-                    self.statute_indices[statute] = store
-        
-        success = general_success or len(self.statute_indices) > 0
-        if success:
-            logger.info(f"Loaded {len(self.statute_indices)} statute indices")
-        
-        return success
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get retrieval service statistics"""
-        # Try to load indices if not already loaded
         if not self.indices_loaded:
             self.ensure_indices_loaded()
-        
+
         real_vectors = 0
         statute_indices = {}
-        
+
         # Check general index
         general_vectors = self.vector_store.index.ntotal if self.vector_store.index else 0
         real_vectors += general_vectors
-        
+
         # Check statute indices
         for statute, store in self.statute_indices.items():
             count = store.index.ntotal if store.index else 0
@@ -2813,53 +271,1015 @@ class RetrievalService:
                 "dimension": store.dimension
             }
             real_vectors += count
+
+        # Get document store stats
+        doc_stats = self.document_store.get_stats()
         
-        # Determine corpus state - BINARY: Either real or nothing
-        has_real_corpus = real_vectors > 20  # Minimal threshold for real corpus
-        
+        # Use vector_count > 0 instead of paragraph_count
+        has_real_corpus = real_vectors > 20 or doc_stats["total_documents"] > 0
+
         return {
             "indices_loaded": self.indices_loaded,
-            "has_real_corpus": has_real_corpus,  # CRITICAL: Binary truth
+            "has_real_corpus": has_real_corpus,
             "statute_indices": statute_indices,
             "general_index": {
                 "vectors": general_vectors,
                 "dimension": self.vector_store.dimension if self.vector_store.index else 0
             },
+            "document_store": doc_stats,
             "total_vectors": real_vectors,
-            "corpus_state": "READY" if has_real_corpus else "EMPTY"  # No intermediate states
+            "corpus_state": "READY" if has_real_corpus else "EMPTY"
         }
 
+    def save_indices(self, base_name: str = "legal_index") -> bool:
+        """Save all indices to disk"""
+        # Save general index
+        general_success = self.vector_store.save(base_name) if self.vector_store.index and self.vector_store.index.ntotal > 0 else False
 
-# ===========================================================================
-# FIX 5: INVARIANT DOCUMENTATION
-# ===========================================================================
-"""
-DOCTRINE BLOCKING VS ENFORCEMENT INVARIANT
-===========================================
+        # Save statute indices
+        statute_success = False
+        for statute, index in self.statute_indices.items():
+            if index.index and index.index.ntotal > 0:
+                success = self.save_statute_indices(statute)
+                if success:
+                    statute_success = True
 
-Two separate concepts must never be confused:
+        success = general_success or statute_success
 
-1. DOCTRINE BLOCKING (hard, mandatory)
-   - Prevents ALL retrieval for pure doctrinal questions
-   - Returns constitutional hierarchy metadata
-   - Guarantees zero vector search, zero TF-IDF
-   - APPLIES WHEN: question_type in DOCTRINAL_QUESTION_TYPES AND no specific paragraphs mentioned
+        if success:
+            print(f"💾 Saved indices to disk")
+        else:
+            print(f"⚠️ Could not save indices to disk")
 
-2. DOCTRINE ENFORCEMENT (optional, enhancing)
-   - Applies doctrine reasoning to retrieved norms
-   - Enhances results with doctrinal analysis
-   - Service may be unavailable (not an error)
-   - APPLIES WHEN: strict_mode OR authority_constraints.requiresDoctrine
+        return success
 
-INVARIANT: 
-If doctrine blocking is active → doctrine enforcement MUST NOT run.
-Blocking takes absolute precedence.
+    # ======================================================================
+    # CORE RETRIEVAL METHODS
+    # ======================================================================
 
-EXAMPLES:
-- "Was besagt das Schuldprinzip?" → BLOCKING ONLY (no retrieval)
-- "Schuldprinzip und § 46 StGB" → RETRIEVAL + optional enforcement
-- "§ 46 StGB" → RETRIEVAL + optional enforcement if configured
-"""
+    def _try_load_existing_statute_indices(self):
+        """Load EAGER statutes at startup; LAZY statutes deferred to first query."""
+        print("🔍 Loading core statute indices (eager only)...")
+        print(f"   Eager: {sorted(EAGER_STATUTES)}")
+        print(f"   Lazy:  {sorted(LAZY_STATUTES)} (deferred to first query)")
+
+        loaded_any = False
+        for statute in sorted(EAGER_STATUTES):
+            if self.load_statute_indices(statute):
+                loaded_any = True
+
+        if loaded_any:
+            self.indices_loaded = True
+            print("✅ Eager statute indices loaded")
+        else:
+            print("ℹ️ No eager indices found on startup — ingest PDFs to populate corpus")
+
+        return loaded_any
+
+    def _ensure_statute_loaded(self, statute_upper: str) -> bool:
+        """
+        Lazily load a LAZY_STATUTES index on its first query.
+        No-op if already in statute_indices (eager or previously lazy-loaded).
+        Returns True if the index is now available.
+        """
+        if statute_upper in self.statute_indices:
+            return True
+        if statute_upper not in LAZY_STATUTES:
+            return False  # Unknown statute — not a lazy candidate
+        print(f"[LazyLoad] Loading {statute_upper} index on first request")
+        success = self.load_statute_indices(statute_upper)
+        if success:
+            vec_count = (
+                self.statute_indices[statute_upper].index.ntotal
+                if self.statute_indices.get(statute_upper) and
+                   self.statute_indices[statute_upper].index
+                else 0
+            )
+            print(f"[LazyLoad] {statute_upper} ready: {vec_count} vectors")
+        else:
+            print(f"[LazyLoad] {statute_upper} index not found on disk — no data available")
+        return success
+
+    def _load_authority_services(self):
+        """Lazily load authority services when needed"""
+        if self.authority_available:
+            return True
+
+        try:
+            # Use the real authority resolver
+            self.authority_resolver = self._resolve_authority_directly
+            self.source_authority_resolver = self._resolve_authority_directly
+            
+            self.authority_available = True
+            print("✅ Authority resolver loaded (DELEGATES TO REAL RESOLVER)")
+            return True
+        except Exception as e:
+            print(f"⚠️ Authority services not available: {e}")
+            self.authority_available = False
+            return False
+
+    def _determine_final_question_type(self, authority_result: Dict,
+                                      query: str, explicit_question_type: str = "GENERAL") -> str:
+        """Single source of truth for question type determination"""
+        if explicit_question_type != "GENERAL":
+            return explicit_question_type
+
+        authority_question_type = authority_result.get("question_type")
+        if authority_question_type and authority_question_type != "GENERAL":
+            return authority_question_type
+
+        is_doctrinal, _ = self._is_doctrinal_question("GENERAL", query)
+        if is_doctrinal:
+            return "DOCTRINE"
+
+        if self._mentions_specific_paragraph(query):
+            return "LEGAL_ANALYSIS"
+
+        return "GENERAL"
+
+    def _is_doctrinal_question(self, question_type: str, query: str = "") -> Tuple[bool, Optional[Dict]]:
+        """Determine if this is a doctrinal question that should block retrieval"""
+        if self._mentions_specific_paragraph(query):
+            return False, None
+
+        if question_type in DOCTRINAL_QUESTION_TYPES:
+            query_lower = query.lower()
+            for doctrine_term in SETTLED_DOCTRINES:
+                if doctrine_term in query_lower:
+                    return True, DOCTRINE_LOOKUP.get(doctrine_term)
+            return True, None
+
+        doctrinal_keywords = {"prinzip", "grundsatz", "doctrine", "lehre"}
+        if any(keyword in query.lower() for keyword in doctrinal_keywords):
+            query_lower = query.lower()
+            for doctrine_term in SETTLED_DOCTRINES:
+                if doctrine_term in query_lower:
+                    return True, DOCTRINE_LOOKUP.get(doctrine_term)
+            return True, None
+
+        return False, None
+
+    def _mentions_specific_paragraph(self, query: str) -> bool:
+        """Check if query mentions specific legal paragraphs"""
+        paragraphs = self.paragraph_extractor.extract_all_paragraphs(query)
+        return len(paragraphs) > 0
+
+    def ensure_indices_loaded(self, force_reload: bool = False) -> bool:
+        """Ensure indices are loaded before any search"""
+        if self.indices_loaded and not force_reload:
+            return True
+
+        print("\n🔍 Ensuring indices are loaded...")
+
+        if self.statute_indices and self._check_indices_populated():
+            self.indices_loaded = True
+            return True
+
+        print("   Attempting to load indices from disk...")
+        self._try_load_existing_statute_indices()
+        
+        if self.indices_loaded and self._check_indices_populated():
+            return True
+
+        print("""
+        ⚠️ NO REAL LEGAL CORPUS FOUND
+        =============================
+        The system cannot answer legal questions because:
+        1. No legal corpus has been ingested
+        2. No vector indices exist on disk
+        3. The norms layer requires REAL legal text
+        """)
+
+        self.indices_loaded = False
+        return False
+
+    def _check_indices_populated(self) -> bool:
+        """Check if indices contain real data"""
+        stats = self.get_stats()
+        bgb_count = stats["statute_indices"].get("BGB", {}).get("vectors", 0)
+        stgb_count = stats["statute_indices"].get("STGB", {}).get("vectors", 0)
+
+        if bgb_count > 10 or stgb_count > 10:
+            return True
+
+        total_vectors = stats["general_index"]["vectors"] + sum(
+            idx["vectors"] for idx in stats["statute_indices"].values()
+        )
+
+        return total_vectors > 20
+
+    @staticmethod
+    def _extract_gg_article_refs(query: str) -> List[str]:
+        """
+        Extract explicit Art. N article numbers from a GG query.
+
+        Uses strict word-boundary regex to avoid substring false-matches
+        (e.g. Art.13 must not match when only Art.1 was requested).
+        Returns lowercase deduplicated list, e.g. ['79', '20', '1'].
+        """
+        import re
+        matches = re.findall(r'\bArt\.?\s*(\d+[a-z]?)\b', query, re.IGNORECASE)
+        # Deduplicate while preserving order
+        seen: set = set()
+        result = []
+        for m in matches:
+            key = m.lower()
+            if key not in seen:
+                seen.add(key)
+                result.append(key)
+        return result
+
+    def _search_in_statute_index(
+        self,
+        query: str,
+        statute: str,
+        paragraph: Optional[str] = None,
+        k: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Query the FAISS vector index for a statute.
+
+        This is what search() SHOULD be calling.
+        Previously, search() called _get_documents_for_statute() which reads
+        the JSON DocumentStore — which ingestion never writes to.
+        This method reads the FAISSStore that ingestion DOES write to.
+        """
+        statute_upper = statute.upper() if statute else statute
+
+        # ── Lazy load: trigger deferred index load on first query ────────────
+        if statute_upper not in self.statute_indices:
+            self._ensure_statute_loaded(statute_upper)
+
+        # ── Diagnostic gate 1: index presence ───────────────────────────────
+        print(f"[GGFilter] statute={statute_upper} "
+              f"in_indices={statute_upper in self.statute_indices}")
+
+        if statute_upper not in self.statute_indices:
+            print(f"⚠️  No FAISS index for statute: {statute_upper}")
+            return {"documents": [], "total_documents": 0, "query": query}
+
+        store = self.statute_indices[statute_upper]
+
+        # ── Diagnostic gate 2: store object attributes ───────────────────────
+        has_meta  = hasattr(store, 'id_to_metadata')
+        has_cont  = hasattr(store, 'id_to_content')
+        meta_size = len(store.id_to_metadata) if has_meta else -1
+        print(f"[GGFilter] has_id_to_metadata={has_meta} "
+              f"has_id_to_content={has_cont} "
+              f"meta_size={meta_size}")
+        if not has_meta:
+            # Surface the real attribute names so we can patch the pre-filter
+            public_attrs = [a for a in dir(store) if not a.startswith('_')]
+            print(f"[GGFilter] store attributes: {public_attrs}")
+
+        if not store.index or store.index.ntotal == 0:
+            print(f"⚠️  FAISS index for {statute_upper} is empty")
+            return {"documents": [], "total_documents": 0, "query": query}
+
+        # ── GG Article Pre-filter ────────────────────────────────────────────
+        # For Grundgesetz queries that name explicit article numbers, bypass
+        # FAISS semantic search entirely.  FAISS embeds constitutional text in
+        # a shared vector space where Art. 79 (Ewigkeitsklausel) is close to
+        # Art. 20 (Staatsprinzipien) and Art. 1 (Menschenwürde) — causing
+        # semantic drift when the question anchors to a specific article.
+        # Instead: scan id_to_metadata, return only chunks whose paragraph
+        # is in the extracted article list.  Falls through to FAISS if the
+        # metadata scan returns nothing (index not yet populated).
+        if statute_upper == 'GG' and has_meta:
+            art_refs = self._extract_gg_article_refs(query)
+
+            # ── Diagnostic gate 3: regex extraction result ───────────────────
+            print(f"[GGFilter] query_snippet='{query[:60]}' art_refs={art_refs}")
+
+            if art_refs:
+                norm_refs = [
+                    ParagraphNormalizer.normalize_paragraph(r)
+                    for r in art_refs
+                ]
+                norm_refs = [r for r in norm_refs if r]
+
+                # ── Diagnostic gate 4: sample stored paragraph keys ──────────
+                sample_paras = [
+                    v.get("paragraph", "<missing>")
+                    for v in list(store.id_to_metadata.values())[:5]
+                ]
+                print(f"[GGFilter] norm_refs={norm_refs} "
+                      f"meta_sample_paragraphs={sample_paras}")
+
+                if norm_refs:
+                    # Determine which metadata key holds the article number.
+                    # Ingestion stores it as "paragraph"; guard against any
+                    # alternative key by probing the first entry.
+                    first_meta = next(iter(store.id_to_metadata.values()), {})
+                    para_key = (
+                        "paragraph"       if "paragraph"        in first_meta else
+                        "paragraph_raw"   if "paragraph_raw"    in first_meta else
+                        "article"         if "article"          in first_meta else
+                        "artikel"         if "artikel"          in first_meta else
+                        None
+                    )
+                    print(f"[GGFilter] resolved para_key={para_key!r} "
+                          f"first_meta_keys={list(first_meta.keys())[:8]}")
+
+                    pre_filtered = []
+                    for doc_id, metadata in store.id_to_metadata.items():
+                        raw_para  = metadata.get(para_key, "") if para_key else ""
+                        para_norm = ParagraphNormalizer.normalize_paragraph(raw_para)
+                        if para_norm in norm_refs:
+                            content = (
+                                store.id_to_content.get(doc_id, "")
+                                if has_cont else ""
+                            )
+                            pre_filtered.append({
+                                "id":               metadata.get("legal_id", str(doc_id)),
+                                "content":          content,
+                                "statute":          metadata.get("statute", statute_upper),
+                                "paragraph":        metadata.get("paragraph", raw_para),
+                                "paragraph_raw":    metadata.get("paragraph_raw", raw_para),
+                                # Scoring fields — Node.js ragService checks these to
+                                # decide whether to use chunks or fall back to TF-IDF.
+                                "score":            1.0,
+                                "similarity":       1.0,
+                                "relevance":        1.0,
+                                "tfidf_score":      1.0,
+                                "combined_score":   1.0,
+                                "is_authoritative": True,
+                                "is_normative":     metadata.get("is_normative", True),
+                                "authority_score":  metadata.get("authority_score", 1.0),
+                                "priority_domains": metadata.get("priority_domains", []),
+                                "norm_type":        metadata.get("norm_type", "statutory_norm"),
+                                "metadata":         metadata,
+                            })
+
+                    if pre_filtered:
+                        print(
+                            f"   🏛️  GG pre-filter: {len(pre_filtered)} chunks "
+                            f"for Art[{','.join(art_refs)}] — FAISS bypassed"
+                        )
+                        return {
+                            "documents":       pre_filtered[:k],
+                            "total_documents": len(pre_filtered),
+                            "query":           query,
+                            "match_type":      "gg_article_prefilter",
+                        }
+                    # No chunks matched — fall through to FAISS
+                    print(
+                        f"   ⚠️  GG pre-filter found 0 chunks for Art[{','.join(art_refs)}]"
+                        f" (norm_refs={norm_refs}, meta_size={meta_size}) — falling through to FAISS"
+                    )
+            else:
+                print(f"[GGFilter] no Art. refs extracted — FAISS runs normally")
+        # ── End GG pre-filter ────────────────────────────────────────────────
+
+        # Generate query embedding
+        query_embedding = embedding_service.embed_query(query, statute_upper)
+
+        # Oversample so paragraph filtering still returns k results
+        oversample = k * 4 if paragraph else k * 2
+        raw_results = store.search(query_embedding, k=min(oversample, store.index.ntotal))
+
+        # Apply paragraph filter using canonical matching.
+        # Sub-chunked paragraphs are stored as e.g. "201a_1", "201a_2" — strip the
+        # "_N" suffix before normalizing so they still match target "201a".
+        if paragraph and raw_results:
+            norm_target = ParagraphNormalizer.normalize_paragraph(paragraph)
+            raw_results = [
+                r for r in raw_results
+                if ParagraphNormalizer.normalize_paragraph(
+                    getattr(r, 'metadata', {}).get("paragraph", "").split('_')[0]
+                ) == norm_target
+            ]
+
+        # Reshape to the format search() and its callers expect
+        documents = []
+        for r in raw_results[:k]:
+            meta = getattr(r, 'metadata', {})
+            documents.append({
+                "id":               getattr(r, 'id', meta.get("document_id", "")),
+                "content":          meta.get("content", getattr(r, 'content', "")),
+                "statute":          meta.get("statute", statute_upper),
+                "paragraph":        meta.get("paragraph", ""),
+                "paragraph_raw":    meta.get("paragraph_raw", ""),
+                "score":            float(getattr(r, 'score', 0.0)),
+                "is_authoritative": True,
+                "is_normative":     meta.get("is_normative", True),
+                "authority_score":  meta.get("authority_score", 1.0),
+                "priority_domains": meta.get("priority_domains", []),
+                "norm_type":        meta.get("norm_type", "statutory_norm"),
+                "metadata":         meta,
+            })
+
+        print(f"   🔍 FAISS search: {len(documents)} results for '{query[:40]}...' in {statute_upper}")
+        return {
+            "documents":       documents,
+            "total_documents": len(documents),
+            "query":           query,
+            "match_type":      "vector_similarity"
+        }
+
+    def index_documents(
+        self,
+        documents: List[Dict[str, Any]],
+        statute: str,
+        embeddings: np.ndarray
+    ) -> None:
+        """
+        Bridge: ingestion pipeline → FAISS vector store.
+
+        Accepts flat paragraph dicts from ingestion.py and writes them
+        to the statute-specific FAISSStore via add_documents().
+        """
+        if not documents:
+            logger.warning(f"index_documents: empty documents for {statute}")
+            return
+        if embeddings is None or embeddings.size == 0:
+            logger.warning(f"index_documents: empty embeddings for {statute}")
+            return
+        if len(documents) != len(embeddings):
+            raise ValueError(
+                f"Document count ({len(documents)}) != embedding count "
+                f"({len(embeddings)}) for {statute}"
+            )
+
+        statute_upper = statute.upper()
+        if statute_upper not in self.statute_indices:
+            self.statute_indices[statute_upper] = FAISSStore(get_store_name(statute_upper))
+
+        store = self.statute_indices[statute_upper]
+
+        # Build FAISS document format (same as ingestion.py _convert_to_faiss_documents)
+        faiss_docs = []
+        for doc in documents:
+            faiss_docs.append({
+                "content":  doc.get("content", ""),
+                "id":       doc.get("id", ""),
+                "metadata": {
+                    "statute":              doc.get("statute", statute_upper),
+                    "paragraph":            doc.get("paragraph", ""),
+                    "paragraph_raw":        doc.get("paragraph_raw", doc.get("paragraph", "")),
+                    "paragraph_canonical":  doc.get("paragraph_canonical", ""),
+                    "content":              doc.get("content", ""),
+                    "document_id":          doc.get("id", ""),
+                    "authority_score":      doc.get("authority_score", 1.0),
+                    "authority_level":      doc.get("authority_level", "statutory"),
+                    "is_normative":         doc.get("is_normative", True),
+                    "norm_type":            doc.get("norm_type", "statutory_norm"),
+                    "priority_domains":     doc.get("priority_domains", []),
+                    "has_priority_domains": doc.get("has_priority_domains", False),
+                    "has_content":          doc.get("has_content", True),
+                    "is_structure_only":    doc.get("is_structure_only", False),
+                    "word_count":           doc.get("word_count", 0),
+                    "filename":             doc.get("filename", f"{statute_upper}.pdf"),
+                    # 🔧 FIX ISSUE 1: Add domain and jurisdiction to metadata
+                    "domain":                get_domain_from_statute(statute_upper),
+                    "jurisdiction":          JURISDICTION,
+                }
+            })
+
+        store.add_documents(faiss_docs, embeddings)
+        self.indices_loaded = True
+        self.has_real_corpus = True
+
+        logger.info(
+            f"index_documents: {len(documents)} paragraphs → {statute_upper} "
+            f"(total vectors: {store.index.ntotal})"
+        )
+
+    def search(self, query: str, question_type: str = "GENERAL",
+               authority_result: Optional[Dict] = None,
+               n_results: int = 10) -> Dict[str, Any]:
+        """
+        Main search method with authority contract enforcement
+        """
+        print(f"\n⚖️  AUTHORITY-CONTRACTED RETRIEVAL for: '{query}'")
+        print(f"   Question Type: {question_type}")
+        print(f"   Authority Final: {authority_result.get('authority_final') if authority_result else False}")
+
+        # Check if authority_final and no fallback allowed
+        if authority_result and authority_result.get("authority_final"):
+            print("🔒 Authority-final detected - enforcing strict constraints")
+
+            # Extract paragraph information
+            paragraphs = self.paragraph_extractor.extract_all_paragraphs(query)
+            print(f"📖 Extracted paragraphs from query: {paragraphs}")
+
+            constraint = authority_result.get("retrieval", {}).get("constraint")
+            statute = authority_result.get("statute")
+            
+            # Normalize statute to uppercase for consistent lookup
+            if statute:
+                statute = statute.upper()
+
+            if constraint == "PARAGRAPH_STRICT":
+                print(f"🔒 PARAGRAPH_STRICT mode activated - No fallbacks allowed")
+
+                # Normalize paragraphs
+                normalized_paragraphs = []
+                for para in paragraphs:
+                    norm = ParagraphNormalizer.normalize_paragraph(para)
+                    if norm:
+                        normalized_paragraphs.append(norm)
+
+                print(f"🔒 Strict mode requires exact paragraphs: {paragraphs} (normalized: {normalized_paragraphs})")
+                print(f"🔒 ENFORCING PARAGRAPH-STRICT: Statute={statute}, Paragraphs={normalized_paragraphs}")
+
+                # PARAGRAPH_STRICT - Use FAISS vector search with paragraph filter
+                paragraph_to_search = normalized_paragraphs[0] if normalized_paragraphs else None
+                search_results = self._search_in_statute_index(
+                    query=query,
+                    statute=statute,
+                    paragraph=paragraph_to_search,
+                    k=n_results
+                )
+
+                print(f"   Found {len(search_results.get('documents', []))} documents matching exact paragraphs")
+
+                # Fallback: direct metadata scan if FAISS returns nothing
+                if not search_results.get("documents"):
+                    print("⚠️  FAISS search returned 0 results — trying direct metadata scan")
+                    if statute and statute in self.statute_indices:
+                        store = self.statute_indices[statute]
+                        direct_results = []
+                        # Access id_to_metadata safely
+                        if hasattr(store, 'id_to_metadata'):
+                            for doc_id, metadata in store.id_to_metadata.items():
+                                if metadata.get("paragraph") in normalized_paragraphs:
+                                    content = store.id_to_content.get(doc_id, "") if hasattr(store, 'id_to_content') else ""
+                                    direct_results.append({
+                                        "content":        content,
+                                        "metadata":       metadata,
+                                        "score":          1.0,
+                                        "id":             metadata.get("legal_id", str(doc_id)),
+                                        "is_authoritative": True,
+                                        "match_type":     "exact_metadata_scan"
+                                    })
+                            if direct_results:
+                                search_results = {
+                                    "documents":       direct_results[:n_results],
+                                    "total_documents": len(direct_results),
+                                    "query":           query,
+                                    "match_type":      "metadata_scan"
+                                }
+
+                if not search_results.get("documents"):
+                    return self.handle_authority_final_failure(authority_result)
+
+                search_results = self.enforce_authority_final_constraint(authority_result, search_results)
+
+                if not search_results.get("documents"):
+                    return self.handle_authority_final_failure(authority_result)
+
+                return search_results
+
+            elif constraint == "STATUTE_ONLY":
+                print(f"🔒 STATUTE_ONLY mode - Only statute {statute} allowed")
+
+                # STATUTE_ONLY - Vector search across full statute, no paragraph filter
+                search_results = self._search_in_statute_index(
+                    query=query,
+                    statute=statute,
+                    paragraph=None,
+                    k=n_results
+                )
+
+                print(f"   Found {len(search_results.get('documents', []))} documents for statute {statute}")
+
+                if not search_results.get("documents"):
+                    return self.handle_authority_final_failure(authority_result)
+
+                search_results = self.enforce_authority_final_constraint(authority_result, search_results)
+
+                if not search_results.get("documents"):
+                    return self.handle_authority_final_failure(authority_result)
+
+                return search_results
+
+        # Non-authority-final but authority result may still carry a retrievalConstraint
+        # set by the resolver (PARAGRAPH_STRICT / STATUTE_ONLY).  The authority_final flag
+        # is never written by the resolver, so the PARAGRAPH_STRICT / STATUTE_ONLY blocks
+        # above are dead code for normal queries.  Honour the resolver's constraint here
+        # so §-specific queries (e.g. §13 StGB Garantenstellung) go to the right index
+        # bucket instead of an unfiltered cross-statute search.
+        if authority_result:
+            _constraint = authority_result.get("retrievalConstraint", "NONE")
+            _statute    = (authority_result.get("statute") or "").upper()
+            if _constraint == "PARAGRAPH_STRICT" and _statute:
+                _allowed = authority_result.get("allowedParagraphs", [])
+                _para    = _allowed[0] if _allowed else authority_result.get("reference")
+                print(f"[RetrievalConstraint] PARAGRAPH_STRICT → {_statute} §{_para}")
+                _pr = self._search_in_statute_index(
+                    query=query, statute=_statute, paragraph=_para, k=n_results
+                )
+                if _pr.get("documents"):
+                    return _pr
+                print(f"[RetrievalConstraint] PARAGRAPH_STRICT returned 0 — falling back to STATUTE_ONLY")
+                _pr = self._search_in_statute_index(
+                    query=query, statute=_statute, paragraph=None, k=n_results
+                )
+                if _pr.get("documents"):
+                    return _pr
+            elif _constraint == "STATUTE_ONLY" and _statute:
+                print(f"[RetrievalConstraint] STATUTE_ONLY → {_statute}")
+                _sr = self._search_in_statute_index(
+                    query=query, statute=_statute, paragraph=None, k=n_results
+                )
+                if _sr.get("documents"):
+                    return _sr
+
+        # No authority provided or no index hit — cross-statute standard search
+        return self._standard_search(query, n_results)
+
+    def _filter_by_statute_and_paragraph(self, statute: str, paragraphs: List[str],
+                                        exact_match: bool = True) -> List[Dict]:
+        """Filter documents by statute and paragraph (legacy method, kept for compatibility)"""
+        filtered = []
+        
+        if not statute:
+            return filtered
+            
+        # Normalize statute to uppercase
+        statute_upper = statute.upper()
+
+        # Get all documents from statute index via FAISS metadata
+        if statute_upper in self.statute_indices:
+            store = self.statute_indices[statute_upper]
+            if hasattr(store, 'id_to_metadata'):
+                for doc_id, metadata in store.id_to_metadata.items():
+                    doc_paragraphs = [metadata.get("paragraph", "")]
+                    # Check for paragraph match
+                    if exact_match:
+                        if any(para in doc_paragraphs for para in paragraphs):
+                            filtered.append({
+                                "id": doc_id,
+                                "metadata": metadata,
+                                "content": store.id_to_content.get(doc_id, "") if hasattr(store, 'id_to_content') else ""
+                            })
+                    else:
+                        for doc_para in doc_paragraphs:
+                            for target_para in paragraphs:
+                                if doc_para.startswith(target_para):
+                                    filtered.append({
+                                        "id": doc_id,
+                                        "metadata": metadata,
+                                        "content": store.id_to_content.get(doc_id, "") if hasattr(store, 'id_to_content') else ""
+                                    })
+                                    break
+
+        return filtered
+
+    def _filter_by_statute(self, statute: str) -> List[Dict]:
+        """Filter documents by statute only (legacy method, kept for compatibility)"""
+        if not statute:
+            return []
+            
+        # Normalize statute to uppercase
+        statute_upper = statute.upper()
+        
+        filtered = []
+        if statute_upper in self.statute_indices:
+            store = self.statute_indices[statute_upper]
+            if hasattr(store, 'id_to_metadata'):
+                for doc_id, metadata in store.id_to_metadata.items():
+                    filtered.append({
+                        "id": doc_id,
+                        "metadata": metadata,
+                        "content": store.id_to_content.get(doc_id, "") if hasattr(store, 'id_to_content') else ""
+                    })
+        
+        return filtered
+
+    def _get_documents_for_statute(self, statute: str) -> List[Dict]:
+        """Get all documents for a given statute (legacy method, kept for compatibility)"""
+        return self._filter_by_statute(statute)
+
+    def _search_within_documents(self, query: str, documents: List[Dict],
+                                n_results: int) -> Dict[str, Any]:
+        """Search within a filtered set of documents (legacy method, kept for compatibility)"""
+        if not documents:
+            return {
+                "documents": [],
+                "total_documents": 0,
+                "query": query
+            }
+
+        # Simple keyword matching for now
+        query_lower = query.lower()
+        relevant_chunks = []
+        
+        for doc in documents:
+            if "metadata" in doc:
+                content = doc.get("content", doc.get("metadata", {}).get("content", ""))
+            else:
+                content = doc.get("content", "")
+                
+            if content and any(word in content.lower() for word in query_lower.split()):
+                relevant_chunks.append(doc)
+        
+        # Limit results
+        relevant_chunks = relevant_chunks[:n_results]
+        
+        return {
+            "documents": relevant_chunks,
+            "total_documents": len(documents),
+            "query": query
+        }
+
+    def _standard_search(self, query: str, n_results: int) -> Dict[str, Any]:
+        """Standard search without authority constraints - queries all loaded FAISS indices"""
+        print(f"🔍 STANDARD SEARCH across all loaded statute indices")
+        
+        all_results = []
+        
+        # Search across all loaded statute indices
+        for statute, store in self.statute_indices.items():
+            if store.index and store.index.ntotal > 0:
+                # Search in this statute index
+                statute_results = self._search_in_statute_index(
+                    query=query,
+                    statute=statute,
+                    paragraph=None,
+                    k=n_results
+                )
+                if statute_results.get("documents"):
+                    all_results.extend(statute_results["documents"])
+        
+        # Sort by score and limit
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        all_results = all_results[:n_results]
+        
+        return {
+            "documents": all_results,
+            "total_documents": len(all_results),
+            "query": query,
+            "authority_final": False,
+            "requires_ingestion": len(all_results) == 0
+        }
+
+    def search_authoritative(self, query: str, question_type: str = "GENERAL") -> Dict[str, Any]:
+        """
+        High-level authoritative search that integrates authority resolution
+        """
+        print(f"\n[Authoritative Search] Request received")
+        print(f"  Query: {query}...")
+
+        # Load authority services if available
+        if not self._load_authority_services():
+            print("⚠️  Authority services not available - falling back to standard search")
+            return self.search(query, question_type)
+
+        try:
+            # Call the direct authority resolver
+            authority_result = self.authority_resolver(
+                query=query,
+                question_type=question_type
+            )
+            
+            if authority_result is None:
+                authority_result = {}
+
+            # ── Normalize nested authority_info ──────────────────────────────
+            # Doctrine-path early returns (e.g. _stgb_result) wrap fields inside
+            # {'status': ..., 'authority_info': {...}}.  Unwrap so that downstream
+            # code can read statute/retrievalConstraint at the top level.
+            if isinstance(authority_result, dict) and 'authority_info' in authority_result:
+                authority_result = authority_result['authority_info']
+                print(f"[AuthNormalize] Unwrapped authority_info nesting")
+
+            # ── Explicit §249/§255 StGB override ─────────────────────────────
+            # "Waffe"/"Gefahr" in Raub questions cause FAISS semantic drift to
+            # state-security provisions (e.g. §91 StGB).  When the question
+            # contains an explicit §249 or §255 reference, force PARAGRAPH_STRICT
+            # so the FAISS pre-filter is applied regardless of what the doctrine
+            # resolver decided.
+            import re as _re
+            _stgb_para_m = _re.search(r'§\s*(249|255)\b', query, _re.I)
+            if _stgb_para_m:
+                _locked_para = _stgb_para_m.group(1)
+                authority_result['statute']             = 'STGB'
+                authority_result['reference']           = _locked_para
+                authority_result['allowedParagraphs']   = [_locked_para]
+                authority_result['isParagraphLocked']   = True
+                authority_result['retrievalConstraint'] = 'PARAGRAPH_STRICT'
+                print(f"[ExplicitRef] §{_locked_para} StGB detected → forced PARAGRAPH_STRICT")
+
+            print(f"✅ Authority resolved: {authority_result.get('statute', 'None')}")
+
+            # Now perform retrieval with the authority result
+            retrieval_results = self.search(
+                query=query,
+                question_type=question_type,
+                authority_result=authority_result,
+                n_results=3  # Top 3 only — caller uses only the best result
+            )
+
+            # Combine results
+            result = {
+                "authority_result": authority_result,
+                "retrieval_results": retrieval_results,
+                "total_documents": retrieval_results.get("total_documents", 0),
+                "query": query
+            }
+
+            # Check if authority_final needs enforcement
+            if authority_result.get("authority_final"):
+                print(f"🔒 Authority-final enforcement applied")
+
+                # Apply authority_final enforcement to retrieval results
+                result["retrieval_results"] = self.enforce_authority_final_constraint(
+                    authority_result, retrieval_results
+                )
+
+                # If no documents found, handle as authority_final failure
+                if (result["retrieval_results"].get("authority_final_corpus_missing") or
+                    not result["retrieval_results"].get("documents")):
+                    result["retrieval_results"] = self.handle_authority_final_failure(
+                        authority_result
+                    )
+
+            return result
+
+        except Exception as e:
+            print(f"❌ Authority search failed: {e}")
+            logger.exception("Authority search failed")
+
+            # Fall back to standard search
+            return self.search(query, question_type)
+
+    # ======================================================================
+    # DOCUMENT MANAGEMENT METHODS
+    # ======================================================================
+
+    def add_document(self, document: Dict[str, Any]) -> bool:
+        """Add a document to the document store"""
+        success = self.document_store.add_document(document)
+        if success:
+            print(f"✅ Added document: {document.get('title', 'Untitled')}")
+        return success
+
+    def add_documents_batch(self, documents: List[Dict[str, Any]]) -> bool:
+        """Add multiple documents to the document store"""
+        success = self.document_store.add_documents_batch(documents)
+        if success:
+            print(f"✅ Added {len(documents)} documents to store")
+        return success
+
+    def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Get a document by ID"""
+        return self.document_store.get_document(doc_id)
+
+    def delete_document(self, doc_id: str) -> bool:
+        """Delete a document by ID"""
+        success = self.document_store.delete_document(doc_id)
+        if success:
+            print(f"🗑️ Deleted document: {doc_id}")
+        return success
+
+    def search_documents(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Search documents by keyword"""
+        return self.document_store.search(query, limit)
+
+    # ======================================================================
+    # VECTOR INDEX MANAGEMENT
+    # ======================================================================
+
+    def create_index_for_document(self, doc_id: str) -> bool:
+        """Create vector index for a specific document"""
+        doc = self.get_document(doc_id)
+        if not doc:
+            print(f"❌ Document {doc_id} not found")
+            return False
+
+        # Get all chunks from document
+        chunks = doc.get("chunks", [])
+        if not chunks:
+            print(f"❌ Document {doc_id} has no chunks")
+            return False
+
+        # Extract text from chunks
+        texts = [chunk.get("text", "") for chunk in chunks]
+        if not texts:
+            print(f"❌ Document {doc_id} has no text in chunks")
+            return False
+
+        # Generate real embeddings using embedding service
+        embeddings = embedding_service.embed_batch(texts)
+
+        # Determine which index to use
+        statute = doc.get("statute")
+        if statute:
+            statute_upper = statute.upper()
+            # Create statute-specific index for ANY statute, not just BGB/STGB
+            if statute_upper not in self.statute_indices:
+                self.statute_indices[statute_upper] = FAISSStore(get_store_name(statute_upper))
+
+            store = self.statute_indices[statute_upper]
+            store.add_vectors(embeddings, chunks)
+            print(f"✅ Added {len(chunks)} chunks to {statute_upper} index")
+            
+            # Update has_real_corpus flag
+            if store.index.ntotal > 0:
+                self.has_real_corpus = True
+            
+            # Save the index
+            self.save_statute_indices(statute_upper)
+            return True
+        
+        # Use general index for documents without statute
+        self.vector_store.add_vectors(embeddings, chunks)
+        print(f"✅ Added {len(chunks)} chunks to general index")
+        
+        # Update has_real_corpus flag
+        if self.vector_store.index.ntotal > 0:
+            self.has_real_corpus = True
+        
+        # Save the index
+        self.vector_store.save("legal_index")
+        return True
+
+    def rebuild_all_indices(self) -> bool:
+        """
+        Rebuild all vector indices from document store using real embeddings.
+        Warning: This will delete and recreate all indices.
+        """
+        print("🔄 Rebuilding all vector indices from document store...")
+        
+        # Clear existing indices
+        self.vector_store = FAISSStore("default")
+        self.statute_indices = {}
+        self.has_real_corpus = False
+        
+        # Get all documents
+        all_docs = self.document_store.get_all()
+        
+        if not all_docs:
+            print("ℹ️ No documents to index")
+            return False
+        
+        # Group documents by statute
+        statutes = {}
+        for doc in all_docs:
+            statute = doc.get("statute")
+            if statute:
+                statute_upper = statute.upper()
+                if statute_upper not in statutes:
+                    statutes[statute_upper] = []
+                statutes[statute_upper].append(doc)
+            else:
+                # Documents without statute go to general index
+                if "GENERAL" not in statutes:
+                    statutes["GENERAL"] = []
+                statutes["GENERAL"].append(doc)
+        
+        total_chunks = 0
+        
+        # Index documents by statute
+        for statute, docs in statutes.items():
+            if statute == "GENERAL":
+                # Handle general index separately
+                continue
+                
+            # Create statute-specific index
+            store = FAISSStore(get_store_name(statute))
+            statute_chunks = 0
+            
+            for doc in docs:
+                chunks = doc.get("chunks", [])
+                if chunks:
+                    texts = [chunk.get("text", "") for chunk in chunks]
+                    # Generate real embeddings
+                    embeddings = embedding_service.embed_batch(texts)
+                    store.add_vectors(embeddings, chunks)
+                    statute_chunks += len(chunks)
+                    total_chunks += len(chunks)
+            
+            if store.index and store.index.ntotal > 0:
+                self.statute_indices[statute] = store
+                self.has_real_corpus = True
+                print(f"✅ Created {statute} index with {store.index.ntotal} chunks")
+                # Save the index
+                self.save_statute_indices(statute)
+        
+        # Handle general index
+        if "GENERAL" in statutes:
+            general_chunks = 0
+            for doc in statutes["GENERAL"]:
+                chunks = doc.get("chunks", [])
+                if chunks:
+                    texts = [chunk.get("text", "") for chunk in chunks]
+                    embeddings = embedding_service.embed_batch(texts)
+                    self.vector_store.add_vectors(embeddings, chunks)
+                    general_chunks += len(chunks)
+                    total_chunks += len(chunks)
+            
+            if self.vector_store.index and self.vector_store.index.ntotal > 0:
+                self.has_real_corpus = True
+                print(f"✅ Created general index with {self.vector_store.index.ntotal} chunks")
+                self.vector_store.save("legal_index")
+        
+        self.indices_loaded = True
+        print(f"✅ Rebuilt all indices with {total_chunks} total chunks using real embeddings")
+        return True
+
 
 # Singleton instance
 retrieval_service = RetrievalService()

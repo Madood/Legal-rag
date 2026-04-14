@@ -183,16 +183,18 @@ class EpistemicClassifier:
             return None
 
         store = retrieval_service.statute_indices[statute]
-        
+        if store is None:
+            return None
+
         # Normalize paragraph for comparison
         # Remove § symbol, spaces, and convert to lowercase
         paragraph_normalized = re.sub(r'[§\s]+', '', paragraph).lower()
-        
+
         print(f"🔍 [EpistemicClassifier] Looking up {statute} §{paragraph} (normalized: {paragraph_normalized})")
-        
+
         # Search through metadata for matching paragraph
         matches = []
-        for vector_id, meta in store.metadata.items():
+        for vector_id, meta in store.id_to_metadata.items():
             if not meta:
                 continue
                 
@@ -479,9 +481,33 @@ def resolve_authority(question: str) -> Dict[str, Any]:
     # Step 4: Assess complexity
     result['complexity'] = assess_complexity(question, result['question_type'], result['statute'])
     
+    # Step 4.5: Detect explicit cross-statute norm pairs BEFORE reference extraction.
+    # _simple_lock_statute matches the first keyword (e.g. 'stgb') and may assign the
+    # wrong statute.  For "§826 BGB und §15 StGB" we must lock to BGB for §826, not StGB.
+    _all_pairs = _extract_all_norm_pairs(question)
+    if _all_pairs:
+        _pair_statutes = list(dict.fromkeys(p['statute'] for p in _all_pairs))  # ordered unique
+        if len(set(_pair_statutes)) >= 2:
+            # Cross-statute query: override statute to match the first explicitly paired norm
+            result['statute'] = _all_pairs[0]['statute']
+            result['isComparison'] = True
+            result['normPairs'] = _all_pairs
+            _pairs_str = ['\u00a7' + str(p['paragraph']) + ' ' + str(p['statute']) for p in _all_pairs]
+            _primary_statute = result['statute']
+            print('\U0001F500 [Authority] Cross-statute pairs detected: '
+                  + str(_pairs_str)
+                  + ' \u2192 primary statute corrected to ' + str(_primary_statute))
+        elif len(_all_pairs) == 1 and _all_pairs[0]['statute'] != result['statute']:
+            # Single explicit pair whose statute contradicts _simple_lock_statute → fix it
+            result['statute'] = _all_pairs[0]['statute']
+            _pair_para    = _all_pairs[0]['paragraph']
+            _pair_statute = result['statute']
+            print('\U0001F527 [Authority] Statute corrected via explicit pair: '
+                  + '\u00a7' + str(_pair_para) + ' \u2192 ' + str(_pair_statute))
+
     # Step 5: Extract explicit reference
     has_reference = False
-    
+
     # Simple reference extraction
     reference = _simple_extract_reference(question)
     if reference:
@@ -490,12 +516,12 @@ def resolve_authority(question: str) -> Dict[str, Any]:
         result['referenceSource'] = 'explicit'
         result['isParagraphLocked'] = True
         has_reference = True
-        
+
         # ✅ CRITICAL ADDITION: ENFORCE PARAGRAPH MATCH (but may be relaxed by epistemic state)
         result['requiresParagraphMatch'] = True
         result['allowedParagraphs'] = [reference['number']]
         result['retrievalConstraint'] = 'PARAGRAPH_STRICT'
-        
+
         print(f'📖 [Authority] Explicit reference: {result["statute"]} §{result["reference"]}')
         print(f'🔒 [Authority] Base retrieval constraint: PARAGRAPH_STRICT for {result["allowedParagraphs"]}')
     
@@ -2208,6 +2234,41 @@ def _simple_extract_reference(question: str):
         }
 
     return None
+
+
+def _extract_all_norm_pairs(question: str) -> list:
+    """Extract all explicit §N STATUTE and STATUTE §N pairs from a question.
+
+    Fixes the wrong-statute bug where _simple_lock_statute picks the FIRST keyword
+    match (e.g. 'stgb') and ignores that each § may be adjacent to a *different*
+    statute.  For "§826 BGB und §15 StGB" the function returns:
+        [{'paragraph': '826', 'statute': 'BGB'},
+         {'paragraph': '15',  'statute': 'StGB'}]
+
+    Returns a deduplicated list of {'paragraph': str, 'statute': str} dicts
+    in order of appearance.
+    """
+    STATUTE_PAT = r'(?:BGB|StGB|HGB|GG|ZPO|StPO|GmbHG)'
+    pairs = []
+
+    # Pattern A: § 826 BGB  /  §826BGB
+    for m in re.finditer(r'§\s*(\d+[a-z]?)\s*(' + STATUTE_PAT + r')', question, re.I):
+        pairs.append({'paragraph': m.group(1), 'statute': m.group(2).upper()})
+
+    # Pattern B: BGB § 826  /  BGB §826
+    for m in re.finditer(r'(' + STATUTE_PAT + r')\s*§\s*(\d+[a-z]?)', question, re.I):
+        pairs.append({'paragraph': m.group(2), 'statute': m.group(1).upper()})
+
+    # Deduplicate while preserving order
+    seen: set = set()
+    unique = []
+    for p in pairs:
+        key = (p['statute'], p['paragraph'])
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+
+    return unique
 
 
 def get_metrics() -> Dict[str, Any]:

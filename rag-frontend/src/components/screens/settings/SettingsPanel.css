@@ -884,3 +884,83 @@
 .dark .settings-panel::-webkit-scrollbar-thumb:hover {
   background: #6b7280;
 }
+/* ── Language selector grid ─────────────────────────────── */
+.lang-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .lang-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.lang-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.875rem 0.5rem;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: var(--bg-subtle, #f1f5f9);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  position: relative;
+}
+
+.dark .lang-option {
+  background: rgba(255,255,255,0.05);
+}
+
+.lang-option:hover {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.06);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99,102,241,0.15);
+}
+
+.lang-option-active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.18);
+}
+
+.dark .lang-option-active {
+  background: rgba(99,102,241,0.15);
+}
+
+.lang-flag {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.lang-native {
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.dark .lang-native {
+  color: #f1f5f9;
+}
+
+.lang-english {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.dark .lang-english {
+  color: #94a3b8;
+}
+
+.lang-check {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 0.7rem;
+  color: #6366f1;
+  font-weight: 700;
+}

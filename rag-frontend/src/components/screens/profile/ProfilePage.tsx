@@ -131,7 +131,7 @@ export function ProfilePage() {
                   <div className="guest-warning-text-container">
                     <p className="guest-warning-title">Gast-Modus aktiv</p>
                     <p className="guest-warning-text">
-                      Sie verwenden LegalRAG im Gast-Modus mit eingeschränkten Funktionen. 
+                      Sie verwenden Jurisma AI im Gast-Modus mit eingeschränkten Funktionen.
                       Melden Sie sich an, um Ihr Profil zu bearbeiten und auf alle Features zuzugreifen.
                     </p>
                     <Button

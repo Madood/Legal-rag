@@ -1,0 +1,263 @@
+import { useState, useEffect, useRef } from 'react';
+import { DocumentSidebar } from '../DocumentSidebar/DocumentSidebar';
+import { MessageCard } from '../MessageCard/MessageCard';
+import { Send, Loader2, AlertCircle } from 'lucide-react';
+import { LoadingScales } from '../LoadingScales/LoadingScales';
+import { Button } from '../../../ui/button';
+import { Textarea } from '../../../ui/textarea';
+import { useChat } from '../../../../hooks/useChat';
+import { useDocuments } from '../../../../hooks/useDocuments';
+import { Citation } from '../../../../services/api';
+import { useTranslation } from '../../../../i18n';
+import { GuestBanner } from '../../auth/GuestBanner/GuestBanner';
+import { LoginModal } from '../../auth/LoginModal/LoginModal';
+import { useAuth } from '../../../../context/AuthContext';
+import './ChatScreen.css';
+
+interface Message {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
+  citations?: Citation[];
+  timestamp: Date;
+}
+
+type TokenErrorCode = 'TOKEN_EXHAUSTED' | 'SESSION_LIMIT' | 'AUTH_REQUIRED';
+
+export function ChatScreen() {
+  const [input, setInput] = useState('');
+  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [tokenModalReason, setTokenModalReason] = useState<TokenErrorCode | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
+  const { refreshUser } = useAuth();
+
+  const {
+    messages: chatMessages,
+    askQuestion,
+    isLoading,
+    isStreaming,
+    error,
+    cancelStream,
+    conversationId,
+    startNewConversation,
+    clearConversation
+  } = useChat({
+    autoScroll: true,
+    onError: (errorMsg) => {
+      console.error('Chat error:', errorMsg);
+      setErrorMessage(errorMsg);
+    },
+  });
+
+  const { documents, isLoading: docsLoading } = useDocuments();
+
+  const formattedMessages: Message[] = chatMessages.map(msg => ({
+    id: msg.id,
+    type: msg.role === 'user' ? 'user' : 'assistant',
+    content: msg.content,
+    citations: msg.citations,
+    timestamp: msg.timestamp,
+  }));
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading || isStreaming) return;
+    setErrorMessage(null);
+
+    try {
+      await askQuestion(input, true);
+      setInput('');
+      refreshUser();
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const code = err?.response?.data?.code as TokenErrorCode | undefined;
+      if (status === 402 && code) {
+        setTokenModalReason(code);
+      } else if (status === 401) {
+        setTokenModalReason('AUTH_REQUIRED');
+      } else {
+        setErrorMessage(err.message || 'Failed to send message');
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [formattedMessages]);
+
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => {
+        setErrorMessage(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
+  const handleNewConversation = () => {
+    clearConversation();
+    startNewConversation();
+  };
+
+  return (
+    <>
+    {tokenModalReason && (
+      <LoginModal
+        reason={tokenModalReason}
+        onClose={() => setTokenModalReason(null)}
+      />
+    )}
+    <div className="chat-screen">
+      <GuestBanner />
+      <div className="chat-sidebar">
+        <DocumentSidebar
+          onCitationClick={setSelectedCitation}
+          documents={documents}
+          isLoading={docsLoading}
+        />
+      </div>
+
+      <div className="chat-main-area">
+        <div className="chat-header">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">Jurisma AI</h2>
+            {conversationId && (
+              <span className="text-xs text-gray-500">
+                ID: {conversationId.substring(0, 8)}...
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNewConversation}
+              disabled={isStreaming}
+            >
+              {t('chat.newChat')}
+            </Button>
+            {documents.length > 0 && (
+              <span className="text-xs text-gray-500">
+                {documents.length} {t('chat.docsLoaded')}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {(errorMessage || error) && (
+          <div className="error-banner">
+            <AlertCircle className="h-4 w-4" />
+            <p>{errorMessage || (error as Error)?.message || 'An error occurred'}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setErrorMessage(null);
+              }}
+            >
+              {t('chat.dismiss')}
+            </Button>
+          </div>
+        )}
+
+        <div className="messages-container">
+          {formattedMessages.length === 0 ? (
+            isLoading ? (
+              <div className="ls-centered">
+                <LoadingScales />
+              </div>
+            ) : (
+              <div className="empty-chat-state">
+                <div className="empty-chat-content">
+                  <div className="empty-chat-logo">
+                    <span className="logo-text">J</span>
+                  </div>
+                  <h3 className="empty-chat-title">{t('chat.welcome')}</h3>
+                  <p className="empty-chat-subtitle">
+                    {t('chat.welcomeSubtitle')}
+                  </p>
+                  <div className="empty-chat-stats">
+                    <p>{documents.length} {t('chat.docsLoaded')}</p>
+                    <p>{isStreaming ? t('chat.streaming') : t('chat.ready')}</p>
+                  </div>
+                  {documents.length === 0 && (
+                    <div className="empty-chat-warning">
+                      <AlertCircle className="h-4 w-4" />
+                      <p>{t('chat.noDocumentsWarning')}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="messages-list">
+              {formattedMessages.map((message) => (
+                <MessageCard
+                  key={message.id}
+                  message={message}
+                  onCitationClick={setSelectedCitation}
+                />
+              ))}
+
+              {/* LoadingScales replaces the spinner for the full duration of a request.
+                  isLoading and isStreaming are set simultaneously, so checking
+                  isLoading alone is the correct gate. */}
+              {isLoading && <LoadingScales />}
+
+              {/* Keep only the cancel button when a stream is in flight */}
+              {isStreaming && (
+                <div className="streaming-indicator">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={cancelStream}
+                    disabled={!isStreaming}
+                  >
+                    {t('chat.stop')}
+                  </Button>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        <div className="chat-input-area">
+          <div className="input-container">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t('chat.placeholder')}
+              className="chat-textarea"
+              disabled={isLoading || isStreaming}
+              rows={3}
+            />
+            <Button
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading || isStreaming}
+              className="send-button"
+              size="icon"
+            >
+              {isLoading || isStreaming ? (
+                <Loader2 className="animate-spin h-4 w-4" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </>
+  );
+}

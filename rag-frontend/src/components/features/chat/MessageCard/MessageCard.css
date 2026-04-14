@@ -1,0 +1,337 @@
+/* Message Container */
+.message-container {
+  display: flex;
+  margin-bottom: 1.5rem;
+}
+
+.message-container-user {
+  justify-content: flex-end;
+}
+
+.message-container-assistant {
+  justify-content: flex-start;
+}
+
+/* Message Content Wrapper */
+.message-content-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  max-width: 90%;
+}
+
+.message-content-wrapper-user {
+  max-width: 80%;
+  flex-direction: row-reverse;
+}
+
+.message-content-wrapper-assistant {
+  max-width: 90%;
+}
+
+.message-content-wrapper-comparison {
+  max-width: 100%;
+  flex: 1;
+}
+
+/* User Message Styles */
+.user-message-bubble {
+  background-color: #3498DB;
+  color: white;
+  border-radius: 1rem;
+  border-top-right-radius: 0.25rem;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.user-message-text {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.user-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background-color: #2C3E50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-avatar-icon {
+  width: 1rem;
+  height: 1rem;
+  color: white;
+}
+
+/* Assistant Message Styles */
+.assistant-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #3498DB, #2C3E50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.assistant-avatar-icon {
+  width: 1rem;
+  height: 1rem;
+  color: white;
+}
+
+.assistant-card {
+  border: 1px solid #e5e7eb;
+  background-color: white;
+  overflow: hidden;
+}
+
+.dark .assistant-card {
+  border-color: #3a3a3a;
+  background-color: #2a2a2a;
+}
+
+.assistant-answer {
+  padding: 1rem;
+}
+
+/* Message Content Styling */
+.message-content {
+  color: #374151;
+}
+
+.dark .message-content {
+  color: #d1d5db;
+}
+
+.message-subheading {
+  color: #2C3E50;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.dark .message-subheading {
+  color: white;
+}
+
+.message-paragraph {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+
+.message-list-item {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+  padding-left: 0.25rem;
+}
+
+/* Citations Section */
+.citations-section {
+  border-top: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  padding: 1rem;
+}
+
+.dark .citations-section {
+  border-top-color: #3a3a3a;
+  background-color: #1a1a1a;
+}
+
+.citations-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.citations-icon {
+  width: 1rem;
+  height: 1rem;
+  color: #3498DB;
+}
+
+.citations-title {
+  font-size: 0.875rem;
+  color: #2C3E50;
+}
+
+.dark .citations-title {
+  color: white;
+}
+
+/* Citations List */
+.citations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.citation-item {
+  background-color: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.dark .citation-item {
+  background-color: #2a2a2a;
+  border-color: #3a3a3a;
+}
+
+.citation-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.citation-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.citation-chunk-id {
+  font-size: 0.75rem;
+  background-color: #f3f4f6;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  color: #374151;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.dark .citation-chunk-id {
+  background-color: #3a3a3a;
+  color: white;
+}
+
+/* Confidence Badge */
+.confidence-badge {
+  font-size: 0.75rem !important;
+  color: white !important;
+  border: none !important;
+  padding: 0.125rem 0.5rem !important;
+  height: auto !important;
+}
+
+.confidence-high {
+  background-color: #27AE60 !important;
+}
+
+.confidence-medium {
+  background-color: #F39C12 !important;
+}
+
+.confidence-low {
+  background-color: #6b7280 !important;
+}
+
+.citation-source {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.dark .citation-source {
+  color: #9ca3af;
+}
+
+.citation-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.citation-excerpt {
+  font-size: 0.75rem;
+  color: #374151;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  background-color: #f9fafb;
+  padding: 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.25rem;
+  line-height: 1.4;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.dark .citation-excerpt {
+  color: #d1d5db;
+  background-color: #1a1a1a;
+  border-color: #3a3a3a;
+}
+
+.citation-view-button {
+  height: 1.75rem !important;
+  padding: 0 0.5rem !important;
+  min-width: auto !important;
+  flex-shrink: 0;
+}
+
+.citation-view-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* Button hover states */
+.citation-view-button:hover {
+  background-color: rgba(52, 152, 219, 0.1) !important;
+}
+
+.dark .citation-view-button:hover {
+  background-color: rgba(52, 152, 219, 0.2) !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .message-content-wrapper,
+  .message-content-wrapper-user,
+  .message-content-wrapper-assistant {
+    max-width: 95%;
+  }
+  
+  .user-message-bubble {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  .assistant-answer {
+    padding: 0.75rem;
+  }
+  
+  .citations-section {
+    padding: 0.75rem;
+  }
+  
+  .citation-item {
+    padding: 0.5rem;
+  }
+}
+
+/* Animation for new messages */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-container {
+  animation: fadeIn 0.3s ease-out;
+}

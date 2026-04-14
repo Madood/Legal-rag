@@ -129,10 +129,10 @@ export function Home() {
         <div className="home-nav-container">
           <div className="home-nav-logo">
             <div className="home-nav-logo-icon">
-              <span className="home-nav-logo-text">LR</span>
+              <span className="home-nav-logo-text">J</span>
             </div>
             <div>
-              <h1 className="home-nav-title">LegalRAG</h1>
+              <h1 className="home-nav-title">Jurisma AI</h1>
             </div>
           </div>
 
@@ -167,7 +167,7 @@ export function Home() {
                 Präzise Rechts­antworten in Sekunden
               </h1>
               <p className="home-hero-description">
-                LegalRAG nutzt fortschrittliche KI, um Ihre Rechtsdokumente zu analysieren
+                Jurisma AI nutzt fortschrittliche KI, um Ihre Rechtsdokumente zu analysieren
                 und präzise Antworten mit zitierten Quellen zu liefern.
               </p>
               <div className="home-hero-buttons">
@@ -201,7 +201,7 @@ export function Home() {
         <div className="home-container">
           <div className="home-section-header">
             <h2 className="home-section-title">
-              Warum LegalRAG?
+              Warum Jurisma AI?
             </h2>
             <p className="home-section-subtitle">
               Modernste Technologie für präzise und vertrauenswürdige Rechtsrecherche
@@ -240,7 +240,7 @@ export function Home() {
               Dokumentation
             </h2>
             <p className="home-section-subtitle">
-              Alles, was Sie wissen müssen, um LegalRAG effektiv zu nutzen
+              Alles, was Sie wissen müssen, um Jurisma AI effektiv zu nutzen
             </p>
           </div>
 
@@ -342,9 +342,9 @@ export function Home() {
             <div className="home-footer-brand">
               <div className="home-footer-logo">
                 <div className="home-footer-logo-icon">
-                  <span className="home-footer-logo-text">LR</span>
+                  <span className="home-footer-logo-text">J</span>
                 </div>
-                <span className="home-footer-logo-name">LegalRAG</span>
+                <span className="home-footer-logo-name">Jurisma AI</span>
               </div>
               <p className="home-footer-tagline">
                 KI-gestützte Rechtsrecherche für moderne Kanzleien
@@ -383,7 +383,7 @@ export function Home() {
           </div>
 
           <div className="home-footer-bottom">
-            <p>© 2024 LegalRAG. Alle Rechte vorbehalten.</p>
+            <p>© 2024 Jurisma AI. Alle Rechte vorbehalten.</p>
           </div>
         </div>
       </footer>

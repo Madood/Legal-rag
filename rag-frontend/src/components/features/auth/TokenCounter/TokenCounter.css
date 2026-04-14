@@ -1,0 +1,107 @@
+/* ── Token Counter ─────────────────────────────────────── */
+
+.token-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  position: relative;
+  letter-spacing: 0.02em;
+}
+
+.token-counter:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.token-counter:active {
+  transform: translateY(0);
+}
+
+/* ── Gold state ───────────────────────────────────────── */
+.token-counter-gold {
+  background: linear-gradient(135deg, #f5c842 0%, #e6a817 40%, #f7d060 70%, #c8860a 100%);
+  color: #5a3a00;
+  box-shadow:
+    0 1px 3px rgba(200, 134, 10, 0.5),
+    0 0 0 1px rgba(255, 215, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.token-counter-gold:hover {
+  box-shadow:
+    0 4px 12px rgba(200, 134, 10, 0.55),
+    0 0 0 1px rgba(255, 215, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* ── Low / danger state ───────────────────────────────── */
+.token-counter-low {
+  background: linear-gradient(135deg, #ff6b6b, #e53e3e);
+  color: #fff;
+  box-shadow:
+    0 1px 3px rgba(229, 62, 62, 0.5),
+    0 0 0 1px rgba(252, 129, 129, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  animation: pulse-red 2s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 1px 3px rgba(229,62,62,0.5), 0 0 0 1px rgba(252,129,129,0.4); }
+  50%       { box-shadow: 0 2px 8px rgba(229,62,62,0.75), 0 0 0 2px rgba(252,129,129,0.6); }
+}
+
+/* ── Coin icon ────────────────────────────────────────── */
+.token-coin-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.token-counter-gold .token-coin-icon {
+  background: radial-gradient(circle at 35% 35%, #fff8c0, #d4a017);
+  border: 1px solid rgba(90, 58, 0, 0.25);
+  box-shadow: inset 0 1px 2px rgba(255,255,255,0.6), 0 1px 1px rgba(90,58,0,0.3);
+  color: #7a4e00;
+  font-weight: 700;
+}
+
+.token-counter-low .token-coin-icon {
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ── Balance number ───────────────────────────────────── */
+.token-balance {
+  line-height: 1;
+}
+
+/* ── Guest suffix ─────────────────────────────────────── */
+.token-guest-label {
+  opacity: 0.7;
+  font-weight: 400;
+  font-size: 0.65rem;
+}
+
+/* ── Dark mode tweaks ─────────────────────────────────── */
+.dark .token-counter-gold {
+  box-shadow:
+    0 1px 4px rgba(200, 134, 10, 0.6),
+    0 0 0 1px rgba(255, 215, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}

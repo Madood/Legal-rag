@@ -304,9 +304,111 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
   }
 
   try {
-    const response = await chatService.processQuestion(question, { language: lang });
+    let response = await chatService.processQuestion(question, { language: lang });
+
+    // ── Quality gate ────────────────────────────────────────────────────────────
+    // Runs here (after processQuestion) so it catches EVERY exit path, including
+    // early clarification returns that bypass STEP 15 inside chatService.
+    if (response.success && process.env.DEEPSEEK_API_KEY) {
+      const answerText = response.data?.answer || '';
+      const isClarification = !!response.data?.clarification_required;
+
+      const isTableOfContents = (text) => {
+        if (!text) return false;
+        const tocPattern = /§\s*\d+\s*\n\s*§\s*\d+\s*\n\s*§\s*\d+/;
+        const shortContent = text.length < 300;
+        const manyParagraphRefs = (text.match(/§\s*\d+/g) || []).length > 5;
+        const noSentences = !text.match(/[.!?]\s+[A-ZÄÖÜ]/);
+        return tocPattern.test(text) || (manyParagraphRefs && noSentences && shortContent);
+      };
+
+      const THEORY_TERMS = [
+        'kausalität','zurechenbarkeit','objektive zurechnung',
+        'materielle rechtswidrigkeit','formelle rechtswidrigkeit',
+        'begehungsdelikt','unterlassungsdelikt','garantenstellung',
+        'tatbestandsirrtum','verbotsirrtum','schuldprinzip',
+        'strafzweck','generalprävention','spezialprävention',
+        'subsumtion','gutachtenstil','fallprüfung',
+      ];
+      const isPureTheory = THEORY_TERMS.some(t => question.toLowerCase().includes(t));
+
+      const isWrongParagraph = (() => {
+        const text = answerText.toLowerCase();
+        const hasTheoryTerm = THEORY_TERMS.some(t => question.toLowerCase().includes(t));
+        const answerMentionsTerm = THEORY_TERMS.some(t => text.includes(t));
+        return hasTheoryTerm && !answerMentionsTerm;
+      })();
+
+      const answerConfidence = response.data?.confidence ?? 1;
+      const _isTOC = isTableOfContents(answerText);
+      const _lowConf = answerConfidence < 0.3 && answerText.length < 400;
+      const isLowQuality =
+        isClarification ||
+        _isTOC ||
+        _lowConf ||
+        isPureTheory ||
+        isWrongParagraph;
+
+      console.log('[Quality]', {
+        isTOC: _isTOC,
+        isPureTheory,
+        isWrongParagraph,
+        isClarification,
+        needsFallback: isLowQuality,
+        confidence: answerConfidence,
+        length: answerText.length,
+      });
+
+      if (isLowQuality) {
+        try {
+          console.log('[Doctrine Fallback] Triggering DeepSeek for question:', question.substring(0, 60));
+          const fallbackRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
+            },
+            body: JSON.stringify({
+              model: 'deepseek-chat',
+              max_tokens: 800,
+              messages: [
+                {
+                  role: 'system',
+                  content: 'Du bist ein deutscher Rechtsdozent. Beantworte die Frage präzise auf Deutsch. ' +
+                    'Strukturiere die Antwort mit: Definition, Bedeutung, Prüfungsschema. ' +
+                    'Zitiere relevante Paragraphen wo möglich. Max 400 Wörter.'
+                },
+                { role: 'user', content: question }
+              ]
+            }),
+            signal: AbortSignal.timeout(15000)
+          });
+          const fallbackData = await fallbackRes.json();
+          const fallbackAnswer = fallbackData.choices?.[0]?.message?.content;
+          if (fallbackAnswer && fallbackAnswer.length > 100) {
+            console.log('[Doctrine Fallback] Answer received, length:', fallbackAnswer.length);
+            const disclaimer = '\n\n---\n*⚠️ Diese Antwort basiert auf allgemeinem Rechtswissen, nicht auf einem spezifischen Gesetzestext aus unserem Korpus.*';
+            response = {
+              success: true,
+              data: {
+                answer: fallbackAnswer + disclaimer,
+                confidence: 0.7,
+                statute: null,
+                sources: [],
+                metadata: { doctrine_fallback: true, comparison_mode: false }
+              }
+            };
+          }
+        } catch (err) {
+          console.error('[Doctrine Fallback] DeepSeek failed:', err.message);
+          // Keep original response — better than nothing
+        }
+      }
+    }
+    // ───────────────────────────────────────────────────────────────────────────
 
     if (response.success) {
+      console.log('[SERVER] Sending response | answer length:', response.data?.answer?.length ?? 'NO ANSWER', '| comparison_mode:', !!response.data?.metadata?.comparison_mode);
       // Deduct tokens after successful response (fire-and-forget, skip if DB unavailable)
       if (req.user) {
         deductTokens(req.user, req._tokenCost || 1, {
@@ -472,6 +574,7 @@ app.get("/api/test/pdf", (req, res) => {
 });
 
 // Test endpoint
+
 app.get("/api/test", (req, res) => {
   const docs = documentService.getAllDocuments();
 

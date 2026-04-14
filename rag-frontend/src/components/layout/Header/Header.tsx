@@ -10,8 +10,7 @@ import {
 } from '../../ui/dropdown-menu';
 import { Button } from '../../ui/button';
 import { useTranslation } from '../../../i18n';
-import { LanguageSelector } from './LanguageSelector';
-import { TokenCounter } from '../../TokenCounter';
+import { TokenCounter } from '../../features/auth/TokenCounter/TokenCounter';
 import { useAuth } from '../../../context/AuthContext';
 import './Header.css';
 
@@ -43,10 +42,10 @@ export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
       {/* Logo */}
       <div className="header-logo">
         <div className="logo-icon">
-          <span className="logo-text">LR</span>
+          <span className="logo-text">J</span>
         </div>
         <div>
-          <h1 className="logo-title">LegalRAG</h1>
+          <h1 className="logo-title">Jurisma AI</h1>
           <p className="logo-subtitle">{t('nav.logoSubtitle')}</p>
         </div>
         {isGuest && (
@@ -77,7 +76,6 @@ export function Header({ darkMode, onToggleDarkMode }: HeaderProps) {
       {/* User Menu */}
       <div className="header-actions">
         <TokenCounter />
-        <LanguageSelector />
         <Button
           variant="ghost"
           size="icon"

@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
         
         if index_files:
             print(f"   Found {len(index_files)} index files")
-            load_success = retrieval_service.load_indices("legal_index")
+            load_success = retrieval_service.indices_loaded
             
             if load_success:
                 # Verify indices are populated
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
                             results = store.search(query_embedding, k=5)
                             divorce_paras = []
                             for r in results:
-                                meta = r.get("metadata", {})
+                                meta = getattr(r, 'metadata', {})
                                 if meta.get("is_divorce_norm", False):
                                     divorce_paras.append(meta.get("paragraph"))
                             
@@ -727,6 +727,5 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host=os.getenv("HOST", "0.0.0.0"),
-        port=int(os.getenv("PORT", 8000)),
-        reload=os.getenv("ENVIRONMENT", "development") == "development"
+        port=int(os.getenv("PORT", 8000))
     )

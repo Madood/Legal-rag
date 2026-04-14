@@ -28,6 +28,10 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
+# Local env overrides
+.env.local
+.env.*.local
+
 # Logs
 logs/
 *.log

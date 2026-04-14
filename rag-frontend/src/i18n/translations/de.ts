@@ -5,7 +5,7 @@ export const de = {
     settings: 'Einstellungen',
     analytics: 'Analyse',
     guestMode: 'Gast-Modus',
-    logoSubtitle: 'Rechtsdokument Analyse',
+    logoSubtitle: 'Deutsches Rechtssystem — präzise Antworten aus dem Gesetzestext',
     guestUser: 'Gast-Benutzer',
     limitedAccess: 'Eingeschränkter Zugriff',
     loginForFullFeatures: 'Anmelden für volle Features',
@@ -17,7 +17,7 @@ export const de = {
     placeholder: 'Rechtsfrage stellen...',
     send: 'Senden',
     newChat: 'Neuer Chat',
-    welcome: 'Willkommen bei LegalRAG',
+    welcome: 'Willkommen bei juriss AI',
     welcomeSubtitle:
       'Stellen Sie Ihre rechtliche Frage und erhalten Sie präzise Antworten mit zitierten Quellen.',
     streaming: 'Antwort wird generiert...',

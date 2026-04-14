@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  python:
+    build: ./PythonServices
+    container_name: jurismai-python
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./documents:/app/documents
+      - ./PythonServices/data:/app/data
+      - faiss-data:/app/faiss_indices
+    environment:
+      - ENVIRONMENT=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  backend:
+    build: ./Backend
+    container_name: jurismai-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHON_SERVICE_URL=http://python:8000
+      - NODE_ENV=production
+    depends_on:
+      python:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - ./Backend/.env
+    volumes:
+      # pdfDocumentService.js resolves path.join(__dirname, '../../../documents')
+      # __dirname = /app/services/ingestion → three levels up = /documents
+      - ./documents:/documents
+
+  frontend:
+    build: ./rag-frontend
+    container_name: jurismai-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  faiss-data:

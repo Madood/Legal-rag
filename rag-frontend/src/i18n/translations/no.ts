@@ -5,7 +5,7 @@ export const no = {
     settings: 'Innstillinger',
     analytics: 'Analyse',
     guestMode: 'Gjest-modus',
-    logoSubtitle: 'Juridisk dokumentanalyse',
+    logoSubtitle: 'Deutsches Rechtssystem — präzise Antworten aus dem Gesetzestext',
     guestUser: 'Gjestbruker',
     limitedAccess: 'Begrenset tilgang',
     loginForFullFeatures: 'Logg inn for full tilgang',
@@ -17,7 +17,7 @@ export const no = {
     placeholder: 'Still et juridisk spørsmål...',
     send: 'Send',
     newChat: 'Ny chat',
-    welcome: 'Velkommen til LegalRAG',
+    welcome: 'Velkommen til juriss AI',
     welcomeSubtitle:
       'Still ditt juridiske spørsmål og få presise svar med siterte kilder.',
     streaming: 'Genererer svar...',

@@ -63,7 +63,7 @@ export function Signup() {
           <Scale className="hero-icon" />
           <h2 className="hero-title">Starten Sie noch heute</h2>
           <p className="hero-subtitle">
-            Schließen Sie sich Tausenden von Rechtsexperten an, die bereits LegalRAG nutzen
+            Schließen Sie sich Tausenden von Rechtsexperten an, die bereits Jurisma AI nutzen
           </p>
         </div>
       </div>
@@ -72,9 +72,9 @@ export function Signup() {
         <div className="signup-form-wrapper">
           <Link to="/" className="logo-link">
             <div className="logo-icon">
-              <span className="logo-text">LR</span>
+              <span className="logo-text">J</span>
             </div>
-            <span className="logo-title">LegalRAG</span>
+            <span className="logo-title">Jurisma AI</span>
           </Link>
 
           <div className="welcome-section">

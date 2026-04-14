@@ -1,0 +1,8 @@
+/* CSS custom properties / design tokens */
+:root {
+  --color-primary: hsl(221, 83%, 53%);
+  --color-primary-dark: hsl(221, 83%, 43%);
+  --border: #e2e8f0;
+  --border-dark: #374151;
+  --radius: 0.5rem;
+}

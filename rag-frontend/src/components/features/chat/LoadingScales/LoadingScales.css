@@ -1,0 +1,172 @@
+/* LoadingScales.css — Scales-of-justice loading animation */
+
+/* ── Layout ──────────────────────────────────────────────── */
+.ls-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1rem;
+  user-select: none;
+}
+
+/* Wrapper used when shown in the empty (no-messages) state */
+.ls-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+}
+
+/* ── SVG colours ─────────────────────────────────────────── */
+.ls-svg {
+  overflow: visible;
+}
+
+/* Structural fill: pole, base, fulcrum triangle */
+.ls-struct {
+  fill: #94a3b8;
+}
+.dark .ls-struct {
+  fill: #4b5563;
+}
+
+/* Beam line */
+.ls-beam-line {
+  stroke: #3498DB;
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 3.5;
+}
+.dark .ls-beam-line {
+  stroke: #60a5fa;
+}
+
+/* Chain lines */
+.ls-chain {
+  stroke: #94a3b8;
+  fill: none;
+  stroke-width: 1.5;
+}
+.dark .ls-chain {
+  stroke: #4b5563;
+}
+
+/* Pan ellipses */
+.ls-pan {
+  stroke: #3498DB;
+  fill: none;
+  stroke-width: 2;
+}
+.dark .ls-pan {
+  stroke: #60a5fa;
+}
+
+/* Pivot circle */
+.ls-pivot {
+  fill: #3498DB;
+}
+.dark .ls-pivot {
+  fill: #60a5fa;
+}
+
+/* Inner pivot highlight */
+.ls-pivot-inner {
+  fill: #ffffff;
+  opacity: 0.55;
+}
+.dark .ls-pivot-inner {
+  fill: #1e293b;
+  opacity: 0.4;
+}
+
+/* ── Scales swing animation ──────────────────────────────── */
+@keyframes ls-swing {
+  0%,  100% { transform: rotate(-12deg); }
+  50%        { transform: rotate(12deg); }
+}
+
+.ls-balance {
+  /* fill-box makes transform-origin relative to this element's bounding box,
+     not the SVG viewport — required for reliable cross-browser SVG rotation. */
+  transform-box: fill-box;
+  /* 50% horizontal = x=70 (beam centre); 0% vertical = y=26 (top of bounding box = pivot) */
+  transform-origin: 50% 0%;
+  animation: ls-swing 2.8s ease-in-out infinite;
+}
+
+/* ── "Analysing legal authority..." label ────────────────── */
+.ls-label {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #374151;
+  letter-spacing: 0.01em;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+}
+.dark .ls-label {
+  color: #d1d5db;
+}
+
+/* ── Animated dots ───────────────────────────────────────── */
+.ls-dots {
+  display: inline-flex;
+  gap: 1px;
+  margin-left: 1px;
+}
+
+@keyframes ls-dot-blink {
+  0%, 60%, 100% { opacity: 0.2; }
+  30%           { opacity: 1;   }
+}
+
+.ls-dot {
+  display: inline-block;
+  font-size: 1.125rem;
+  line-height: 1;
+  color: #3498DB;
+  animation: ls-dot-blink 1.2s ease-in-out infinite;
+}
+.dark .ls-dot {
+  color: #60a5fa;
+}
+.ls-dot:nth-child(1) { animation-delay: 0s;    }
+.ls-dot:nth-child(2) { animation-delay: 0.2s;  }
+.ls-dot:nth-child(3) { animation-delay: 0.4s;  }
+
+/* ── Phase label ─────────────────────────────────────────── */
+@keyframes ls-phase-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.ls-phase {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  color: #6b7280;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.2rem 0.55rem;
+  animation: ls-phase-in 0.3s ease-out both;
+}
+.dark .ls-phase {
+  color: #9ca3af;
+  background: #1f2937;
+  border-color: #374151;
+}
+
+/* ── Reduced-motion override ─────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ls-balance,
+  .ls-dot,
+  .ls-phase {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

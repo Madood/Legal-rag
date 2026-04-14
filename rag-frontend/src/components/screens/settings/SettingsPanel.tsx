@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Cpu, Sliders, Database, FileCode, Save, RotateCcw, Zap, Sparkles, Shield, ChevronRight } from 'lucide-react';
+import { Settings, Cpu, Sliders, Database, FileCode, Save, RotateCcw, Zap, Sparkles, Shield, ChevronRight, Globe } from 'lucide-react';
 import { Card } from '../../ui/card';
 import { Label } from '../../ui/label';
 import { Slider } from '../../ui/slider';
@@ -7,9 +7,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../../ui/switch';
 import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
+import { useTranslation } from '../../../i18n';
+import type { Lang } from '../../../i18n';
 import './SettingsPanel.css';
 
+const LANGS: { code: Lang; flag: string; label: string; nativeLabel: string }[] = [
+  { code: 'en', flag: '🇬🇧', label: 'English', nativeLabel: 'English' },
+  { code: 'de', flag: '🇩🇪', label: 'Deutsch', nativeLabel: 'Deutsch' },
+  { code: 'pl', flag: '🇵🇱', label: 'Polski', nativeLabel: 'Polski' },
+  { code: 'no', flag: '🇳🇴', label: 'Norsk', nativeLabel: 'Norsk' },
+];
+
 export function SettingsPanel() {
+  const { lang, changeLang } = useTranslation();
   const [temperature, setTemperature] = useState([0.3]);
   const [topK, setTopK] = useState([5]);
   const [chunkSize, setChunkSize] = useState([512]);
@@ -438,6 +448,38 @@ export function SettingsPanel() {
                     className="switch-control enhanced"
                   />
                 </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Language */}
+          <Card className="settings-card enhanced">
+            <div className="card-header-gradient">
+              <div className="settings-card-header">
+                <div className="settings-icon-container" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+                  <Globe className="settings-icon" style={{ color: '#fff' }} />
+                </div>
+                <div>
+                  <h2 className="settings-card-title">Sprache / Language</h2>
+                  <p className="settings-card-subtitle">Oberflächen- und Antwortsprache</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-fields">
+              <div className="lang-grid">
+                {LANGS.map(({ code, flag, label, nativeLabel }) => (
+                  <button
+                    key={code}
+                    onClick={() => changeLang(code)}
+                    className={`lang-option ${lang === code ? 'lang-option-active' : ''}`}
+                  >
+                    <span className="lang-flag">{flag}</span>
+                    <span className="lang-native">{nativeLabel}</span>
+                    <span className="lang-english">{label}</span>
+                    {lang === code && <span className="lang-check">✓</span>}
+                  </button>
+                ))}
               </div>
             </div>
           </Card>

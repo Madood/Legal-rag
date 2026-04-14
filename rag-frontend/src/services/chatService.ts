@@ -36,15 +36,17 @@ export class ChatService {
         
         // Send citations
         if (response.data.sources) {
-          yield { 
-            type: 'citations', 
-            citations: response.data.sources.map((source, index) => ({
+          yield {
+            type: 'citations',
+            citations: response.data.sources.map((source: any, index: number) => ({
               documentId: `doc-${index}`,
-              documentName: source.document,
+              documentName: (source as any).documentName || (source as any).filename || (source as any).document || ((source as any).statute ? `${(source as any).statute}.pdf` : ''),
               chunkId: `chunk-${index}`,
-              page: 1,
+              page: (source as any).page || (source as any).metadata?.page || 1,
               excerpt: source.excerpt,
               confidence: (() => { const r = parseFloat(source.relevance); return isNaN(r) ? 0 : r; })(),
+              statute: (source as any).statute || null,
+              paragraph: (source as any).paragraph || null,
             }))
           };
         }

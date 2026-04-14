@@ -38,7 +38,15 @@ class PdfDocumentService {
         const statute = this.detectStatute(text, filePath);
 
         let chunks;
-        if (["BGB", "STGB", "HGB", "ZPO", "STPO", "GMBHG"].includes(statute)) {
+        // All statutes that use § N format get the paragraph splitter.
+        // GG uses Art N format (splitByArtikel). Everything else falls back to createChunks.
+        const PARAGRAPH_STATUTES = [
+          'BGB', 'STGB', 'HGB', 'ZPO', 'STPO', 'GMBHG',
+          'AKTG', 'INSO', 'KSCHG',
+          'ABGG', 'ADVERIMG', 'AENTG', 'AGG', 'AMG', 'ANTIDOPG',
+          'AO', 'ARBSTAETTV', 'ASYLG', 'AUFENTHG', 'EGAKTG', 'NKRG',
+        ];
+        if (PARAGRAPH_STATUTES.includes(statute)) {
           chunks = this.splitByParagraph(text, statute);
         } else if (["GG"].includes(statute)) {
           chunks = this.splitByArtikel(text, statute);
@@ -67,6 +75,21 @@ class PdfDocumentService {
         });
 
         console.log(`📘 Loaded + parsed: ${path.basename(filePath)} (${statute}, ${chunks.length} chunks)`);
+
+        // Diagnostic: verify critical BGB paragraphs are indexed after load
+        if (statute === 'BGB') {
+          const _check = ['311', '823', '433', '242', '280'];
+          for (const _p of _check) {
+            const _rx = new RegExp(`§\\s*${_p}\\b`);
+            const _found = chunks.some(c =>
+              String(c.metadata?.paragraph || '').toLowerCase() === _p ||
+              _rx.test(c.content || '')
+            );
+            if (!_found) {
+              console.error(`CRITICAL: §${_p} BGB not found in parsed chunks — check PDF splitter`);
+            }
+          }
+        }
       } catch (error) {
         console.error(`❌ Failed to parse ${filePath}:`, error.message);
       }
@@ -82,6 +105,26 @@ class PdfDocumentService {
     const lowerPath = filePath.replace(/\\/g, '/').toLowerCase();
     const lowerText = text.toLowerCase();
     const filename = path.basename(filePath).toLowerCase().replace(/\.pdf$/, '');
+    // Original (case-sensitive) basename for includes() checks below
+    const origName = path.basename(filePath).replace(/\.pdf$/i, '');
+
+    // ── Step 1: Case-sensitive filename includes() — resolves ambiguous short names
+    // that are substrings of longer names (AbgG⊃GG, AGG⊃GG, AO⊃ZPO text triggers, etc.)
+    // Order matters: longer/more-specific patterns first.
+    if (origName.includes('EGAktG'))                                    return 'EGAKTG';
+    if (origName.includes('AbgG'))                                      return 'ABGG';
+    if (origName.includes('AdVermiG'))                                  return 'ADVERIMG';
+    if (origName.includes('AEntG'))                                     return 'AENTG';
+    if (origName.includes('AGG'))                                       return 'AGG';
+    if (origName.includes('AMG'))                                       return 'AMG';
+    if (origName.includes('AntiDopG'))                                  return 'ANTIDOPG';
+    if (origName.includes('ArbStätt') || origName.includes('ArbStatt')) return 'ARBSTAETTV';
+    if (origName.includes('AsylG'))                                     return 'ASYLG';
+    if (origName.includes('AufenthG'))                                  return 'AUFENTHG';
+    if (origName.includes('NKRG'))                                      return 'NKRG';
+    if (origName.includes('InsO'))                                      return 'INSO';
+    if (origName.includes('AktG'))                                      return 'AKTG';
+    if (origName.includes('AO'))                                        return 'AO';
 
     // Helper: check filename OR parent directory segment
     const matchName = (code) =>
@@ -118,38 +161,87 @@ class PdfDocumentService {
     return 'UNKNOWN';
   }
 
-  // ✅ FIXED: RENAMED AND GENERALIZED - Split by exact paragraph boundaries for §-based statutes
+  // Split statute text into one chunk per §-paragraph.
+  // Each chunk carries the paragraph number in metadata so findExactParagraph()
+  // can locate it without relying solely on content regex.
+  // Handles both "§311 Title\n..." and "§\n311\nTitle..." PDF extraction formats.
+  // Strip standard Bundesministerium page-header boilerplate that pdf-parse injects
+  // between paragraphs when a page break falls inside a statute section.
+  // Pattern seen in all official German law PDFs from gesetze-im-internet.de:
+  //   "- Seite N von M -\n\nEin Service des Bundesministerium...www.gesetze-im-internet.de\n"
+  static _stripPdfHeaders(text) {
+    return text
+      // Multi-line page header block
+      .replace(/\n?-\s*Seite\s+\d+\s+von\s+\d+\s*-[\s\S]*?www\.gesetze-im-internet\.de\s*/gi, '\n')
+      // Standalone page-number line that slipped through
+      .replace(/\n-\s*Seite\s+\d+\s+von\s+\d+\s*-\n/gi, '\n');
+  }
+
   splitByParagraph(text, statute) {
-    const regex = /§\s*\d+[a-z]?\b[\s\S]*?(?=\n?\s*§\s*\d+[a-z]?\b|$)/g;
-    const matches = text.match(regex) || [];
+    // Strip PDF page-header boilerplate before any further processing.
+    // 458 of 2518 BGB chunks were contaminated — clean at source.
+    const clean = PdfDocumentService._stripPdfHeaders(text);
 
-    return matches
-      .map((block, index) => {
-        const paraMatch = block.match(/§\s*(\d+[a-z]?)/);
-        if (!paraMatch) return null;
+    // Normalise: collapse § followed only by whitespace/newline before the number
+    // so "§\n311" becomes "§311" for the splitter.
+    const normalised = clean.replace(/§\s*\n+\s*/g, '§');
 
-        return {
+    // Split on paragraph boundaries: capture everything from one § to the next.
+    // The lookahead stops at the newline that precedes the next paragraph header.
+    const regex = /§\s*(\d+[a-z]?)\b[\s\S]*?(?=\n\s*§\s*\d+[a-z]?\b|$)/g;
+    const chunks = [];
+    let m;
+
+    while ((m = regex.exec(normalised)) !== null) {
+      const block = m[0].trim();
+      const paraNum = m[1].toLowerCase();           // e.g. "311", "311a"
+      if (!block || block.length < 20) continue;    // skip noise / empty matches
+
+      chunks.push({
+        content: block,
+        chunk_index: chunks.length,
+        metadata: {
+          statute,
+          paragraph: paraNum,
+          isNormParagraph: true,
+          startsWithParagraph: true,
+          wordCount: block.split(/\s+/).length
+        }
+      });
+    }
+
+    // Fallback: if exec loop found nothing, try match() (older behaviour)
+    if (chunks.length === 0) {
+      const fallback = normalised.match(/§\s*\d+[a-z]?\b[\s\S]*?(?=\n\s*§\s*\d+[a-z]?\b|$)/g) || [];
+      fallback.forEach((block, index) => {
+        const pm = block.match(/§\s*(\d+[a-z]?)/);
+        if (!pm) return;
+        chunks.push({
           content: block.trim(),
           chunk_index: index,
           metadata: {
             statute,
-            paragraph: paraMatch[1].toLowerCase(),
+            paragraph: pm[1].toLowerCase(),
             isNormParagraph: true,
             startsWithParagraph: true,
             wordCount: block.split(/\s+/).length
           }
-        };
-      })
-      .filter(Boolean);
+        });
+      });
+    }
+
+    return chunks;
   }
 
   splitByArtikel(text, statute) {
     // GG PDF uses "\nArt N \n" format (no period, standalone line)
+    // Strip page headers first (same gesetze-im-internet.de source)
+    const clean = PdfDocumentService._stripPdfHeaders(text);
     // Split on that boundary
     const regex = /\nArt\s+(\d+[a-z]?)\s*\n([\s\S]*?)(?=\nArt\s+\d+[a-z]?\s*\n|$)/g;
     const results = [];
     let m;
-    while ((m = regex.exec(text)) !== null) {
+    while ((m = regex.exec(clean)) !== null) {
       const articleNum = m[1];
       const body = m[2].trim();
       if (!body) continue;

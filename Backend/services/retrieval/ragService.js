@@ -1,10 +1,10 @@
 const safetyCheck = require("../validation/safetyCheck");
 const natural = require("natural");
+const { isEBVQuestion } = require("./queryClassifier");
 
 class RAGService {
   constructor() {
     this.MAX_CHUNKS = 5;
-    this.tfidf = new natural.TfIdf();
 
     // Statute display names — all keys UPPERCASE to match loaded document metadata
     this.statuteDisplayNames = {
@@ -21,7 +21,9 @@ class RAGService {
     // ⭐⭐ DOCTRINE: Excluded statutes for specific domains — keys UPPERCASE
     this.excludedStatutesForDomain = {
       "STGB": ["BGB", "HGB", "ZPO", "AO", "EU-GDPR"],
-      "BGB":  ["STGB", "STPO", "OwiG", "VwVfG"],
+      "BGB":  ["STGB", "STPO", "OwiG", "VwVfG", "HGB", "ZPO"],
+      "HGB":  ["STGB", "STPO", "OwiG", "VwVfG"],
+      "GG":   ["HGB", "ZPO", "STPO"],
     };
 
     // ⭐⭐ DOCTRINE: Explicitly excluded statutes regardless of domain
@@ -88,6 +90,17 @@ class RAGService {
       };
     }
 
+    // ── EBV guard — must fire before authority check so it catches zero-chunk cases ──
+    if (isEBVQuestion(question)) {
+      const ebvResult = this.handleEBVQuestion(question, options.semanticChunks || []);
+      if (ebvResult) {
+        return {
+          ...ebvResult,
+          metadata: { ...ebvResult.metadata, processingTime: Date.now() - startTime }
+        };
+      }
+    }
+
     // ⭐⭐ DOCTRINE: CRITICAL - Authority must be pre-resolved by Python
     if (!options.authority) {
       throw new Error(
@@ -96,37 +109,55 @@ class RAGService {
     }
 
     const { authority, domain_anchor = true, authority_mode = "overview" } = options;
-    
+
+    // ── Analytical override — computed early so it can bypass authority_mode gate ──
+    const ANALYTICAL_SIGNALS = [
+      'rechte','welche rechte','ansprüche','welche ansprüche',
+      'voraussetzungen','welche voraussetzungen','rechtsfolgen',
+      'was sind','was regelt','erklären','erläutern',
+      'unterschied','unterscheiden','vergleich','inwiefern',
+      'wie wirkt','bedeutung','warum','weshalb',
+      'ex tunc','ex nunc','prüfung','prüfungsschema',
+      'konsequenzen','auswirkungen','abgrenzung',
+      'nichtigkeit','anfechtbarkeit','kausalität','zurechenbarkeit',
+      'sachmängel','wie funktioniert','was bedeutet',
+      'was versteht man','welche bedeutung',
+    ];
+    const isAnalytical = ANALYTICAL_SIGNALS.some(s =>
+      question.toLowerCase().includes(s)
+    ) && question.length > 30;
+
     // ✅ NEW: EPISTEMIC SWITCH - Check for derivative norms from Python
     let retrievalStrategy = "STANDARD";
     let requiresSynthesis = false;
     let prohibitsQuotation = false;
-    
+
     if (authority.normFunction === "DERIVATIVE" || authority.epistemicRole === "CONSEQUENCE_GATE") {
       console.log(`🧭 [Epistemic Switch] ${authority.statute} §${authority.paragraph} is derivative`);
       console.log(`   → Switching to consequence reasoning mode`);
       console.log(`   → Norm quotation disabled`);
       console.log(`   → Synthesis required`);
-      
+
       retrievalStrategy = "CONSEQUENCE_ONLY";
       requiresSynthesis = true;
       prohibitsQuotation = true;
     }
-    
+
     // Store in options for downstream use
     options.retrievalStrategy = retrievalStrategy;
     options.requiresSynthesis = requiresSynthesis;
     options.prohibitsQuotation = prohibitsQuotation;
-    
+
     // ⭐⭐ FIX 4: Paragraph questions cannot be overview mode
     let authorityMode = authority_mode;
     if (authority.paragraph) {
       authorityMode = "exact";
       console.log(`🔒 [Mode Override] Paragraph question forced to exact mode`);
     }
-    
+
     // ⭐⭐ DOCTRINE: AUTHORITY-MODE GATE (Python decides) ✅ NEW: Mode-based gate
-    if (authority.authority_mode === 'none') {
+    // isAnalytical overrides 'none' — synthesis is our own layer on top of epistemic rules
+    if (authority.authority_mode === 'none' && !isAnalytical) {
       console.log(`⛔️ [Doctrine] RAG blocked - authority_mode is 'none'`);
       return this.getDoctrineBlockedResponse(
         startTime,
@@ -135,8 +166,17 @@ class RAGService {
         authority.authority_mode
       );
     }
+    if (authority.authority_mode === 'none' && isAnalytical) {
+      console.log(`✅ [Analytical Override] authority_mode='none' bypassed — isAnalytical=true, proceeding to synthesis`);
+    }
 
-    const { statute, paragraph, isArticle } = authority;
+    let { statute, paragraph, isArticle } = authority;
+
+    // Guard: null statute crashes doctrineFilterDocuments → handleMissingSourceQuestion
+    if (!statute || statute === 'null' || statute === 'UNKNOWN') {
+      console.warn(`[RAG] Statute was "${statute}" — defaulting to BGB`);
+      statute = 'BGB';
+    }
 
     console.log(
       `🔒 [Authority] Python-resolved: ${statute}${
@@ -306,8 +346,8 @@ class RAGService {
             console.log(`✅ Using ${exactMatches.length} exact paragraph matches`);
             semanticChunks = exactMatches;
           } else {
-            console.log(`⚠️ No exact matches, using all chunks without TF-IDF`);
-            semanticChunks = allChunks;
+            console.log(`⚠️ No exact matches, TF-IDF is only option — running on all chunks`);
+            semanticChunks = this.tfidfRerank(allChunks, question);
           }
         } else {
           semanticChunks = allChunks;
@@ -373,15 +413,68 @@ class RAGService {
       retrievalStrategy
     );
 
-    const topChunks = this.selectDiverseTopChunks(
+    let topChunks = this.selectDiverseTopChunks(
       rankedChunks,
       this.MAX_CHUNKS
     );
+    // Guarantee minimum 5 chunks — deduplication by documentId is too aggressive
+    // when all chunks come from a single statute PDF with no paragraph metadata
+    if (topChunks.length < 5 && rankedChunks.length > topChunks.length) {
+      topChunks = rankedChunks.slice(0, Math.max(5, this.MAX_CHUNKS));
+    }
     console.log(`🎯 Selected ${topChunks.length} top chunks for answer`);
 
+    // ── Multi-term chunk retrieval ───────────────────────────────────────────────
+    // For questions containing known legal term pairs, retrieve dedicated chunks
+    // for each term so both sides of a comparison are represented.
+    const LEGAL_TERM_PAIRS = {
+      'nichtigkeit':    ['nichtig', 'nichtigkeit', '§ 105', '§ 125'],
+      'anfechtbar':     ['anfechtbar', 'anfechtung', '§ 119', '§ 123', '§ 142'],
+      'anfechtung':     ['anfechtung', '§ 119', '§ 143'],
+      'verjährung':     ['verjährung', '§ 195', '§ 199'],
+      'besitz':         ['besitz', '§ 854', '§ 868', '§ 855'],
+      'eigentum':       ['eigentum', '§ 903', '§ 929'],
+      'schadensersatz': ['schadensersatz', '§ 249', '§ 280', '§ 823'],
+      'notwehr':        ['notwehr', '§ 32'],
+      'vorsatz':        ['vorsatz', '§ 15'],
+      'fahrlässigkeit': ['fahrlässigkeit', '§ 15', '§ 276'],
+      'mahnung':        ['mahnung', '§ 286', '§ 280', '§ 288', '§ 287'],
+      'verzug':         ['verzug', '§ 286', '§ 280', '§ 288', '§ 287', '§ 293'],
+      'schuldnerverzug':['schuldnerverzug', '§ 286', '§ 287', '§ 288'],
+    };
+
+    const questionLower = question.toLowerCase();
+    const matchedTerms = Object.keys(LEGAL_TERM_PAIRS).filter(t => questionLower.includes(t));
+
+    if (matchedTerms.length > 0 && allChunks?.length > 0) {
+      console.log('[Multi-term] Matched terms:', matchedTerms);
+      const multiChunks = [];
+      for (const term of matchedTerms) {
+        for (const searchTerm of LEGAL_TERM_PAIRS[term]) {
+          const found = allChunks.filter(c =>
+            (c.content || '').toLowerCase().includes(searchTerm.toLowerCase())
+          ).slice(0, 2);
+          multiChunks.push(...found);
+        }
+      }
+      const seen = new Set();
+      const dedupedChunks = multiChunks.filter(c => {
+        const key = (c.content || '').substring(0, 50);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (dedupedChunks.length >= 2) {
+        topChunks = dedupedChunks.slice(0, 8);
+        console.log('[Multi-term] Using', topChunks.length, 'multi-term chunks');
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────────
+
     // ⭐⭐ FIX 3: EXTRACT CONTENT with norm-only extraction (FIXES BOILERPLATE)
+    // Use only the top-ranked chunk so Rule and Context always refer to the same source.
     const legalRule = this.extractContentFromChunks(
-      topChunks,
+      topChunks.slice(0, 1),
       statute,
       paragraph,
       options
@@ -435,6 +528,66 @@ class RAGService {
       gateResult,
       options
     );
+
+    // ── DeepSeek Synthesis for analytical questions ─────────────────────────────
+    // isAnalytical is computed at function top (before authority-mode gate).
+    console.log('[Analytical]', isAnalytical, '|', question.substring(0, 50));
+
+    if (isAnalytical && topChunks.length > 0 && process.env.DEEPSEEK_API_KEY) {
+      try {
+        console.log('[DeepSeek Synthesis] Triggered for analytical question');
+        const chunkTexts = topChunks.slice(0, 4).map(c => c.content || '').join('\n\n');
+
+        const synthRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            max_tokens: 800,
+            messages: [
+              {
+                role: 'system',
+                content: 'Du bist ein Staatsexamen-Repetitor für deutsches Recht. ' +
+                  'Beantworte die Frage ausschließlich auf Basis des bereitgestellten Gesetzestextes. ' +
+                  'Gliedere deine Antwort zwingend in diese drei Abschnitte:\n\n' +
+                  '**GESETZESTEXT**\n' +
+                  'Zitiere wörtlich die relevantesten Sätze aus dem Gesetzestext, die die Frage beantworten. ' +
+                  'Nenne Paragraph und Absatz.\n\n' +
+                  '**RECHTLICHE ANALYSE**\n' +
+                  '1. Definition — Was regelt der Begriff/die Norm?\n' +
+                  '2. Tatbestandsvoraussetzungen — Welche Voraussetzungen müssen erfüllt sein?\n' +
+                  '3. Rechtsfolgen — Was sind die gesetzlichen Konsequenzen?\n' +
+                  '4. Abgrenzung — Wo liegen die Unterschiede zu verwandten Rechtsinstituten?\n\n' +
+                  '**RELEVANTE PARAGRAPHEN**\n' +
+                  'Liste alle zitierten Normen im Format: § X Abs. Y [Gesetz] — Kurzbezeichnung.\n\n' +
+                  'Halte dich strikt an den Gesetzestext. Maximal 400 Wörter pro Abschnitt. ' +
+                  'Falls der bereitgestellte Text unzureichend ist, benenne explizit welche Paragraphen fehlen.'
+              },
+              {
+                role: 'user',
+                content: `Frage: ${question}\n\nGesetzestext:\n${chunkTexts}`
+              }
+            ]
+          }),
+          signal: AbortSignal.timeout(20000)
+        });
+        const synthData = await synthRes.json();
+        const synthAnswer = synthData.choices?.[0]?.message?.content;
+
+        if (synthAnswer && synthAnswer.length > 150) {
+          console.log('[DeepSeek Synthesis] Answer generated, length:', synthAnswer.length);
+          response.answer = synthAnswer + '\n\n*Basierend auf deutschen Rechtsdokumenten. Keine Rechtsberatung.*';
+          response.synthesis_used = true;
+        }
+      } catch (err) {
+        console.error('[DeepSeek Synthesis] Failed:', err.message);
+        // Keep original RAG answer
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────────
 
     // ⭐⭐ DOCTRINE: RUN SAFETY CHECK
     const safetyValidation = await safetyCheck.validateBeforeAnswer(
@@ -913,31 +1066,20 @@ class RAGService {
       return chunks;
     }
 
-    // Guard: O(n²) TF-IDF blocks the event loop above ~200 chunks. Return as-is when oversized.
-    if (chunks.length > 200) {
-      console.log(`⚠️ TF-IDF skipped: ${chunks.length} chunks exceeds safe limit (200). Returning pre-ranked results.`);
-      return chunks;
-    }
 
     console.log(`📊 Applying TF-IDF reranking for query: "${query.substring(0, 50)}..."`);
-    
-    // Clear and rebuild TF-IDF index
-    this.tfidf = new natural.TfIdf();
-    
-    // Add documents to TF-IDF index
+
+    // Fresh local instance — discarded after this call, never accumulates across queries
+    const tfidf = new natural.TfIdf();
     chunks.forEach((chunk, index) => {
-      this.tfidf.addDocument(chunk.content || '', { index, chunk });
+      tfidf.addDocument(chunk.content || '', { index, chunk });
     });
 
-    // Get TF-IDF scores for query
     const scoredChunks = chunks.map((chunk, index) => {
       let tfidfScore = 0;
-      this.tfidf.tfidfs(query, (i, measure) => {
-        if (i === index) {
-          tfidfScore = measure;
-        }
+      tfidf.tfidfs(query, (i, measure) => {
+        if (i === index) tfidfScore = measure;
       });
-      
       return {
         ...chunk,
         tfidfScore: tfidfScore,
@@ -945,7 +1087,6 @@ class RAGService {
       };
     });
 
-    // Sort by combined score
     return scoredChunks.sort((a, b) => b.combinedScore - a.combinedScore);
   }
 
@@ -1236,6 +1377,18 @@ class RAGService {
       "Binnenschifffahrtsgesetzes",
       "Binnenschifffahrt",
       "geltend zu machen, bleibt unberührt",
+      // HGB maritime/transport law boilerplate leaking into civil law answers
+      "341f",
+      "341h",
+      "Konnossement",
+      "Orderkonnossement",
+      "Stückgutfrachtvertrag",
+      "Verfrachter",
+      "Ablader",
+      "Anspruchshäufung",
+      "§ 260 Anspruch",
+      "insbesondere zu bilden",
+      "Hinweis- und Aufklärungspflicht",
     ];
 
     const lower = text.toLowerCase();
@@ -1300,14 +1453,19 @@ class RAGService {
       const simNum   = parseFloat(chunk.similarity)  || 0;
       const tfidfNum = parseFloat(chunk.tfidfScore) || 0;
       const combined = chunk.combinedScore || (simNum * 0.7 + tfidfNum * 0.3) || simNum || 0.5;
+      const _para = chunk.metadata?.paragraph || chunk.paragraph || null;
+      const _filename = chunk.documentName || chunk.filename || chunk.document || (statute ? `${statute}.pdf` : '');
       return {
         id: index + 1,
-        document: chunk.documentName,
-        statute: statute,
-        excerpt: excerpt,
-        relevance: Math.min(1, Math.max(0, combined)),
-        similarity: chunk.similarity?.toFixed(3) || "0.500",
-        tfidfScore: chunk.tfidfScore?.toFixed(3) || "0.000",
+        document:     _filename,
+        documentName: _filename,
+        statute:      statute,
+        paragraph:    _para,
+        page:         chunk.metadata?.page || chunk.page || 1,
+        excerpt:      excerpt,
+        relevance:    Math.min(1, Math.max(0, combined)),
+        similarity:   chunk.similarity?.toFixed(3) || "0.500",
+        tfidfScore:   chunk.tfidfScore?.toFixed(3) || "0.000",
         domainPenalty: chunk.domainPenalty || 0,
       };
     });
@@ -1460,6 +1618,94 @@ class RAGService {
         confidence: 0.1,
       },
     };
+  }
+
+  /**
+   * EBV guard — handles questions about §§987–1003 BGB (Eigentümer-Besitzer-Verhältnis).
+   *
+   * The LLM consistently inverts the rule when BGB §§987-1003 chunks are absent,
+   * inferring the EBV regime from unjust-enrichment law (opposite direction).
+   *
+   * Correct rule:
+   *   APPLIES  — possessor has NO legal basis (thief, finder, trespasser)
+   *   NOT apply — possessor HAS a contractual right (lessee §535, borrower §598, bailee §688)
+   *
+   * Returns a structured answer object when chunks are absent or the validated template
+   * when chunks are present. Returns null to let normal RAG proceed when chunks are
+   * sufficient AND contain the correct paragraph range.
+   */
+  handleEBVQuestion(question, chunks) {
+    const EBV_RANGE = /§\s*(9[89]\d|10[0-3]\d)\b/;   // §987–§1003
+    const chunksWithEBV = (chunks || []).filter(c =>
+      EBV_RANGE.test(c.content || c.text || '')
+    );
+
+    const EBV_TEMPLATE =
+      '**Eigentümer-Besitzer-Verhältnis (EBV) — §§ 987–1003 BGB**\n\n' +
+      '**1. ANWENDUNGSBEREICH**\n' +
+      'Das EBV-Regime (§§ 987–1003 BGB) gilt ausschließlich in der *Vindikationslage*: ' +
+      'Der Besitzer hat **keinen** Rechtstitel zum Besitz (kein Recht zum Besitz i.S.v. § 986 BGB).\n\n' +
+      '**2. EBV GILT — wenn KEIN Besitzrecht besteht**\n' +
+      '- Dieb (§ 985 BGB — Herausgabeanspruch des Eigentümers)\n' +
+      '- Finder ohne Ablieferung\n' +
+      '- Unrechtmäßiger Besitzer (z.B. nach Vertragsende ohne Rückgabe)\n\n' +
+      '**3. EBV GILT NICHT — wenn ein Besitzrecht besteht (§ 986 BGB)**\n' +
+      'Wenn der Besitzer ein *Recht zum Besitz* hat, ist § 985 BGB ausgeschlossen; ' +
+      'es gelten die vertraglichen Regelungen:\n' +
+      '- Mieter (§§ 535 ff. BGB — Mietrecht)\n' +
+      '- Entleiher (§§ 598 ff. BGB — Leihe)\n' +
+      '- Verwahrer (§§ 688 ff. BGB — Verwahrung)\n' +
+      '- Pächter (§§ 581 ff. BGB)\n\n' +
+      '**4. RECHTSFOLGE**\n' +
+      '- Redlicher Besitzer (§§ 987–993 BGB): haftet nur für Vorsatz/grobe Fahrlässigkeit ab Kenntnis\n' +
+      '- Unredlicher Besitzer (§§ 987–990 BGB): volle Nutzungsherausgabe und Schadensersatzpflicht\n' +
+      '- Verwendungsersatz: §§ 994–1003 BGB (notwendige/nützliche Verwendungen)\n\n' +
+      '**5. MERKSATZ**\n' +
+      'EBV = kein Vertrag, kein Titel → Vindikationslage. ' +
+      'Vertrag vorhanden → vertragliche Abwicklung, kein EBV.\n\n' +
+      '*Basierend auf §§ 985–1003 BGB. Keine Rechtsberatung.*';
+
+    if (chunksWithEBV.length === 0) {
+      // No EBV source chunks — return retrieval_failed (chatService handles this first in normal flow)
+      console.warn('[EBV Guard] No §§987-1003 chunks found — returning retrieval_failed');
+      return {
+        answer: '§§ 987–1003 BGB (Eigentümer-Besitzer-Verhältnis) wurde im geladenen Quellentext nicht gefunden. Die Antwort kann nicht verifiziert werden.',
+        citations: [],
+        confidence: 0,
+        documentsUsed: 0,
+        metadata: {
+          statute: 'BGB',
+          ebv_guard: true,
+          retrieval_failed: true,
+          chunks_used: 0,
+        },
+      };
+    }
+
+    // Chunks present — verify they contain the correct direction before trusting RAG
+    const hasPositiveRule = chunksWithEBV.some(c =>
+      /(kein(en)?\s+rechtstitel|kein\s+recht\s+zum\s+besitz|vindikation|dieb|finder)/i.test(c.content || c.text || '')
+    );
+
+    if (!hasPositiveRule) {
+      console.warn('[EBV Guard] Chunks present but positive applicability rule missing — returning retrieval_failed');
+      return {
+        answer: '§§ 987–1003 BGB (Eigentümer-Besitzer-Verhältnis) wurde im geladenen Quellentext nicht korrekt abgebildet. Die Antwort kann nicht verifiziert werden.',
+        citations: [],
+        confidence: 0,
+        documentsUsed: 0,
+        metadata: {
+          statute: 'BGB',
+          ebv_guard: true,
+          retrieval_failed: true,
+          chunks_used: chunksWithEBV.length,
+        },
+      };
+    }
+
+    // Chunks are sufficient and contain the correct rule — let normal RAG proceed
+    console.log(`[EBV Guard] ${chunksWithEBV.length} valid EBV chunks found — handing off to normal RAG`);
+    return null;
   }
 }
 

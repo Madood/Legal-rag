@@ -1,16 +1,16 @@
 import { Navigate, BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Home } from './components/screens/Home/Home';
-import { Signup } from './components/Auth/signup/signup';
-import { Login } from './components/Auth/login/login';
+import { HomePage } from './pages/HomePage/HomePage';
+import { Signup } from './components/features/auth/Signup/Signup';
+import { Login } from './components/features/auth/Login/Login';
 import { AppLayout } from './components/layout/AppLayout';
 import { Layout } from './components/layout/Layout';
-import { ChatScreen } from './components/screens/chat/chatScreen/ChatScreen';
+import { ChatScreen } from './components/features/chat/ChatScreen/ChatScreen';
 import { DocumentManagement } from './components/screens/documents/DocumentManagement';
 import { ProfilePage } from './components/screens/profile/ProfilePage';
 import { SettingsPanel } from './components/screens/settings/SettingsPanel';
 import { AnalyticsDashboard } from './components/screens/analytics/AnalyticsDashboard';
 import { PricingPage } from './components/screens/pricing/PricingPage';
-import { ForgotPassword } from './components/Auth/ForgotPassword/ForgotPassword';
+import { ForgotPassword } from './components/features/auth/ForgotPassword/ForgotPassword';
 import { LanguageProvider } from './i18n';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -26,12 +26,16 @@ function AppRoutes() {
     <Routes>
       {/* Public routes */}
       <Route path="/" element={<Layout />}>
-        <Route index element={<Home />} />
+        <Route index element={<HomePage />} />
       </Route>
       <Route path="/signup" element={<Signup />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/pricing" element={<PricingPage />} />
+
+      {/* Public pages that use the app shell (Header) */}
+      <Route path="/" element={<AppLayout />}>
+        <Route path="pricing" element={<PricingPage />} />
+      </Route>
 
       {/* Protected routes with AppLayout */}
       <Route

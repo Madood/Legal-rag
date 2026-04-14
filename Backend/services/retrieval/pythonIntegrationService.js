@@ -28,11 +28,12 @@ class PythonIntegrationService {
       // 🔥 CRITICAL FIX: Use correct API contract
       const response = await this.axiosInstance.post(
         '/api/query/search/authoritative',
-        { 
+        {
           query: {
             text: question,
             type: questionType
-          }
+          },
+          k: 3
         }
       );
 
@@ -73,7 +74,8 @@ class PythonIntegrationService {
           text: question,
           statute: statute,
           type: questionType
-        }
+        },
+        k: 3
       });
       
       const pythonData = response.data;
@@ -220,7 +222,8 @@ class PythonIntegrationService {
           text: question,
           type: options.questionType || 'GENERAL',
           statute: options.statute || null
-        }
+        },
+        k: 3
       });
       
       return {

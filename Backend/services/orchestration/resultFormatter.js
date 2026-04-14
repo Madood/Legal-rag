@@ -249,10 +249,12 @@ class ResultFormatter {
     // Ensure statute and paragraph exist
     const safeSource = {
       ...source,
-      statute: source.statute || null,
-      paragraph: source.paragraph || null,
-      content: source.content || source.text || '',
-      metadata: source.metadata || {}
+      statute:      source.statute || null,
+      paragraph:    source.paragraph || null,
+      documentName: source.documentName || source.document || source.filename || (source.statute ? `${source.statute}.pdf` : null),
+      page:         source.page || source.metadata?.page || 1,
+      content:      source.content || source.text || '',
+      metadata:     source.metadata || {}
     };
 
     // Compute numeric relevance from available score fields

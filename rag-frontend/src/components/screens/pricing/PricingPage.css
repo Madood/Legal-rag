@@ -1,0 +1,106 @@
+/* ── Pricing Page ────────────────────────────────────────────── */
+
+.pricing-page {
+  padding-bottom: 4rem;
+}
+
+/* Page header banner */
+.pricing-page-header {
+  background: linear-gradient(135deg, #2C3E50, #34495E, #3498DB);
+  color: white;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.pricing-page-header-inner {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.pricing-page-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.875rem;
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.pricing-page-title {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .pricing-page-title {
+    font-size: 2.75rem;
+  }
+}
+
+.pricing-page-subtitle {
+  font-size: 1rem;
+  color: #e5e5e5;
+  line-height: 1.6;
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+/* Recommended badge on featured card */
+.home-pricing-card {
+  position: relative;
+}
+
+.pricing-badge-wrapper {
+  position: absolute;
+  top: -0.875rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.pricing-recommended-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #3498DB, #2C3E50);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.875rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.4);
+}
+
+/* Disabled "current plan" button */
+.pricing-button-current {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Hover lift on non-featured cards */
+.home-pricing-card:not(.home-pricing-card-featured) {
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.home-pricing-card:not(.home-pricing-card-featured):hover {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Token footnote */
+.pricing-token-note {
+  text-align: center;
+  margin-top: 2.5rem;
+  font-size: 0.8rem;
+  color: #666;
+  line-height: 1.6;
+}
+
+.dark .pricing-token-note {
+  color: #999;
+}

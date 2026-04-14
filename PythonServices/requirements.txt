@@ -58,7 +58,7 @@ pyproject_hooks==1.2.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 python-multipart==0.0.21
-pywin32==311
+pywin32==311; sys_platform == "win32"
 PyYAML==6.0.3
 qdrant-client==1.16.2
 regex==2025.11.3

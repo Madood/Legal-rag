@@ -137,7 +137,7 @@ export function ChatScreen() {
         {/* Header with conversation info */}
         <div className="chat-header">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold">German Legal RAG</h2>
+            <h2 className="text-lg font-semibold">Jurisma AI</h2>
             {conversationId && (
               <span className="text-xs text-gray-500">
                 ID: {conversationId.substring(0, 8)}...
@@ -257,16 +257,6 @@ export function ChatScreen() {
                 <Send className="h-4 w-4" />
               )}
             </Button>
-          </div>
-          <div className="input-hint">
-            <p className="text-xs text-gray-500">
-              {t('chat.enterToSend')}
-            </p>
-            <p className="text-xs text-gray-500">
-              {documents.length > 0
-                ? `${documents.length} ${t('chat.docsAvailable')}`
-                : t('chat.noDocumentsWarning')}
-            </p>
           </div>
         </div>
       </div>

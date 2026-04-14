@@ -1,0 +1,22 @@
+__pycache__
+*.pyc
+.env
+faiss_indices
+*.bin
+*.index
+documents
+*.pkl
+*.npy
+*.npz
+tests
+.git
+# Virtual environments
+.venv
+venv
+venv3.11
+env
+# FAISS index data and large runtime files
+data/
+# Model cache (sentence-transformers downloads)
+.cache
+models

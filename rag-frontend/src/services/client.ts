@@ -2,13 +2,16 @@
 import axios, { AxiosInstance } from 'axios';
 
 // API Configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+// In Docker, nginx proxies /api/ → backend:5000/api/ so we use a relative URL.
+// In local dev (npm start), the dev server is on port 3000 and the backend on 5000,
+// so REACT_APP_API_URL=http://localhost:5000/api must be set in .env.local.
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
 // Create axios instance with default config
 export const createApiClient = (): AxiosInstance => {
   const instance = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 30000,
+    timeout: 120000,
     headers: {
       'Content-Type': 'application/json',
     },
@@ -93,6 +96,8 @@ export interface Citation {
   confidence: number;
   content?: string;
   similarity?: number;
+  statute?: string;
+  paragraph?: string;
 }
 
 export interface ChatMessage {
