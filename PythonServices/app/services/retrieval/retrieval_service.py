@@ -654,13 +654,16 @@ class RetrievalService:
         documents = []
         for r in raw_results[:k]:
             meta = getattr(r, 'metadata', {})
+            _score = float(getattr(r, 'score', 0.0))
             documents.append({
                 "id":               getattr(r, 'id', meta.get("document_id", "")),
+                "chunk_id":         getattr(r, 'id', meta.get("legal_id", meta.get("document_id", ""))),
                 "content":          meta.get("content", getattr(r, 'content', "")),
                 "statute":          meta.get("statute", statute_upper),
                 "paragraph":        meta.get("paragraph", ""),
                 "paragraph_raw":    meta.get("paragraph_raw", ""),
-                "score":            float(getattr(r, 'score', 0.0)),
+                "score":            _score,
+                "similarity":       _score,  # same value — IP cosine similarity (0-1, higher=better)
                 "is_authoritative": True,
                 "is_normative":     meta.get("is_normative", True),
                 "authority_score":  meta.get("authority_score", 1.0),

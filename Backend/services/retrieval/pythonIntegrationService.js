@@ -25,7 +25,6 @@ class PythonIntegrationService {
     console.log(`\n🤖 [Python Authority] Resolving: "${question.substring(0, 60)}..."`);
     
     try {
-      // 🔥 CRITICAL FIX: Use correct API contract
       const response = await this.axiosInstance.post(
         '/api/query/search/authoritative',
         {

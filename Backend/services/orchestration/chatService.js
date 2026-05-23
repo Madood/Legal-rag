@@ -2691,6 +2691,7 @@ class ChatService {
     this.shouldBlockRagForFinalAuthority = this.shouldBlockRagForFinalAuthority.bind(this);
     this.generateAuthoritativeAbstentionResponse = this.generateAuthoritativeAbstentionResponse.bind(this);
     this.detectExactNormReference = this.detectExactNormReference.bind(this);
+    this.detectConceptualNormReference = this.detectConceptualNormReference.bind(this);
     this.isPureDoctrineQuestion = this.isPureDoctrineQuestion.bind(this);
     this.handleDeepSeekDirectSynthesis = this.handleDeepSeekDirectSynthesis.bind(this);
   }
@@ -2914,7 +2915,7 @@ class ChatService {
                 '\n\nRETRIEVED STATUTE TEXT (check this for missing references):\n' + chunksText
             }
           ]
-        }, 120000);
+        }, 10000);
 
       const missingMatch = checkResult.match(/MISSING:\s*(.+)/i);
       const additionsMatch = checkResult.match(/ADDITIONS:\s*([\s\S]+)/i);
@@ -3030,6 +3031,29 @@ class ChatService {
         console.log(`🎯 [Exact Norm Detector] Found: GG §${paragraph} (Article, Grundgesetz context)`);
         return { statute: 'GG', paragraph, isArticle: true, source: 'explicit_question_reference', matchedPattern: 'artikel-grundgesetz-context' };
       }
+    }
+
+    return null;
+  }
+
+  detectConceptualNormReference(question) {
+    if (!question || typeof question !== 'string') return null;
+    // Only applies when the question has no explicit § — those go through detectExactNormReference
+    if (/§\s*\d+/.test(question)) return null;
+    const q = question.toLowerCase();
+
+    // Good faith acquisition — §§ 929–935 BGB (gutgläubiger Erwerb)
+    const hasGoodFaith = /\bgood[\s-]?faith\b|\bgutgläubig\b|\bbona\s+fide\b/.test(q);
+    const hasAcquisition = /\bacquir[esdrin]|\bbuy\b|\bbuyer\b|\bpurchas|\bsell[e]?\b|\bnon.?owner\b|\bnichtberech|\berwerb\b|\beigentum\b|\bpossess/.test(q);
+    if (hasGoodFaith && hasAcquisition) {
+      console.log(`🧠 [ConceptualNorm] "good faith acquisition" → BGB §932`);
+      return { statute: 'BGB', paragraph: '932', authority_mode: 'concept', isStatuteLocked: true, isParagraphLocked: false };
+    }
+
+    // Ownerless / abandoned property — §§ 958–960 BGB (herrenlose Sachen / Aneignung)
+    if (/\bherrenlos|\bownerless\b|\babandoned\s+propert|\bres\s+nullius\b|\baneignung\b/.test(q)) {
+      console.log(`🧠 [ConceptualNorm] "ownerless/herrenlos" → BGB §958`);
+      return { statute: 'BGB', paragraph: '958', authority_mode: 'concept', isStatuteLocked: true, isParagraphLocked: false };
     }
 
     return null;
@@ -3345,8 +3369,8 @@ STRICT RULES:
             const _gDocs = ragService.filterByStatute(_gs, allDocuments);
             for (const _gDoc of _gDocs) {
               const _gRaw = _gDoc.chunks
-                ? _gDoc.chunks.map(c => ({ content: c.content || '', source: _gs, metadata: c.metadata || {} }))
-                : _gDoc.content ? [{ content: _gDoc.content, source: _gs, metadata: {} }] : [];
+                ? _gDoc.chunks.map(c => ({ content: c.content || '', source: _gs, statute: _gs, paragraph: c.metadata?.paragraph || '', metadata: c.metadata || {} }))
+                : _gDoc.content ? [{ content: _gDoc.content, source: _gs, statute: _gs, metadata: {} }] : [];
               _guardChunks.push(..._gRaw.filter(c => c.content.length > 50));
             }
           }
@@ -3984,11 +4008,39 @@ STRICT RULES:
         }
       }
 
+      // Concept-based short-circuit: skip slow Python FAISS for well-known English legal
+      // concepts whose German statute/paragraph mapping is deterministic and unambiguous.
+      if (!authority?.statute) {
+        const _conceptNorm = this.detectConceptualNormReference(question);
+        if (_conceptNorm) {
+          authority = _conceptNorm;
+          console.log(`🧠 [ConceptShortcut] ${authority.statute} §${authority.paragraph} — Python FAISS skipped`);
+        }
+      }
+
       if (authority?.statute) {
         console.log(`[Authority] Already resolved (${authority.statute}), skipping second call`);
       } else
       try {
-        const authorityResult = await pythonIntegrationService.resolveAuthority(question);
+        // Expand English legal terms to German equivalents before Python FAISS search
+        // so multilingual embeddings score German statute text correctly.
+        const _PRE_EXPAND = {
+          'good faith':        'gutgläubig Erwerb § 932 § 929 § 935',
+          'bona fide':         'gutgläubig § 932 § 929 § 935',
+          'abandoned property':'herrenlose Sachen § 958 § 959 § 960 Aneignung',
+          'ownerless':         'herrenlos § 958 § 959 § 960',
+          'duress':            'Drohung § 123 Anfechtung widerrechtlich',
+          'fraudulent':        'arglistig § 123 Täuschung Anfechtung',
+          'good-faith':        'gutgläubig § 932 § 929',
+        };
+        let _pythonQuery = question;
+        for (const [en, de] of Object.entries(_PRE_EXPAND)) {
+          if (question.toLowerCase().includes(en.toLowerCase())) {
+            _pythonQuery += ' ' + de;
+            console.log(`[PreExpand] "${en}" → appended German terms for Python FAISS`);
+          }
+        }
+        const authorityResult = await pythonIntegrationService.resolveAuthority(_pythonQuery);
         
         if (authorityResult.success && authorityResult.authority) {
           authority = authorityResult.authority;
@@ -4340,7 +4392,7 @@ STRICT RULES:
                         content: 'QUESTION: ' + _q + '\n\nRETRIEVED STATUTE TEXT:\n' + _exactChunkText
                       }
                     ]
-                  }, 120000);
+                  }, 18000);
                 if (_exactAnswer && _exactAnswer.length > 100) {
                   console.log('[SYNTH-EXACT-DS] success, length:', _exactAnswer.length);
                   exactResponse.data.answer = _exactAnswer;
@@ -4418,7 +4470,7 @@ STRICT RULES:
                     content: 'QUESTION: ' + _q + '\n\nRETRIEVED STATUTE TEXT:\n' + _exactChunkText
                   }
                 ]
-              }, 120000);
+              }, 18000);
             if (_exactAnswer && _exactAnswer.length > 100) {
               console.log('[SYNTH-EXACT-DS] success, length:', _exactAnswer.length);
               exactResponse.data.answer = _exactAnswer;
@@ -4689,8 +4741,8 @@ STRICT RULES:
       const _semanticChunks = _pyResults.map(r => ({
         content:         r.content || r.text || '',
         documentName:    r.documentName || r.filename || r.document || (r.statute ? `${r.statute}.pdf` : ''),
-        documentStatute: r.statute || '',
-        statute:         r.statute || '',
+        documentStatute: r.statute || (r.metadata || {}).statute || r.source || '',
+        statute:         r.statute || (r.metadata || {}).statute || r.source || '',
         paragraph:       r.paragraph || (r.metadata || {}).paragraph || '',
         similarity:      typeof r.similarity === 'number' ? r.similarity : (typeof r.score === 'number' ? r.score : 1.0),
         tfidfScore:      typeof r.tfidf_score === 'number' ? r.tfidf_score : 0,
@@ -4871,6 +4923,9 @@ STRICT RULES:
         const _a = formattedResponse?.data?.answer || '';
         const _signals = ['rechte','ansprüche','voraussetzungen','rechtsfolgen','was sind','was regelt','unterschied','erklären','bedeutung','prüfungsschema','welche','sachmängel','wie wird','wie entsteht','welche pflichten','welche folgen','what','how','distinguish','explain','analyze','discuss','compare','difference','when','under what','circumstances','doctrine','principle','rights','requirements','conditions','liability','deprivation','loss','constitutional','fundamental'];
         const _hit = _q.length > 40;
+        // Budget: hard 30s wall in server.js; synthesis must leave headroom.
+        // Python call may consume up to 10s, so cap synthesis at 18s.
+        const _SYNTH_TIMEOUT = 18000;
         console.log('[SYNTH]', _hit, '|', _q.substring(0, 50));
         if (_hit && _a.length > 30 && process.env.DEEPSEEK_API_KEY) {
           const _synthTokens = (isComparison || _crossStatute) ? 2500 : 1500;
@@ -4890,7 +4945,7 @@ STRICT RULES:
                   content: 'Question: ' + _q + '\n\nRetrieved legal chunks:\n' + _a
                 }
               ]
-            }, 120000);
+            }, _SYNTH_TIMEOUT);
           if (_s && _s.length > 100) {
             console.log('[SYNTH SUCCESS] length:', _s.length);
             const _lastChar = _s.slice(-1);

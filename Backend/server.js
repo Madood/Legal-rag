@@ -303,12 +303,30 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
     });
   }
 
+  // Hard wall covers processQuestion + quality-gate DeepSeek fallback combined.
+  // processQuestion has internal 18s synthesis caps; quality gate gets 7s.
+  // Total budget: 28s → always responds before any client 30s timeout.
+  const _deadline = Date.now() + 28000;
+  const _withTimeout = (promise, ms, label) =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      ),
+    ]);
+
   try {
-    let response = await chatService.processQuestion(question, { language: lang });
+    let response = await _withTimeout(
+      chatService.processQuestion(question, { language: lang }),
+      26000,
+      'processQuestion'
+    );
 
     // ── Quality gate ────────────────────────────────────────────────────────────
     // Runs here (after processQuestion) so it catches EVERY exit path, including
     // early clarification returns that bypass STEP 15 inside chatService.
+    // Budget: whatever remains before the 28s deadline, capped at 7s.
+    const _gateMs = Math.min(7000, Math.max(1000, _deadline - Date.now()));
     if (response.success && process.env.DEEPSEEK_API_KEY) {
       const answerText = response.data?.answer || '';
       const isClarification = !!response.data?.clarification_required;
@@ -381,7 +399,7 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
                 { role: 'user', content: question }
               ]
             }),
-            signal: AbortSignal.timeout(15000)
+            signal: AbortSignal.timeout(_gateMs)
           });
           const fallbackData = await fallbackRes.json();
           const fallbackAnswer = fallbackData.choices?.[0]?.message?.content;

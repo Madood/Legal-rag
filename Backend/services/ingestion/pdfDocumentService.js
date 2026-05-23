@@ -37,6 +37,13 @@ class PdfDocumentService {
         // ✅ FIXED: DETECT STATUTE FIRST, THEN CHUNK ACCORDINGLY
         const statute = this.detectStatute(text, filePath);
 
+        // Skip if this statute was already loaded from a previous file
+        const alreadyLoaded = this.documents.find(d => d.metadata?.statute === statute);
+        if (alreadyLoaded) {
+          console.warn(`⚠️ Skipping duplicate: ${path.basename(filePath)} — ${statute} already loaded from ${alreadyLoaded.filename}`);
+          continue;
+        }
+
         let chunks;
         // All statutes that use § N format get the paragraph splitter.
         // GG uses Art N format (splitByArtikel). Everything else falls back to createChunks.
@@ -48,6 +55,10 @@ class PdfDocumentService {
         ];
         if (PARAGRAPH_STATUTES.includes(statute)) {
           chunks = this.splitByParagraph(text, statute);
+          if (chunks.length === 0) {
+            console.warn(`⚠️ splitByParagraph returned 0 chunks for ${path.basename(filePath)} (text length: ${text.length}) — falling back to createChunks`);
+            chunks = this.createChunks(text);
+          }
         } else if (["GG"].includes(statute)) {
           chunks = this.splitByArtikel(text, statute);
         } else {
@@ -177,6 +188,46 @@ class PdfDocumentService {
       .replace(/\n-\s*Seite\s+\d+\s+von\s+\d+\s*-\n/gi, '\n');
   }
 
+  /**
+   * Remove PDF extraction artifacts: adjacent duplicate words/phrases and
+   * duplicate sentences within a single chunk.
+   * Applied to every chunk on load — safe for valid legal text because it
+   * only removes ADJACENT repetitions, not semantically valid repetitions.
+   */
+  static _cleanChunkText(text) {
+    if (!text || text.length < 10) return text;
+    let t = text;
+
+    // Pass 1: adjacent duplicate single tokens ≥3 chars.
+    // Avoids \b so German umlauts (ä, ö, ü, ß) are handled correctly.
+    // "Tod Tod" → "Tod",  "anderen, anderen" → "anderen,"
+    t = t.replace(/(^|[\s,;:()\[\]])([^\s,;:()\[\]]{3,})([\s,;:()\[\]])(\2)(?=[\s,;:()\[\].!?]|$)/gi,
+      (_, pre, word, sep, _dup) => pre + word + sep);
+
+    // Pass 2: adjacent duplicate 2–5 word phrases.
+    // "eines anderen eines anderen" → "eines anderen"
+    for (let n = 5; n >= 2; n--) {
+      const re = new RegExp(
+        `([^\\s]+(?:\\s[^\\s]+){${n - 1}})(\\s+)\\1(?=\\s|$)`,
+        'g'
+      );
+      t = t.replace(re, '$1');
+    }
+
+    // Pass 3: remove exact duplicate sentences within the chunk.
+    // Only deduplicates sentences ≥30 chars to avoid removing valid short clauses.
+    const seen = new Set();
+    t = t.replace(/[^.!?\n]+[.!?]*/g, sent => {
+      const key = sent.trim().toLowerCase();
+      if (key.length >= 30 && seen.has(key)) return '';
+      if (key.length >= 30) seen.add(key);
+      return sent;
+    });
+
+    // Normalize whitespace artefacts left by removals
+    return t.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   splitByParagraph(text, statute) {
     // Strip PDF page-header boilerplate before any further processing.
     // 458 of 2518 BGB chunks were contaminated — clean at source.
@@ -197,15 +248,16 @@ class PdfDocumentService {
       const paraNum = m[1].toLowerCase();           // e.g. "311", "311a"
       if (!block || block.length < 20) continue;    // skip noise / empty matches
 
+      const cleanedBlock = PdfDocumentService._cleanChunkText(block);
       chunks.push({
-        content: block,
+        content: cleanedBlock,
         chunk_index: chunks.length,
         metadata: {
           statute,
           paragraph: paraNum,
           isNormParagraph: true,
           startsWithParagraph: true,
-          wordCount: block.split(/\s+/).length
+          wordCount: cleanedBlock.split(/\s+/).length
         }
       });
     }
@@ -216,8 +268,9 @@ class PdfDocumentService {
       fallback.forEach((block, index) => {
         const pm = block.match(/§\s*(\d+[a-z]?)/);
         if (!pm) return;
+        const cleanedFb = PdfDocumentService._cleanChunkText(block.trim());
         chunks.push({
-          content: block.trim(),
+          content: cleanedFb,
           chunk_index: index,
           metadata: {
             statute,
@@ -245,8 +298,9 @@ class PdfDocumentService {
       const articleNum = m[1];
       const body = m[2].trim();
       if (!body) continue;
+      const cleanedBody = PdfDocumentService._cleanChunkText(`Art ${articleNum}\n${body}`);
       results.push({
-        content: `Art ${articleNum}\n${body}`,
+        content: cleanedBody,
         chunk_index: results.length,
         metadata: {
           statute,
@@ -254,7 +308,7 @@ class PdfDocumentService {
           isNormParagraph: true,
           startsWithParagraph: true,
           isArticle: true,
-          wordCount: body.split(/\s+/).length
+          wordCount: cleanedBody.split(/\s+/).length
         }
       });
     }
@@ -266,15 +320,18 @@ class PdfDocumentService {
       .split(/\n\s*\n/)
       .map(p => p.trim())
       .filter(p => p.length > 50)
-      .map((p, i) => ({
-        content: p,
-        chunk_index: i,
-        metadata: {
-          wordCount: p.split(/\s+/).length,
-          isNormParagraph: this.isNormParagraph(p),
-          startsWithParagraph: /^§\s*\d+/.test(p)
-        }
-      }));
+      .map((p, i) => {
+        const cleanedP = PdfDocumentService._cleanChunkText(p);
+        return {
+          content: cleanedP,
+          chunk_index: i,
+          metadata: {
+            wordCount: cleanedP.split(/\s+/).length,
+            isNormParagraph: this.isNormParagraph(cleanedP),
+            startsWithParagraph: /^§\s*\d+/.test(cleanedP)
+          }
+        };
+      });
   }
 
   detectParagraphsInText(text, statute) {

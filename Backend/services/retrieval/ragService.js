@@ -71,6 +71,30 @@ class RAGService {
 
     console.log(`\n🤖 RAG Execution: "${question.substring(0, 60)}..."`);
 
+    // Expand rare / English terms into their German statute equivalents so
+    // TF-IDF can score German corpus text. Only appended — original question preserved.
+    const _QUERY_EXPANSION = {
+      'good faith':        'gutgläubig Erwerb § 932 § 929 § 935 Nichtberechtigter',
+      'good-faith':        'gutgläubig Erwerb § 932 § 929 § 935',
+      'gutgläubig':        'good faith § 932 § 929 § 935 Erwerber Eigentum',
+      'bona fide':         'gutgläubig § 932 § 929 § 935',
+      'herrenlos':         'Aneignung § 958 § 959 § 960 herrenlose Sachen',
+      'abandoned property':'herrenlose Sachen § 958 § 959 § 960 Aneignung',
+      'ownerless':         'herrenlos § 958 § 959 § 960 Aneignung',
+      'drohung':           'Anfechtung § 123 widerrechtlich Bedrohung',
+      'duress':            'Drohung § 123 Anfechtung widerrechtlich',
+      'threat':            'Drohung § 123 Anfechtung',
+      'fraud':             'Täuschung § 123 Betrug arglistig',
+      'fraudulent':        'arglistig § 123 Täuschung Anfechtung',
+    };
+    let expandedQuestion = question;
+    for (const [term, expansion] of Object.entries(_QUERY_EXPANSION)) {
+      if (question.toLowerCase().includes(term.toLowerCase())) {
+        expandedQuestion += ' ' + expansion;
+        console.log(`[QueryExpand] "${term}" → appended: ${expansion}`);
+      }
+    }
+
     // 🔴 CRITICAL FIX: DOCTRINE BYPASS - If answer came from doctrine, skip RAG entirely
     if (options.doctrine_applied === true) {
       console.log(`✅ [Doctrine Bypass] Answer already provided by Python doctrine, skipping RAG`);
@@ -237,12 +261,14 @@ class RAGService {
             return; // Skip this chunk
           }
           
+          const _origPara = chunk.metadata?.paragraph || chunk.paragraph || '';
           allChunks.push({
             content: content,
             embeddings: chunk.embeddings || [],
             documentId: doc.id || `doc_${docIndex}`,
             documentName: doc.filename || `Document ${docIndex}`,
             documentStatute: chunkStatute,
+            paragraph: _origPara,
             chunkIndex: chunkIndex,
             isBoilerplate: this.isBoilerplateContent(content),
             isExcludedStatute: this.isStatuteExcluded(chunkStatute, statute, domain_anchor),
@@ -251,6 +277,7 @@ class RAGService {
               hasParagraph: /§\s*\d+/.test(content),
               hasArticle: /(?:Artikel|Art\.|Article)\s*\d+/.test(content),
               statute: chunkStatute,
+              paragraph: _origPara,
             },
           });
         });
@@ -347,14 +374,14 @@ class RAGService {
             semanticChunks = exactMatches;
           } else {
             console.log(`⚠️ No exact matches, TF-IDF is only option — running on all chunks`);
-            semanticChunks = this.tfidfRerank(allChunks, question);
+            semanticChunks = this.tfidfRerank(allChunks, expandedQuestion);
           }
         } else {
           semanticChunks = allChunks;
         }
       } else {
         console.log(`⚠️ No Python semantic chunks, using TF-IDF fallback`);
-        const tfidfChunks = this.tfidfRerank(allChunks, question);
+        const tfidfChunks = this.tfidfRerank(allChunks, expandedQuestion);
         
         if (tfidfChunks.length === 0) {
           return this.getNoRelevantContentResponse(startTime, language, statute);
@@ -366,17 +393,19 @@ class RAGService {
 
     // ⭐⭐ DOCTRINE: Filter out chunks from excluded statutes
     let filteredSemanticChunks = semanticChunks.filter(chunk => {
-      const chunkStatute = chunk.documentStatute || chunk.statute;
+      const chunkStatute = chunk.documentStatute || chunk.statute
+        || (chunk.metadata || {}).statute || chunk.source || '';
+      if (!chunkStatute) return true; // no statute label → already domain-filtered upstream
       return this.isChunkAllowedInDomain(chunkStatute, statute, domain_anchor);
     });
 
-    console.log(`🎯 After doctrine filtering: ${filteredSemanticChunks.length} semantic chunks`);
+    console.log(`🎯 [Doctrine] After doctrine filtering: ${filteredSemanticChunks.length} semantic chunks`);
 
     // ✅ NEW: Apply TF-IDF reranking (secondary to semantic ranking)
     if (filteredSemanticChunks.length > 0) {
       filteredSemanticChunks = this.applyTFIDFReranking(
-        filteredSemanticChunks, 
-        question, 
+        filteredSemanticChunks,
+        expandedQuestion,
         options.python_results
       );
     }
@@ -432,8 +461,8 @@ class RAGService {
       'anfechtbar':     ['anfechtbar', 'anfechtung', '§ 119', '§ 123', '§ 142'],
       'anfechtung':     ['anfechtung', '§ 119', '§ 143'],
       'verjährung':     ['verjährung', '§ 195', '§ 199'],
-      'besitz':         ['besitz', '§ 854', '§ 868', '§ 855'],
-      'eigentum':       ['eigentum', '§ 903', '§ 929'],
+      'besitz':         ['§ 854', '§ 868', '§ 872', '§ 855', '§ 858', '§ 986', 'besitz'],
+      'eigentum':       ['§ 903', '§ 929', '§ 985', '§ 986', 'eigentum'],
       'schadensersatz': ['schadensersatz', '§ 249', '§ 280', '§ 823'],
       'notwehr':        ['notwehr', '§ 32'],
       'vorsatz':        ['vorsatz', '§ 15'],
@@ -441,6 +470,18 @@ class RAGService {
       'mahnung':        ['mahnung', '§ 286', '§ 280', '§ 288', '§ 287'],
       'verzug':         ['verzug', '§ 286', '§ 280', '§ 288', '§ 287', '§ 293'],
       'schuldnerverzug':['schuldnerverzug', '§ 286', '§ 287', '§ 288'],
+      // Good-faith acquisition (§§ 929, 932, 935)
+      'good faith':     ['§ 932', '§ 929', '§ 935', 'gutgläubig'],
+      'gutgläubig':     ['§ 932', '§ 929', '§ 935', 'gutgläubig', 'erwerb'],
+      'bona fide':      ['§ 932', '§ 929', '§ 935', 'gutgläubig'],
+      // Herrenlose Sachen / ownerless property (§§ 958–960)
+      'herrenlos':      ['§ 958', '§ 959', '§ 960', 'herrenlos', 'aneignung'],
+      'abandoned':      ['§ 958', '§ 959', '§ 960', 'herrenlos', 'aneignung'],
+      'ownerless':      ['§ 958', '§ 959', '§ 960', 'herrenlos'],
+      // Drohung / duress (§ 123)
+      'drohung':        ['§ 123', 'drohung', 'anfechtung', 'widerrechtlich'],
+      'duress':         ['§ 123', 'drohung', 'anfechtung'],
+      'threat':         ['§ 123', 'drohung'],
     };
 
     const questionLower = question.toLowerCase();
@@ -1453,7 +1494,16 @@ class RAGService {
       const simNum   = parseFloat(chunk.similarity)  || 0;
       const tfidfNum = parseFloat(chunk.tfidfScore) || 0;
       const combined = chunk.combinedScore || (simNum * 0.7 + tfidfNum * 0.3) || simNum || 0.5;
-      const _para = chunk.metadata?.paragraph || chunk.paragraph || null;
+      const _metaPara = chunk.metadata?.paragraph || chunk.metadata?.meta?.paragraph || '';
+      const _topPara  = chunk.paragraph || chunk.section || '';
+      // Last resort: extract leading § N from content ("§ 854 ..." → "854")
+      const _contentPara = (() => {
+        if (_metaPara || _topPara) return '';
+        const m = (chunk.content || '').match(/^§\s*(\d+[a-z]?)\b/i)
+               || (chunk.content || '').match(/\n§\s*(\d+[a-z]?)\b/i);
+        return m ? m[1] : '';
+      })();
+      const _para = _metaPara || _topPara || _contentPara || null;
       const _filename = chunk.documentName || chunk.filename || chunk.document || (statute ? `${statute}.pdf` : '');
       return {
         id: index + 1,
