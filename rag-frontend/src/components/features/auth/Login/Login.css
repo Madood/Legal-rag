@@ -1,7 +1,8 @@
 /* Base styles */
 .login-container {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
+  overflow: hidden;
   background-color: white;
 }
 
@@ -15,8 +16,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: 3rem 2rem 2rem;
   background-color: white;
+  overflow-y: auto;
+  height: 100%;
 }
 
 .dark .login-form-section {
@@ -360,7 +363,7 @@
   display: none;
   flex: 1;
   position: relative;
-  background: linear-gradient(135deg, #2C3E50, #3498DB);
+  background: none;
 }
 
 @media (min-width: 1024px) {

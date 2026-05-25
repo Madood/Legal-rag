@@ -343,8 +343,16 @@ async def authoritative_search(
                     "statute": resolved_statute or statute,
                     "authoritative_found": any(r.get("is_authoritative", False) for r in search_results),
                     "authority_metadata": authority_metadata,
+                    "authority_final": authority_metadata.get("authority_final") or resolved_statute or statute,
+                    "authority_source": authority_metadata.get("authority_source", "resolver"),
+                    "cross_statutes": authority_metadata.get("cross_statutes", []),
+                    "is_cross_statute": authority_metadata.get("is_cross_statute", False),
                     "requires_clarification": False,
                     "corpus_state": corpus_state,
+                    # Domain anchor data for Node.js anchor-boost
+                    "domain_anchor_paragraphs": authority_metadata.get("domain_anchor_paragraphs", []),
+                    "domain_anchor_domain": authority_metadata.get("domain_anchor_domain", ""),
+                    "question_type": authority_metadata.get("question_type"),
                     "_request_metadata": {
                         "query_received": query_text[:100],
                         "question_type": question_type,

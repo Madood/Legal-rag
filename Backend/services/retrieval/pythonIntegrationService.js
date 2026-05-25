@@ -51,7 +51,13 @@ class PythonIntegrationService {
         results: pythonData.results || [],
         requires_clarification: pythonData.requires_clarification || false,
         clarification: pythonData.clarification,
-        python_response: pythonData
+        python_response: pythonData,
+        anchorParagraphs: pythonData.domain_anchor_paragraphs || [],
+        questionType: pythonData.question_type || 'GENERAL',
+        authority_final: pythonData.authority_final || pythonData.authority_metadata?.authority_final || null,
+        authority_source: pythonData.authority_source || pythonData.authority_metadata?.authority_source || 'resolver',
+        crossStatutes: pythonData.cross_statutes || [],
+        isCrossStatute: pythonData.is_cross_statute || false,
       };
       
     } catch (error) {

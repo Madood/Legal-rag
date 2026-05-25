@@ -37,7 +37,7 @@ class DomainDiscovery:
         """
         self.profiles = profiles
         self.log_prefix = "[DomainDiscovery]"
-        print(f'✅ DomainDiscovery initialized with {len(profiles.domain_mappings)} domains')
+        print(f'[OK] DomainDiscovery initialized with {len(profiles.domain_mappings)} domains')
     
     def detect_domain(self, question: str) -> DomainResult:
         """
@@ -56,7 +56,7 @@ class DomainDiscovery:
         
         lower_question = question.lower().strip()
         
-        print(f'🔍 {self.log_prefix} Analyzing: "{question[:80]}{"..." if len(question) > 80 else ""}"')
+        print(f'[SEARCH] {self.log_prefix} Analyzing: "{question[:80]}{"..." if len(question) > 80 else ""}"')
         
         # Detection pipeline - ordered by confidence
         detection_steps = [
@@ -77,7 +77,7 @@ class DomainDiscovery:
             return field_result
         
         # No domain detected
-        print(f'❌ {self.log_prefix} No domain detected')
+        print(f'[ERR] {self.log_prefix} No domain detected')
         return DomainResult(
             domain="general",
             candidate_statutes=[],
@@ -104,7 +104,7 @@ class DomainDiscovery:
             # Look for standalone statute references
             pattern = r'\b' + re.escape(statute_key) + r'\b'
             if re.search(pattern, lower_question):
-                print(f'📚 {self.log_prefix} Explicit statute: {statute_key.upper()} → {domain}')
+                print(f'[DOC] {self.log_prefix} Explicit statute: {statute_key.upper()} → {domain}')
                 return DomainResult(
                     domain=domain,
                     candidate_statutes=[statute],
@@ -129,7 +129,7 @@ class DomainDiscovery:
             for term in offense_terms:
                 pattern = r'\b' + re.escape(term.lower()) + r'\b'
                 if re.search(pattern, lower_question):
-                    print(f'⚖️  {self.log_prefix} Detected offense: {offense_name}')
+                    print(f'[LAW]  {self.log_prefix} Detected offense: {offense_name}')
                     
                     # Get primary statute from offense mapping
                     primary_statute = offense_data.get('primary_statute')
@@ -207,7 +207,7 @@ class DomainDiscovery:
                     domain_range = self.profiles.get_domain_from_paragraph(para_num)
                     if domain_range:
                         domain, statute = domain_range
-                        print(f'📊 {self.log_prefix} Paragraph inference: §{para_num} → {domain}')
+                        print(f'[STAT] {self.log_prefix} Paragraph inference: §{para_num} → {domain}')
                         
                         return DomainResult(
                             domain=domain,

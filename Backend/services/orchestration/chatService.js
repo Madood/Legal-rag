@@ -3668,7 +3668,10 @@ STRICT RULES:
                 '| Voraussetzungen | ... | ... |\n' +
                 '| Rechtsfolge | ... | ... |\n' +
                 '| Hauptunterschied | ... | ... |\n\n' +
-                'Antworte auf Deutsch. Nur auf Basis des bereitgestellten Gesetzestextes.'
+                (languageStr === 'german'
+                  ? 'Antworte auf Deutsch.'
+                  : `Respond in ${languageStr}. Keep German legal terms (§, BGB, StGB, etc.); write all explanations in ${languageStr}.`) +
+                ' Base answer on retrieved statute text only.'
             },
             {
               role: 'user',
@@ -3705,7 +3708,16 @@ STRICT RULES:
     };
   }
 
+  normalizeQuery(q) {
+    // "242 BGB" → "§ 242 BGB"; already-present § is preserved (not doubled)
+    return q.replace(
+      /(§\s*)?(\b\d{1,4}[a-z]?\b)\s+(BGB|StGB|HGB|GG|ZPO|StPO|InsO|AktG|GmbHG|AO)\b/gi,
+      (match, prefix, num, statute) => prefix ? match : `§ ${num} ${statute}`
+    );
+  }
+
   async processQuestion(question, context = {}) {
+    question = this.normalizeQuery(question);
     console.log('[DEBUG ROUTE]', question.substring(0, 60));
     console.log('[DEBUG isPureDoc]', this.isPureDoctrineQuestion(question));
     const _compCheck = ['unterschied','unterschiede','vergleich','compare','versus',' vs ','contrast','abgrenzung','gegensatz','difference','differences','vergleichen'];
@@ -3714,9 +3726,14 @@ STRICT RULES:
     let authority = null;
     let authorityLock = { __locked: false };
     let pythonAuthorityError = null;
+    let _pythonFirstCallResults = []; // hoisted so it's accessible after the try block
 
     const _lang = context.language || 'de';
-    const languageStr = _lang === 'de' ? 'german' : 'english';
+    const _LANG_MAP = { de: 'german', en: 'english', pl: 'polish', ar: 'arabic', no: 'norwegian' };
+    const languageStr = _LANG_MAP[_lang] || 'german';
+    const _langInstruction = languageStr !== 'german'
+      ? `\n\nCRITICAL: Respond entirely in ${languageStr}. German legal terms (§, Abs., BGB, StGB, GG, etc.) may remain in German; write ALL explanations, definitions, and analyses in ${languageStr}.`
+      : '';
 
     // §434 three-step test injection — computed once, used in all synthesis prompts
     const _is434 = /§\s*434|sachmangel|kaufvertrag\s+mangel/i.test(question);
@@ -3865,7 +3882,7 @@ STRICT RULES:
                     content: 'German law tutor. Answer using retrieved chunks only.\n' +
                       'Structure: 1.DEFINITION 2.LEGAL BASIS 3.ELEMENTS/SUBTYPES 4.RECHTSFOLGE 5.SUMMARY\n' +
                       'Cite only §§ in chunks. Plain text. End with SUMMARY. Max 250 words.\n' +
-                      'Never: "Provision not in sources", "Please re-query". Never Art.94 for Normenkontrolle.'
+                      'Never: "Provision not in sources", "Please re-query". Never Art.94 for Normenkontrolle.' + _langInstruction
                   },
                   {
                     role: 'user',
@@ -3903,7 +3920,7 @@ STRICT RULES:
                       '- Instanzenzug/Berufung/Revision: cite §§ 511-544 ZPO and §§ 12, 23, 72, 119 GVG\n' +
                       '- No cut-off sentences\n' +
                       '- Under 250 words total\n' +
-                      '- End with SUMMARY line'
+                      '- End with SUMMARY line' + _langInstruction
                   },
                   {
                     role: 'user',
@@ -4041,7 +4058,14 @@ STRICT RULES:
           }
         }
         const authorityResult = await pythonIntegrationService.resolveAuthority(_pythonQuery);
-        
+        _pythonFirstCallResults = authorityResult.results || [];
+        console.log('[DEBUG] Python authority result:', JSON.stringify({
+          statute: authorityResult?.authority?.statute,
+          success: authorityResult?.success,
+          resultsCount: _pythonFirstCallResults.length,
+          anchorParagraphs: authorityResult?.anchorParagraphs,
+        }));
+
         if (authorityResult.success && authorityResult.authority) {
           authority = authorityResult.authority;
 
@@ -4145,6 +4169,7 @@ STRICT RULES:
           authorityLock = this.createAuthorityLock(authority);
           
           if (authorityResult.authority.question_type) authority.question_type = authorityResult.authority.question_type;
+          if (authorityResult.anchorParagraphs?.length > 0) authority.domain_anchor_paragraphs = authorityResult.anchorParagraphs;
           if (authorityResult.authority.doctrinal_match !== undefined) authority.doctrinal_match = authorityResult.authority.doctrinal_match;
           if (authorityResult.authority.epistemicCertainty) authority.epistemicCertainty = authorityResult.authority.epistemicCertainty;
           else if (authorityResult.authority.epistemic_certainty) authority.epistemicCertainty = authorityResult.authority.epistemic_certainty;
@@ -4385,7 +4410,7 @@ STRICT RULES:
                         content: 'German law tutor. Answer using retrieved statute text only.\n' +
                           'Structure: 1.DEFINITION 2.LEGAL BASIS 3.ELEMENTS/SUBTYPES 4.RECHTSFOLGE 5.SUMMARY\n' +
                           'List ALL conditions for "under what conditions" questions. Cite only §§ in text.\n' +
-                          'Plain text. End with SUMMARY. No markdown.' + _434Instruction + _13Instruction + _201aInstruction + _249Instruction
+                          'Plain text. End with SUMMARY. No markdown.' + _434Instruction + _13Instruction + _201aInstruction + _249Instruction + _langInstruction
                       },
                       {
                         role: 'user',
@@ -4463,7 +4488,7 @@ STRICT RULES:
                     content: 'German law tutor. Answer using retrieved statute text only.\n' +
                       'Structure: 1.DEFINITION 2.LEGAL BASIS 3.ELEMENTS/SUBTYPES 4.RECHTSFOLGE 5.SUMMARY\n' +
                       'List ALL conditions for "under what conditions" questions. Cite only §§ in text.\n' +
-                      'Plain text. End with SUMMARY. No markdown.' + _434Instruction + _13Instruction + _201aInstruction + _249Instruction
+                      'Plain text. End with SUMMARY. No markdown.' + _434Instruction + _13Instruction + _201aInstruction + _249Instruction + _langInstruction
                   },
                   {
                     role: 'user',
@@ -4538,9 +4563,23 @@ STRICT RULES:
         return resultFormatter.formatResponse(result, authority);
       }
       
-      let pythonResults = await this.retrieveDocumentsWithDoctrineGuard(
-        question, authority, authorityLock, allDocuments, classification
-      );
+      // If resolveAuthority() already returned retrieval results, use them directly.
+      // Making a second getAuthoritativeSources call would let the doctrine guard
+      // intercept and fall back to TF-IDF on allDocuments, discarding the FAISS results.
+      let pythonResults;
+      if (_pythonFirstCallResults.length > 0) {
+        console.log(`[DEBUG] Using ${_pythonFirstCallResults.length} results from resolveAuthority directly`);
+        pythonResults = {
+          results: _pythonFirstCallResults,
+          authoritative_found: true,
+          authority_summary: {},
+          authority_mode: authority.authority_mode,
+        };
+      } else {
+        pythonResults = await this.retrieveDocumentsWithDoctrineGuard(
+          question, authority, authorityLock, allDocuments, classification
+        );
+      }
 
       // Paragraph relevance filter — when an exact §+statute is locked, discard chunks
       // whose paragraph metadata (or content) does not match the requested paragraph.
@@ -4759,10 +4798,27 @@ STRICT RULES:
           authority: authority,
           classification: classification,
           python_results: pythonResults,
-          semanticChunks: _semanticChunks
+          semanticChunks: _semanticChunks,
+          anchorParagraphs: authority.domain_anchor_paragraphs || [],
+          questionType: authority.question_type || 'GENERAL',
         }
       );
       
+      console.log('[DEBUG] RAG response:', JSON.stringify({
+        success: ragResponse?.success,
+        answerLength: ragResponse?.data?.answer?.length,
+        sourcesCount: ragResponse?.data?.sources?.length,
+        error: ragResponse?.error,
+      }));
+      console.log('[DEBUG sources]', JSON.stringify(
+        (ragResponse?.data?.sources || []).map(s => ({
+          paragraph: s.paragraph,
+          statute: s.statute || s.document,
+          score: s.score,
+          confidence: s.confidence,
+        }))
+      ));
+
       ragResponse.python_service_used = true;
       ragResponse.python_authority_resolved = !pythonAuthorityError && authority.statute;
       ragResponse.python_authoritative_found = pythonResults?.authoritative_found || false;
@@ -4938,7 +4994,7 @@ STRICT RULES:
                   content: 'German law tutor. Answer using retrieved chunks only; use doctrinal knowledge when chunks are irrelevant.\n' +
                     'Structure: 1.DEFINITION 2.LEGAL BASIS 3.ELEMENTS/SUBTYPES 4.RECHTSFOLGE 5.SUMMARY\n' +
                     'Rules: cite §§ from chunks; never "Provision not in sources" or "Please re-query"; never Art.94 for Normenkontrolle (use Art.93/100 GG); never §316c/§232 StGB for Vorsatz (use §15/§16 StGB).\n' +
-                    'Plain text. End with SUMMARY. Max 250 words.' + _434Instruction + _13Instruction + _201aInstruction + _249Instruction
+                    'Plain text. End with SUMMARY. Max 250 words.' + _434Instruction + _13Instruction + _201aInstruction + _249Instruction + _langInstruction
                 },
                 {
                   role: 'user',

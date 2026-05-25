@@ -396,6 +396,10 @@ class RAGService {
       const chunkStatute = chunk.documentStatute || chunk.statute
         || (chunk.metadata || {}).statute || chunk.source || '';
       if (!chunkStatute) return true; // no statute label → already domain-filtered upstream
+      // Normalise: uppercase + strip .pdf suffix that Python source fields may carry
+      const normChunk  = chunkStatute.replace(/\.pdf$/i, '').toUpperCase();
+      const normAnchor = (statute || '').toUpperCase();
+      if (normChunk === normAnchor) return true; // fast path — exact case-insensitive match
       return this.isChunkAllowedInDomain(chunkStatute, statute, domain_anchor);
     });
 
@@ -408,6 +412,18 @@ class RAGService {
         expandedQuestion,
         options.python_results
       );
+    }
+
+    // Anchor boost: elevate chunks whose paragraph matches domain anchor paragraphs
+    const _anchorParas = options.anchorParagraphs || [];
+    if (_anchorParas.length > 0) {
+      for (const chunk of filteredSemanticChunks) {
+        const p = chunk.paragraph || chunk.metadata?.paragraph || '';
+        if (_anchorParas.includes(String(p))) {
+          chunk.combinedScore = (chunk.combinedScore || 0) + 0.35;
+          chunk.anchorBoosted = true;
+        }
+      }
     }
 
     // ⭐⭐ DOCTRINE: VALIDATE STATUTE STRUCTURE ONLY
@@ -534,8 +550,18 @@ class RAGService {
     );
 
     // ⭐⭐ DOCTRINE: PREPARE CITATIONS with doctrine info
+    // Filter out near-zero-score boilerplate chunks before building citations.
+    const MIN_DISPLAY_SCORE = 0.05;
+    const scoredForCitation = topChunks.slice(0, 3).filter(chunk => {
+      const s = parseFloat(chunk.combinedScore) || parseFloat(chunk.similarity) ||
+                parseFloat(chunk.tfidfScore) || 0;
+      return s > MIN_DISPLAY_SCORE;
+    });
+    const citationChunks = scoredForCitation.length > 0
+      ? scoredForCitation
+      : topChunks.slice(0, 1); // always show at least 1 even if score is low
     const citations = this.prepareCitations(
-      topChunks.slice(0, 3),
+      citationChunks,
       statute
     );
 
@@ -605,7 +631,8 @@ class RAGService {
                   '**RELEVANTE PARAGRAPHEN**\n' +
                   'Liste alle zitierten Normen im Format: § X Abs. Y [Gesetz] — Kurzbezeichnung.\n\n' +
                   'Halte dich strikt an den Gesetzestext. Maximal 400 Wörter pro Abschnitt. ' +
-                  'Falls der bereitgestellte Text unzureichend ist, benenne explizit welche Paragraphen fehlen.'
+                  'Falls der bereitgestellte Text unzureichend ist, benenne explizit welche Paragraphen fehlen.' +
+                  (language !== 'german' ? `\n\nCRITICAL: Respond entirely in ${language}. German legal terms (§, Abs., BGB, StGB, etc.) may remain in German; write all explanations in ${language}.` : '')
               },
               {
                 role: 'user',

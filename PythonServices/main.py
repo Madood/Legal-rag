@@ -61,9 +61,10 @@ async def lifespan(app: FastAPI):
                     print(f"✅ Loaded {total_vectors} vectors from disk")
                     print(f"   • BGB: {bgb_vectors} vectors")
                     print(f"   • Statutes: {list(stats.get('statute_indices', {}).keys())}")
-                    
+
                     # Force correct state flags
                     retrieval_service.indices_loaded = True
+
                     retrieval_service.use_test_indices = False
                     
                     # Verify divorce norms are available
@@ -104,21 +105,47 @@ async def lifespan(app: FastAPI):
         # STEP 2: Final state verification
         stats = retrieval_service.get_stats()
         bgb_vectors = stats.get("statute_indices", {}).get("BGB", {}).get("vectors", 0)
-        
-        print("\n📊 STARTUP CORPUS STATE:")
-        print(f"   • Indices loaded: {stats.get('indices_loaded', False)}")
-        print(f"   • Using test indices: {stats.get('using_test_indices', True)}")
-        print(f"   • BGB vectors: {bgb_vectors}")
-        print(f"   • Total vectors: {stats.get('general_index', {}).get('vectors', 0) + sum(idx['vectors'] for idx in stats.get('statute_indices', {}).values())}")
-        
-        if bgb_vectors < 10 and not stats.get('using_test_indices', True):
-            print("\n⚠️  WARNING: BGB corpus may be incomplete")
-            print("   Expected: Hundreds of paragraphs for full BGB")
-            print(f"   Found: {bgb_vectors} vectors")
-            print("   Action: POST /ingestion/bgb with full BGB PDF")
-        
+        _final_total = bgb_vectors + stats.get("general_index", {}).get("vectors", 0)
+
+        # Correct flags based on what FAISS actually loaded (module-level load may have
+        # populated the index before the lifespan flag-check ran)
+        if _final_total > 0:
+            retrieval_service.indices_loaded = True
+            retrieval_service.use_test_indices = False
+
+        print("\n[Startup] CORPUS STATE:")
+        print(f"   indices_loaded:    {retrieval_service.indices_loaded}")
+        print(f"   use_test_indices:  {retrieval_service.use_test_indices}")
+        print(f"   BGB vectors:       {bgb_vectors}")
+        print(f"   total vectors:     {_final_total}")
+
+        if bgb_vectors < 10 and not retrieval_service.use_test_indices:
+            print("[Startup] WARNING: BGB corpus may be incomplete")
+            print(f"   Found: {bgb_vectors} vectors — POST /ingestion/bgb with full BGB PDF")
+
         print("=" * 60)
-        
+
+        # DomainAnchorResolver — runs unconditionally (not gated on FAISS load_success)
+        try:
+            from app.services.authority.registry.authority_resolver import DomainAnchorResolver
+            _anchor_ok = DomainAnchorResolver._ensure_loaded()
+            if _anchor_ok:
+                _n = len(DomainAnchorResolver._domain_embeddings or {})
+                print(f"[Startup] DomainAnchorResolver: {_n} domain embeddings loaded")
+            else:
+                print("[Startup] DomainAnchorResolver: embedding service not ready")
+        except Exception as _ae:
+            print(f"[Startup] DomainAnchorResolver warning: {_ae}")
+
+        # NormGraph — runs unconditionally
+        try:
+            from app.services.norm_graph import GraphService
+            from app.services.embeddings.embedding_service import embedding_service as _emb_svc
+            _graph_svc = GraphService.get_instance(embedding_service=_emb_svc)
+            _graph_svc.initialize()
+        except Exception as _ge:
+            print(f"[Startup] NormGraph warning: {_ge}")
+
         # Yield control to FastAPI
         yield
         

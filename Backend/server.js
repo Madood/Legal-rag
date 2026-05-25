@@ -258,6 +258,47 @@ app.get("/api/documents/:filename", (req, res) => {
   });
 });
 
+// Serve a PDF file by statute name — used by the frontend PDF viewer
+// Route must come before /api/documents/:filename to avoid param-matching "pdf" as filename
+app.get("/api/documents/pdf/:statute", (req, res) => {
+  // Strip .pdf extension if present, then sanitise to alphanum + hyphen
+  const raw = (req.params.statute || '').replace(/\.pdf$/i, '');
+  const statute = raw.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase();
+  if (!statute) return res.status(400).json({ error: 'Invalid statute' });
+
+  const docs = documentService.getAllDocuments();
+  const doc = docs.find(d => (d.metadata?.statute || '').toUpperCase() === statute);
+
+  if (!doc || !doc.absolutePath) {
+    console.log(`[PDF] Not found for statute: ${statute}. Loaded statutes:`, docs.map(d => d.metadata?.statute));
+    return res.status(404).json({ error: 'PDF not found', statute });
+  }
+
+  const resolvedPath = path.resolve(doc.absolutePath);
+  // server.js lives in Backend/ — documents root is one level up at ../documents
+  const rootDir = path.resolve(path.join(__dirname, '../documents'));
+  if (!resolvedPath.startsWith(rootDir + path.sep) && resolvedPath !== rootDir) {
+    console.error(`[PDF] Path traversal blocked: ${resolvedPath} not under ${rootDir}`);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    return res.status(404).json({ error: 'File not found on disk', path: resolvedPath });
+  }
+
+  console.log(`[PDF] Serving: ${resolvedPath}`);
+  // Allow embedding in an iframe from the frontend origin
+  res.removeHeader('X-Frame-Options');
+  res.setHeader(
+    'Content-Security-Policy',
+    `frame-ancestors 'self' ${process.env.FRONTEND_URL || 'http://localhost:3000'}`
+  );
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${statute}.pdf"`);
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  fs.createReadStream(resolvedPath).pipe(res);
+});
+
 // Search in documents
 app.post("/api/documents/search", (req, res) => {
   const { query, limit = 5, statute = null } = req.body;
@@ -380,6 +421,11 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
       if (isLowQuality) {
         try {
           console.log('[Doctrine Fallback] Triggering DeepSeek for question:', question.substring(0, 60));
+          const _GATE_LANG_MAP = { de: 'german', en: 'english', pl: 'polish', ar: 'arabic', no: 'norwegian' };
+          const _gateLang = _GATE_LANG_MAP[lang] || 'german';
+          const _gatePrompt = _gateLang === 'german'
+            ? 'Du bist ein deutscher Rechtsdozent. Beantworte die Frage präzise auf Deutsch. Strukturiere die Antwort mit: Definition, Bedeutung, Prüfungsschema. Zitiere relevante Paragraphen wo möglich. Max 400 Wörter.'
+            : `You are a German law expert. Answer precisely in ${_gateLang}. Structure with: Definition, Meaning, Legal Framework. Cite relevant §§ where possible. Max 400 words. CRITICAL: All explanations must be written in ${_gateLang}.`;
           const fallbackRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -390,12 +436,7 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
               model: 'deepseek-chat',
               max_tokens: 800,
               messages: [
-                {
-                  role: 'system',
-                  content: 'Du bist ein deutscher Rechtsdozent. Beantworte die Frage präzise auf Deutsch. ' +
-                    'Strukturiere die Antwort mit: Definition, Bedeutung, Prüfungsschema. ' +
-                    'Zitiere relevante Paragraphen wo möglich. Max 400 Wörter.'
-                },
+                { role: 'system', content: _gatePrompt },
                 { role: 'user', content: question }
               ]
             }),
@@ -405,7 +446,14 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
           const fallbackAnswer = fallbackData.choices?.[0]?.message?.content;
           if (fallbackAnswer && fallbackAnswer.length > 100) {
             console.log('[Doctrine Fallback] Answer received, length:', fallbackAnswer.length);
-            const disclaimer = '\n\n---\n*⚠️ Diese Antwort basiert auf allgemeinem Rechtswissen, nicht auf einem spezifischen Gesetzestext aus unserem Korpus.*';
+            const _disclaimers = {
+              german:  '\n\n---\n*⚠️ Diese Antwort basiert auf allgemeinem Rechtswissen, nicht auf einem spezifischen Gesetzestext aus unserem Korpus.*',
+              english: '\n\n---\n*⚠️ This answer is based on general legal knowledge, not a specific statute from our corpus.*',
+              polish:  '\n\n---\n*⚠️ Ta odpowiedź opiera się na ogólnej wiedzy prawnej, nie na konkretnym tekście ustawy z naszego korpusu.*',
+              arabic:  '\n\n---\n*⚠️ هذه الإجابة مبنية على المعرفة القانونية العامة، وليس على نص قانوني محدد من مجموعتنا.*',
+              norwegian: '\n\n---\n*⚠️ Dette svaret er basert på generell juridisk kunnskap, ikke en spesifikk lov fra vårt korpus.*',
+            };
+            const disclaimer = _disclaimers[_gateLang] || _disclaimers.english;
             response = {
               success: true,
               data: {

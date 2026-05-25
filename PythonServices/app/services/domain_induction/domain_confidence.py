@@ -109,7 +109,7 @@ class DomainConfidence:
         metrics.final_confidence = final_confidence
         metrics.factors = factors
         
-        print(f'📊 {self.log_prefix} Confidence: {final_confidence:.2f} for {detected_domain}')
+        print(f'[STAT] {self.log_prefix} Confidence: {final_confidence:.2f} for {detected_domain}')
         
         return metrics
     

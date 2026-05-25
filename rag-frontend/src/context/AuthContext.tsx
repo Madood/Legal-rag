@@ -51,14 +51,29 @@ function clearToken() {
   localStorage.removeItem('userType');
 }
 
+const OFFLINE_GUEST_TOKEN = 'guest-offline';
+
 /** Decode JWT expiry locally — no network needed */
 function isTokenExpired(token: string): boolean {
+  if (token === OFFLINE_GUEST_TOKEN) return false;
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     return payload.exp ? Date.now() > payload.exp * 1000 : false;
   } catch {
     return true;
   }
+}
+
+function makeOfflineGuest(): AuthUser {
+  return {
+    id: 'offline-guest',
+    username: 'Gast',
+    email: '',
+    isGuest: true,
+    tier: 'guest',
+    tokens: { balance: 10, used: 0, resetAt: null },
+    sessionTokensUsed: 0,
+  };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -77,6 +92,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Fast path: token is expired — clear immediately, no network call
     if (isTokenExpired(storedToken)) {
       clearToken();
+      setIsLoading(false);
+      return;
+    }
+
+    // Fast path: offline guest — restore from cache, skip network entirely
+    if (storedToken === OFFLINE_GUEST_TOKEN) {
+      const cachedRaw = localStorage.getItem('user_cache');
+      if (cachedRaw) {
+        try {
+          setUser(JSON.parse(cachedRaw) as AuthUser);
+        } catch {
+          setUser(makeOfflineGuest());
+        }
+      } else {
+        setUser(makeOfflineGuest());
+      }
+      setToken(storedToken);
       setIsLoading(false);
       return;
     }
@@ -129,14 +161,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const continueAsGuest = useCallback(async () => {
-    const res = await apiClient.post('/auth/guest');
-    const { user: u, token: t } = res.data.data;
-    saveToken(t);
-    cacheUser(u);
-    localStorage.setItem('isAuthenticated', 'true');
-    localStorage.setItem('userType', 'guest');
-    setToken(t);
-    setUser(u);
+    try {
+      const res = await apiClient.post('/auth/guest');
+      const { user: u, token: t } = res.data.data;
+      saveToken(t);
+      cacheUser(u);
+      localStorage.setItem('isAuthenticated', 'true');
+      localStorage.setItem('userType', 'guest');
+      setToken(t);
+      setUser(u);
+    } catch {
+      // MongoDB unavailable — allow offline guest access
+      const offlineGuest = makeOfflineGuest();
+      localStorage.setItem('auth_token', OFFLINE_GUEST_TOKEN);
+      cacheUser(offlineGuest);
+      localStorage.setItem('isAuthenticated', 'true');
+      localStorage.setItem('userType', 'guest');
+      setToken(OFFLINE_GUEST_TOKEN);
+      setUser(offlineGuest);
+    }
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

@@ -58,8 +58,25 @@ export function Signup() {
 
   return (
     <div className="signup-container">
-      <div className="signup-hero-section">
-        <div className="hero-content">
+      <div className="signup-hero-section" style={{ position: 'relative', overflow: 'hidden', height: '100vh' }}>
+        <div style={{
+          position: 'absolute',
+          inset: '0 0 0 0',
+          backgroundImage: `linear-gradient(rgba(52,152,219,0.72), rgba(52,152,219,0.72)), url('/BERLINER.jpg')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }} />
+        <div className="hero-content" style={{
+          position: 'relative',
+          zIndex: 1,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          padding: '0 48px',
+        }}>
           <Scale className="hero-icon" />
           <h2 className="hero-title">Starten Sie noch heute</h2>
           <p className="hero-subtitle">
@@ -69,7 +86,36 @@ export function Signup() {
       </div>
 
       <div className="signup-form-section">
-        <div className="signup-form-wrapper">
+        <div className="signup-form-wrapper" style={{ paddingTop: '40px' }}>
+          <button
+            onClick={() => navigate('/')}
+            style={{
+              background: 'none',
+              border: 'none',
+              boxShadow: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              color: 'rgba(255,255,255,0.5)',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = 'white';
+              e.currentTarget.style.transform = 'translateX(-4px)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+              e.currentTarget.style.transform = 'translateX(0)';
+            }}
+            aria-label="Zurück zur Startseite"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 5l-7 7 7 7"/>
+            </svg>
+          </button>
+
           <Link to="/" className="logo-link">
             <div className="logo-icon">
               <span className="logo-text">J</span>

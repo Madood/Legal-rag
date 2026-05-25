@@ -6,10 +6,46 @@ Pure question analysis with no content selection.
 import re
 from typing import Dict, Any
 
+_CONCEPT_QUESTION_PREFIXES = re.compile(
+    r'^(?:'
+    r'was\s+ist\s+(?:ein\s+|eine\s+|der\s+|die\s+|das\s+)?'
+    r'|was\s+sind\s+(?:die\s+)?'
+    r'|was\s+bedeutet\s+'
+    r'|was\s+versteht\s+man\s+unter\s+'
+    r'|definition\s+(?:von\s+|of\s+|des\s+|der\s+)?'
+    r'|define\s+'
+    r'|what\s+is\s+(?:a\s+|an\s+|the\s+)?'
+    r'|erkl[äa]ren?\s+sie\s+'
+    r')',
+    re.IGNORECASE
+)
+
+
+def _is_concept_question(question: str) -> bool:
+    """
+    Returns True when the question asks for a named legal concept WITHOUT
+    an explicit § reference (e.g. "Was ist Schadensersatz?").
+    CONCEPT questions differ from DEFINITION in that they carry a legal
+    concept name that can be anchored to specific paragraphs.
+    """
+    if re.search(r'§\s*\d', question):
+        return False  # Has explicit § → NORMATIVE, not CONCEPT
+    m = _CONCEPT_QUESTION_PREFIXES.match(question.strip())
+    if not m:
+        return False
+    remainder = question[m.end():].strip().rstrip('?!.,;')
+    # Concept name must be substantial (≥6 chars) to exclude trivial "was ist gut?"
+    return len(remainder) >= 6
+
+
 def classify_question_type(question: str) -> Dict[str, Any]:
     """Classify question type for authority determination."""
     lower_question = question.lower()
-    
+
+    # CONCEPT check — named legal concept without § (checked before DEFINITION)
+    if _is_concept_question(question):
+        return {'type': 'CONCEPT', 'method': 'concept_detection'}
+
     # Question type patterns
     patterns = {
         'DOCTRINE': [
@@ -20,47 +56,47 @@ def classify_question_type(question: str) -> Dict[str, Any]:
             'legal doctrine', 'rechtspri', 'grundsatz',
             'legal principle', 'rechtsgrundsatz'
         ],
-        
+
         'SYSTEM': [
             'common law system', 'civil law system', 'legal system',
             'german legal system', 'type of legal system',
             'is germany a common law', 'classification of legal system',
             'rechtskreis', 'rechtsfamilie'
         ],
-        
+
         'NORMATIVE': [
             r'§\s*\d', r'artikel\s*\d', r'article\s*\d',
             r'paragraph\s*\d', r'section\s*\d',
             'was regelt §', 'what does article',
             'erklären sie §', 'explain section'
         ],
-        
+
         'OFFENSE': [
             'espionage', 'fraud', 'theft', 'murder', 'robbery', 'assault',
             'spionage', 'betrug', 'diebstahl', 'mord', 'raub', 'körperverletzung',
             'sexual offence', 'sexualstraftat', 'terrorism', 'terrorismus',
             'which crime', 'welche straftat'
         ],
-        
+
         'DEFINITION': [
             'what is', 'was ist', 'define', 'definition von',
             'meaning of', 'bedeutung von', 'erklären sie',
             'explain the term', 'begriffserklärung'
         ],
-        
+
         'COMPARISON': [
             'difference between', 'unterschied zwischen',
             'compare', 'vergleichen', 'similar to', 'ähnlich wie',
             'versus', 'vs', 'im vergleich zu'
         ],
-        
+
         'PROCEDURAL': [
             'how to', 'wie wird', 'procedure for', 'verfahren für',
             'steps to', 'schritte zur', 'process for', 'ablauf bei',
             'what are the requirements', 'voraussetzungen für'
         ]
     }
-    
+
     # Check each type
     for qtype, type_patterns in patterns.items():
         for pattern in type_patterns:
@@ -72,7 +108,7 @@ def classify_question_type(question: str) -> Dict[str, Any]:
                 # Simple substring match for others
                 if pattern in lower_question:
                     return {'type': qtype, 'method': 'pattern_match'}
-    
+
     # Default to GENERAL
     return {'type': 'GENERAL', 'method': 'default'}
 

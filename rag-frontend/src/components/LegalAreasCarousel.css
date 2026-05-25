@@ -1,0 +1,314 @@
+/* ============================================================
+   LegalAreasCarousel.css
+   ============================================================ */
+
+/* ── Section shell ── */
+.lac-section {
+  padding: 6rem 0 5rem;
+  background: #f9f8f6;
+}
+
+html.dark .lac-section {
+  background: #111;
+}
+
+.lac-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* ── Section header ── */
+.lac-header {
+  text-align: center;
+  margin-bottom: 2.25rem;
+}
+
+.lac-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin: 0 0 0.75rem;
+}
+
+html.dark .lac-eyebrow {
+  color: #9ca3af;
+}
+
+.lac-title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 800;
+  color: #0a0a0a;
+  margin: 0 0 1rem;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+html.dark .lac-title {
+  color: #f5f5f5;
+}
+
+.lac-subtitle {
+  font-size: 1.0625rem;
+  color: #6b7280;
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.65;
+}
+
+html.dark .lac-subtitle {
+  color: #9ca3af;
+}
+
+/* ── Dot indicators ── */
+.lac-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.lac-dot {
+  height: 8px;
+  width: 8px;
+  border-radius: 9999px;
+  background: #d1d5db;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+html.dark .lac-dot {
+  background: #374151;
+}
+
+.lac-dot-active {
+  width: 24px;
+  background: #0a0a0a;
+}
+
+html.dark .lac-dot-active {
+  background: #f5f5f5;
+}
+
+/* ── Carousel wrapper ── */
+.lac-carousel-wrapper {
+  position: relative;
+  overflow: hidden;
+  padding: 40px 0;
+}
+
+/* ── Cards track ── */
+.lac-cards-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* ── Base card ── */
+.lac-card {
+  flex-shrink: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              border-radius 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              filter 0.25s ease;
+}
+
+/* ── Card size variants ── */
+.lac-card-far {
+  width: 160px;
+  height: 240px;
+  opacity: 0.6;
+}
+
+.lac-card-side {
+  width: 200px;
+  height: 280px;
+  opacity: 0.85;
+}
+
+.lac-card-center {
+  width: 380px;
+  height: 420px;
+  border-radius: 16px;
+  z-index: 2;
+  opacity: 1;
+}
+
+.lac-card-far:hover,
+.lac-card-side:hover {
+  filter: brightness(1.12);
+  opacity: 1;
+}
+
+/* ── Card internals ── */
+.lac-card-label {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  /* prevent overflow on narrow cards */
+  max-width: calc(100% - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lac-card-sublabel {
+  position: absolute;
+  top: 34px;
+  left: 16px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  /* only show on center card */
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.lac-card-center .lac-card-sublabel {
+  opacity: 1;
+}
+
+.lac-card-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 80px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+  /* scale watermark with card */
+  transition: font-size 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lac-card-far .lac-card-watermark {
+  font-size: 48px;
+}
+
+.lac-card-side .lac-card-watermark {
+  font-size: 60px;
+}
+
+.lac-card-badge {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* ── Arrow buttons ── */
+.lac-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #0a0a0a;
+  font-size: 1.125rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: background-color 0.15s ease;
+  line-height: 1;
+}
+
+html.dark .lac-arrow {
+  background: #222;
+  border-color: #374151;
+  color: #f5f5f5;
+}
+
+.lac-arrow:hover {
+  background: #f3f4f6;
+}
+
+html.dark .lac-arrow:hover {
+  background: #2d2d2d;
+}
+
+.lac-arrow-left  { left:  1rem; }
+.lac-arrow-right { right: 1rem; }
+
+/* ── Caption ── */
+.lac-caption {
+  text-align: center;
+  margin-top: 2rem;
+  margin-bottom: 0;
+  font-size: 0.9375rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+html.dark .lac-caption {
+  color: #9ca3af;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .lac-card-center {
+    width: 280px;
+    height: 360px;
+  }
+
+  .lac-card-side {
+    width: 150px;
+    height: 230px;
+  }
+
+  .lac-card-far {
+    width: 110px;
+    height: 190px;
+  }
+
+  .lac-card-watermark      { font-size: 56px; }
+  .lac-card-side .lac-card-watermark { font-size: 40px; }
+  .lac-card-far  .lac-card-watermark { font-size: 30px; }
+}
+
+@media (max-width: 600px) {
+  /* On small screens only show center + 1 side each side */
+  .lac-card-far {
+    display: none;
+  }
+
+  .lac-card-center {
+    width: 240px;
+    height: 320px;
+  }
+
+  .lac-card-side {
+    width: 120px;
+    height: 200px;
+  }
+}

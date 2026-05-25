@@ -1,16 +1,29 @@
 import { useState } from 'react';
-import { FileText, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
-import { ScrollArea } from '../../../ui/scroll-area';
-import { Badge } from '../../../ui/badge';
+import { FileText, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { Document } from '../../../../services/api';
-import { useTranslation } from '../../../../i18n';
 import './DocumentSidebar.css';
 
-interface Section {
-  id: string;
-  title: string;
-  page: number;
-  chunks: number[];
+const STATUTE_FULL_NAMES: Record<string, string> = {
+  BGB:    'Bürgerliches Gesetzbuch',
+  STGB:   'Strafgesetzbuch',
+  HGB:    'Handelsgesetzbuch',
+  GG:     'Grundgesetz',
+  ZPO:    'Zivilprozessordnung',
+  STPO:   'Strafprozessordnung',
+  INSO:   'Insolvenzordnung',
+  AKTG:   'Aktiengesetz',
+  GMBHG:  'GmbH-Gesetz',
+  AO:     'Abgabenordnung',
+  ESTG:   'Einkommensteuergesetz',
+  USTG:   'Umsatzsteuergesetz',
+  GEWO:   'Gewerbeordnung',
+  WEG:    'Wohnungseigentumsgesetz',
+  'EU-GDPR': 'EU-Datenschutz-Grundverordnung',
+};
+
+function resolveFullName(filename: string, fallback: string): string {
+  const abbr = filename.replace(/\.pdf$/i, '').toUpperCase();
+  return STATUTE_FULL_NAMES[abbr] || fallback || abbr;
 }
 
 interface DocumentSidebarProps {
@@ -20,157 +33,101 @@ interface DocumentSidebarProps {
 }
 
 export function DocumentSidebar({ onCitationClick, documents, isLoading }: DocumentSidebarProps) {
-  const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const toggleDocument = (docId: string) => {
-    const newExpanded = new Set(expandedDocs);
-    if (newExpanded.has(docId)) {
-      newExpanded.delete(docId);
-    } else {
-      newExpanded.add(docId);
-    }
-    setExpandedDocs(newExpanded);
-  };
-
-  const toggleSection = (sectionId: string) => {
-    const newExpanded = new Set(expandedSections);
-    if (newExpanded.has(sectionId)) {
-      newExpanded.delete(sectionId);
-    } else {
-      newExpanded.add(sectionId);
-    }
-    setExpandedSections(newExpanded);
-  };
-
-  const handleChunkClick = (chunkNum: number, documentName: string) => {
-    onCitationClick({
-      chunkId: `chunk-${chunkNum}`,
-      documentName: documentName
+  const toggle = (id: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
-  };
-
-  const getDocumentSections = (doc: Document): Section[] => {
-    return [
-      { id: 's1', title: doc.title, page: 1, chunks: [1, 2, 3] },
-      { id: 's2', title: 'Relevant Sections', page: 2, chunks: [4, 5, 6] },
-    ];
-  };
 
   if (isLoading) {
     return (
-      <div className="document-sidebar">
-        <div className="sidebar-header">
-          <h2 className="sidebar-title">{t('sidebar.documents')}</h2>
+      <div className="dsb-root">
+        <div className="dsb-header">
+          <h3 className="dsb-title">Dokumente</h3>
         </div>
-        <div className="loading-container">
-          <Loader2 className="animate-spin" />
-          <p>{t('sidebar.loading')}</p>
+        <div className="dsb-loading">
+          <Loader2 size={16} className="dsb-spin" />
+          <span>Laden…</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="document-sidebar">
-      <div className="sidebar-header">
-        <h2 className="sidebar-title">{t('sidebar.documents')}</h2>
-        <p className="sidebar-subtitle">
-          {documents.length} {t('sidebar.loaded')}
-        </p>
+    <div className="dsb-root">
+      <div className="dsb-header">
+        <h3 className="dsb-title">Dokumente</h3>
+        {documents.length > 0 && (
+          <span className="dsb-count">{documents.length} geladen</span>
+        )}
       </div>
 
-      <ScrollArea className="sidebar-scroll-area">
-        <div className="documents-list">
-          {documents.map((doc) => {
-            const sections = getDocumentSections(doc);
+      <div className="dsb-list">
+        {documents.length === 0 ? (
+          <p className="dsb-empty">Keine Dokumente gefunden</p>
+        ) : (
+          documents.map(doc => {
+            const isOpen  = expanded.has(doc.id);
+            const abbr    = doc.filename.replace(/\.pdf$/i, '').toUpperCase();
+            const fullName = resolveFullName(doc.filename, doc.title);
 
             return (
-              <div key={doc.id} className="document-card">
-                <button
-                  onClick={() => toggleDocument(doc.id)}
-                  className="document-header-button"
-                >
-                  {expandedDocs.has(doc.id) ? (
-                    <ChevronDown className="chevron-icon" />
-                  ) : (
-                    <ChevronRight className="chevron-icon" />
-                  )}
-                  <FileText className="document-icon" />
-                  <div className="document-info">
-                    <p className="document-name">
-                      {doc.title || doc.filename}
-                    </p>
-                    <div className="document-badges">
-                      <Badge variant="secondary" className="document-badge">
-                        {doc.pages} {t('sidebar.pages')}
-                      </Badge>
-                      <Badge
-                        variant={doc.type === 'civil_code' ? 'default' : 'outline'}
-                        className="document-badge"
-                      >
-                        {doc.type}
-                      </Badge>
-                    </div>
+              <div key={doc.id} className="dsb-item">
+                <button className="dsb-item-btn" onClick={() => toggle(doc.id)}>
+                  <FileText size={13} className="dsb-item-icon" />
+                  <div className="dsb-item-body">
+                    <span className="dsb-item-abbr">{abbr}</span>
+                    <span className="dsb-item-name">{fullName}</span>
+                  </div>
+                  <div className="dsb-item-right">
+                    {doc.chunks != null && (
+                      <span className="dsb-chunk-badge">
+                        {doc.chunks.toLocaleString()} §§
+                      </span>
+                    )}
+                    {isOpen
+                      ? <ChevronDown size={12} className="dsb-chevron" />
+                      : <ChevronRight size={12} className="dsb-chevron" />
+                    }
                   </div>
                 </button>
 
-                {expandedDocs.has(doc.id) && sections.length > 0 && (
-                  <div className="document-sections">
-                    {sections.map((section) => (
-                      <div key={section.id} className="section-container">
-                        <button
-                          onClick={() => toggleSection(section.id)}
-                          className="section-button"
-                        >
-                          {expandedSections.has(section.id) ? (
-                            <ChevronDown className="section-chevron" />
-                          ) : (
-                            <ChevronRight className="section-chevron" />
-                          )}
-                          <div className="section-info">
-                            <p className="section-title">
-                              {section.title}
-                            </p>
-                            <p className="section-page">{t('sidebar.page')} {section.page}</p>
-                          </div>
-                        </button>
-
-                        {expandedSections.has(section.id) && (
-                          <div className="chunk-markers-container">
-                            <div className="chunk-markers">
-                              {section.chunks.map((chunkNum) => (
-                                <button
-                                  key={chunkNum}
-                                  onClick={() => handleChunkClick(chunkNum, doc.filename)}
-                                  className="chunk-button"
-                                  title={`Chunk ${chunkNum}`}
-                                >
-                                  {chunkNum}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                {isOpen && (
+                  <div className="dsb-details">
+                    {doc.pages > 0 && (
+                      <div className="dsb-detail-row">
+                        <span className="dsb-detail-key">Seiten</span>
+                        <span className="dsb-detail-val">{doc.pages}</span>
                       </div>
-                    ))}
+                    )}
+                    {doc.words != null && doc.words > 0 && (
+                      <div className="dsb-detail-row">
+                        <span className="dsb-detail-key">Wörter</span>
+                        <span className="dsb-detail-val">{doc.words.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {doc.type && (
+                      <div className="dsb-detail-row">
+                        <span className="dsb-detail-key">Typ</span>
+                        <span className="dsb-detail-val">{doc.type.replace(/_/g, ' ')}</span>
+                      </div>
+                    )}
+                    {doc.language && (
+                      <div className="dsb-detail-row">
+                        <span className="dsb-detail-key">Sprache</span>
+                        <span className="dsb-detail-val">{doc.language}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             );
-          })}
-
-          {documents.length === 0 && (
-            <div className="empty-documents">
-              <p>{t('sidebar.noDocuments')}</p>
-              <p className="empty-documents-hint">
-                {t('sidebar.uploadHint')}
-              </p>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+          })
+        )}
+      </div>
     </div>
   );
 }

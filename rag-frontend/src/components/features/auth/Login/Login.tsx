@@ -26,7 +26,14 @@ export function Login() {
       await login(email, password);
       navigate('/chat');
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Login failed. Please check your credentials.');
+      const status = err?.response?.status;
+      if (status === 503) {
+        setError('Datenbankverbindung nicht verfügbar. Als Gast fortfahren?');
+      } else if (!status) {
+        setError('Server nicht erreichbar. Bitte prüfen Sie Ihre Verbindung.');
+      } else {
+        setError(err?.response?.data?.error || 'Anmeldung fehlgeschlagen. Bitte prüfen Sie Ihre Zugangsdaten.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -37,14 +44,44 @@ export function Login() {
       await continueAsGuest();
       navigate('/chat');
     } catch {
-      setError('Could not start guest session. Please try again.');
+      // continueAsGuest now has its own offline fallback — this should not trigger
+      setError('Gast-Zugang nicht verfügbar. Bitte versuchen Sie es später erneut.');
     }
   };
 
   return (
     <div className="login-container">
       <div className="login-form-section">
-        <div className="login-form-wrapper">
+        <div className="login-form-wrapper" style={{ paddingTop: '40px' }}>
+          <button
+            onClick={() => navigate('/')}
+            style={{
+              background: 'none',
+              border: 'none',
+              boxShadow: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              color: 'rgba(255,255,255,0.5)',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = 'white';
+              e.currentTarget.style.transform = 'translateX(-4px)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+              e.currentTarget.style.transform = 'translateX(0)';
+            }}
+            aria-label="Zurück zur Startseite"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 5l-7 7 7 7"/>
+            </svg>
+          </button>
+
           <Link to="/" className="logo-link">
             <div className="logo-icon">
               <span className="logo-text">J</span>
@@ -128,8 +165,25 @@ export function Login() {
         </div>
       </div>
 
-      <div className="login-hero-section">
-        <div className="hero-content">
+      <div className="login-hero-section" style={{ position: 'relative', overflow: 'hidden', height: '100vh' }}>
+        <div style={{
+          position: 'absolute',
+          inset: '0 0 0 0',
+          backgroundImage: `linear-gradient(rgba(52,152,219,0.72), rgba(52,152,219,0.72)), url('/BERLINER.jpg')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }} />
+        <div className="hero-content" style={{
+          position: 'relative',
+          zIndex: 1,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          padding: '0 48px',
+        }}>
           <Scale className="hero-icon" />
           <h2 className="hero-title">KI-gestützte Rechtsrecherche</h2>
           <p className="hero-subtitle">Präzise Antworten mit zitierten Quellen in Sekunden</p>

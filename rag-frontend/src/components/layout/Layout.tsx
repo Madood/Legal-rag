@@ -7,14 +7,14 @@ interface LayoutContext {
 }
 
 export function Layout() {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(
+    () => localStorage.getItem('darkMode') === 'true' ||
+          window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
 
   useEffect(() => {
-    if (darkMode) {
-      document.body.classList.add('dark');
-    } else {
-      document.body.classList.remove('dark');
-    }
+    localStorage.setItem('darkMode', darkMode.toString());
+    document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
   return (

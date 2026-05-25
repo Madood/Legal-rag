@@ -27,6 +27,10 @@ export const en = {
     docsLoaded: 'documents loaded',
     ready: 'Ready for your question',
     dismiss: 'Dismiss',
+    s1: 'What is § 823 BGB?',
+    s2: 'Difference between Eigentum and Besitz?',
+    s3: 'Requirements for § 242 StGB liability?',
+    s4: 'What does the HGB regulate?',
   },
   documents: {
     title: 'Corpus & Documents',

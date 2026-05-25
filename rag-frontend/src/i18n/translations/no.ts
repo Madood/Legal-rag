@@ -29,6 +29,10 @@ export const no = {
     docsLoaded: 'dokumenter lastet',
     ready: 'Klar for ditt spørsmål',
     dismiss: 'Avvis',
+    s1: 'Hva er § 823 BGB?',
+    s2: 'Forskjellen mellom Eigentum og Besitz?',
+    s3: 'Vilkår for straffansvar etter § 242 StGB?',
+    s4: 'Hva regulerer Handelsloven (HGB)?',
   },
   documents: {
     title: 'Korpus og Dokumenter',

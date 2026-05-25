@@ -1,9 +1,8 @@
 import { Navigate, BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { HomePage } from './pages/HomePage/HomePage';
+import { LandingPage } from './pages/LandingPage/LandingPage';
 import { Signup } from './components/features/auth/Signup/Signup';
 import { Login } from './components/features/auth/Login/Login';
 import { AppLayout } from './components/layout/AppLayout';
-import { Layout } from './components/layout/Layout';
 import { ChatScreen } from './components/features/chat/ChatScreen/ChatScreen';
 import { DocumentManagement } from './components/screens/documents/DocumentManagement';
 import { ProfilePage } from './components/screens/profile/ProfilePage';
@@ -24,10 +23,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   return (
     <Routes>
-      {/* Public routes */}
-      <Route path="/" element={<Layout />}>
-        <Route index element={<HomePage />} />
-      </Route>
+      {/* Public landing page (self-contained, no Layout wrapper) */}
+      <Route path="/" element={<LandingPage />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />

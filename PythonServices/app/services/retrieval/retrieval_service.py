@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import re
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 from .authority_enforcement import AuthorityEnforcement
@@ -14,7 +15,36 @@ import glob
 # Import embedding service and constants
 from app.services.embeddings.embedding_service import embedding_service
 from app.services.constants import get_domain_from_statute, JURISDICTION, get_store_name
-from app.services.authority.registry.authority_resolver import resolve_authority as _real_resolve_authority
+from app.services.authority.registry.authority_resolver import (
+    resolve_authority as _real_resolve_authority,
+    DOMAIN_TO_ANCHOR,
+    _extract_concept_name,
+)
+
+
+def _build_enriched_query(
+    raw_query: str,
+    authority_result: Dict[str, Any],
+) -> str:
+    """
+    Build an enriched FAISS search query for CONCEPT/DEFINITION questions.
+    Uses domain anchor paragraphs and domain description — no keyword tables.
+    """
+    anchor_paragraphs: List[str] = authority_result.get("domain_anchor_paragraphs", [])
+    anchor_domain: str = authority_result.get("domain_anchor_domain", "")
+    # Only enrich when there are anchors and no explicit paragraph was locked
+    if not anchor_paragraphs or authority_result.get("reference"):
+        return raw_query
+
+    anchor_info = DOMAIN_TO_ANCHOR.get(anchor_domain, {})
+    domain_desc: str = anchor_info.get("domain_description", "")
+    statute: str = authority_result.get("statute", "")
+    concept_name: str = _extract_concept_name(raw_query)
+
+    para_refs = " ".join(f"§ {p}" for p in anchor_paragraphs[:3])
+    enriched = f"{concept_name} {para_refs} {statute} {domain_desc}".strip()
+    print(f"[ConceptEnrich] '{raw_query[:50]}' → '{enriched[:100]}'")
+    return enriched
 
 logger = logging.getLogger(__name__)
 
@@ -126,40 +156,63 @@ class RetrievalService:
 
     def enforce_authority_final_constraint(self, authority_result: Dict, retrieval_results: Dict) -> Dict:
         """
-        Enforce authority_final contract - NO FALLBACKS ALLOWED
+        Enforce authority_final contract.
+
+        Strict enforcement (block synthesis) only when a specific § is locked.
+        When only a statute is locked (no §), synthesis is allowed — returning
+        the retrieved chunks untouched so the LLM can synthesise freely.
         """
         if not authority_result.get("authority_final"):
             return retrieval_results
 
-        # Authority is final - enforce strict rules
-        statute = authority_result.get("statute")
-        paragraph = authority_result.get("paragraph")
+        statute    = authority_result.get("statute")
         constraint = authority_result.get("retrieval", {}).get("constraint")
 
-        print(f"🔒 AUTHORITY-FINAL ENFORCEMENT: {statute} §{paragraph} ({constraint})")
-        print("   ⛔ NO fallback retrieval allowed")
-        print("   ⛔ NO doctrine overview allowed")
-        print("   ⛔ NO TF-IDF fallback allowed")
+        # A paragraph is "locked" when any of these fields is set
+        paragraph = (
+            authority_result.get("paragraph")
+            or authority_result.get("reference")
+            or (authority_result.get("isParagraphLocked") and
+                authority_result.get("allowedParagraphs", [None])[0])
+        )
 
-        # Mark retrieval results as authority_final
-        retrieval_results["authority_final"] = True
-        retrieval_results["strict_enforcement"] = True
+        if paragraph:
+            # ── Specific § locked → strict enforcement ────────────────────────
+            print(f"🔒 AUTHORITY-FINAL ENFORCEMENT: {statute} §{paragraph} ({constraint})")
+            print("   ⛔ NO fallback retrieval allowed")
+            print("   ⛔ NO doctrine overview allowed")
+            print("   ⛔ NO TF-IDF fallback allowed")
 
-        # Add metadata about enforcement
-        retrieval_results["authority_metadata"] = {
-            "statute_locked": authority_result.get("isStatuteLocked"),
-            "paragraph_locked": authority_result.get("isParagraphLocked"),
-            "constraint": constraint,
-            "fallback_allowed": False,
-            "overview_allowed": False,
-            "doctrine_allowed": False,
-            "tfidf_allowed": False
-        }
+            retrieval_results["authority_final"]    = True
+            retrieval_results["strict_enforcement"] = True
+            retrieval_results["authority_metadata"] = {
+                "statute_locked":    authority_result.get("isStatuteLocked"),
+                "paragraph_locked":  True,
+                "constraint":        constraint,
+                "fallback_allowed":  False,
+                "overview_allowed":  False,
+                "doctrine_allowed":  False,
+                "tfidf_allowed":     False,
+            }
 
-        # If no documents found, mark as missing corpus
-        if not retrieval_results.get("documents") or len(retrieval_results["documents"]) == 0:
-            retrieval_results["authority_final_corpus_missing"] = True
-            retrieval_results["requires_ingestion"] = True
+            if not retrieval_results.get("documents"):
+                retrieval_results["authority_final_corpus_missing"] = True
+                retrieval_results["requires_ingestion"] = True
+        else:
+            # ── Statute locked, no § → allow synthesis with retrieved chunks ──
+            print(f"📖 STATUTE-ONLY AUTHORITY: {statute} — no § lock, synthesis allowed")
+
+            retrieval_results["authority_final"]    = True
+            retrieval_results["strict_enforcement"] = False
+            retrieval_results["authority_metadata"] = {
+                "statute_locked":    authority_result.get("isStatuteLocked"),
+                "paragraph_locked":  False,
+                "constraint":        constraint,
+                "fallback_allowed":  True,
+                "overview_allowed":  True,
+                "doctrine_allowed":  True,
+                "tfidf_allowed":     True,
+            }
 
         return retrieval_results
 
@@ -847,12 +900,25 @@ class RetrievalService:
 
                 print(f"   Found {len(search_results.get('documents', []))} documents for statute {statute}")
 
+                # Only hard-fail when a specific § was also locked and nothing came back.
+                # If only the statute is locked (no §), let synthesis proceed with whatever
+                # was retrieved — don't block a multi-norm question like AGB-Kollision.
+                _para_locked = (
+                    authority_result.get("paragraph")
+                    or authority_result.get("reference")
+                    or authority_result.get("isParagraphLocked")
+                )
+
                 if not search_results.get("documents"):
-                    return self.handle_authority_final_failure(authority_result)
+                    if _para_locked:
+                        return self.handle_authority_final_failure(authority_result)
+                    # No § locked and no results → fall through to non-authority search
+                    print("   ℹ️  STATUTE_ONLY: no docs, no § lock — falling through to standard search")
+                    return {"documents": [], "total_documents": 0, "query": query, "authority_final": False}
 
                 search_results = self.enforce_authority_final_constraint(authority_result, search_results)
 
-                if not search_results.get("documents"):
+                if not search_results.get("documents") and _para_locked:
                     return self.handle_authority_final_failure(authority_result)
 
                 return search_results
@@ -1038,7 +1104,42 @@ class RetrievalService:
             )
             
             if authority_result is None:
-                authority_result = {}
+                # Try to infer statute from question text before giving up
+                _q_lower = query.lower()
+                _STATUTE_HINTS = {
+                    'HGB':   ['handelsrecht', 'kaufmann', 'kaufleute', 'schweigen',
+                               'handelsbrauch', 'handelsgebrauch', 'prokura', 'firma',
+                               'handelsregister', 'bestätigungsschreiben', 'kaufmännisch',
+                               'kaufmännisches', 'handelsgesetz', 'handelsbuch',
+                               'frachtvertrag', 'kommissionsvertrag', 'hgb'],
+                    'BGB':   ['bürgerlich', 'bgb', 'schuldrecht', 'eigentum', 'besitz',
+                               'vertrag', 'schadensersatz', 'haftung', 'schadensrecht'],
+                    'STGB':  ['strafrecht', 'stgb', 'strafe', 'täter', 'delikt', 'strafbar',
+                               'strafgesetzbuch'],
+                    'GG':    ['verfassung', 'grundgesetz', 'grundrecht', 'bundesverfassung',
+                               'verfassungsrecht'],
+                    'INSO':  ['insolvenz', 'konkurs', 'gläubiger', 'schuldner', 'insolvent'],
+                    'GMBHG': ['gmbh', 'gesellschaft mit beschränkter', 'geschäftsführer',
+                               'gesellschafter'],
+                }
+                _inferred = None
+                for _stat, _hints in _STATUTE_HINTS.items():
+                    if any(h in _q_lower for h in _hints):
+                        _inferred = _stat
+                        break
+                if _inferred:
+                    print(f"[AuthInfer] authority_result was None — inferred {_inferred} from question text")
+                    authority_result = {
+                        "statute": _inferred,
+                        "requiresClarification": False,
+                        "retrievalConstraint": "STATUTE_ONLY",
+                        "isStatuteLocked": True,
+                        "isParagraphLocked": False,
+                        "anchorNormMode": True,
+                        "inferenceMethod": "keyword_fallback",
+                    }
+                else:
+                    authority_result = {}
 
             # ── Normalize nested authority_info ──────────────────────────────
             # Doctrine-path early returns (e.g. _stgb_result) wrap fields inside
@@ -1065,15 +1166,118 @@ class RetrievalService:
                 authority_result['retrievalConstraint'] = 'PARAGRAPH_STRICT'
                 print(f"[ExplicitRef] §{_locked_para} StGB detected → forced PARAGRAPH_STRICT")
 
-            print(f"✅ Authority resolved: {authority_result.get('statute', 'None')}")
+            # authority_final is never set by the resolver; populate it from the
+            # resolved statute so logs and downstream consumers show the statute
+            # name rather than None.
+            if not authority_result.get('authority_final'):
+                authority_result['authority_final'] = authority_result.get('statute')
 
-            # Now perform retrieval with the authority result
+            # Cross-statute keyword supplement — runs for ALL resolution paths.
+            # _detect_cross_statute is only called inside the LLM fallback branch of
+            # resolve_authority(), so keyword-locked paths (e.g. GMBHG via "gmbh")
+            # never set cross_statutes.  Fill it in here unconditionally.
+            if not authority_result.get('cross_statutes'):
+                from app.services.authority.registry.authority_resolver import _detect_cross_statute
+                _primary_stat = authority_result.get('statute', '')
+                _kw_detected  = _detect_cross_statute(query)
+                _kw_cross     = [s for s in _kw_detected if s != _primary_stat]
+                authority_result['cross_statutes']  = _kw_cross
+                authority_result['is_cross_statute'] = len(_kw_cross) > 0
+                if _kw_cross:
+                    print(f"[CrossStatute] Keyword supplement (path: {authority_result.get('inferenceMethod','locked')}): {_kw_cross}")
+
+            print(f"✅ Authority resolved: {authority_result.get('statute', 'None')}")
+            print(f"[DEBUG cross] cross_statutes: {authority_result.get('cross_statutes', [])}")
+            print(f"[DEBUG cross] is_cross_statute: {authority_result.get('is_cross_statute', False)}")
+
+            # Enrich query for CONCEPT/DEFINITION types using domain anchor paragraphs
+            search_query = _build_enriched_query(query, authority_result)
+
+            # Use search_query (enriched for concept questions, raw otherwise) for FAISS
             retrieval_results = self.search(
-                query=query,
+                query=search_query,
                 question_type=question_type,
                 authority_result=authority_result,
                 n_results=3  # Top 3 only — caller uses only the best result
             )
+
+            print(f"[DEBUG cross] docs count before cross: {len(retrieval_results.get('documents', []))}")
+
+            # Cross-statute enrichment: always run for cross-statute questions regardless of
+            # how many primary results were found (primary statute may return irrelevant docs)
+            _cross_statutes = authority_result.get('cross_statutes', [])
+            if _cross_statutes:
+                _primary_statute = authority_result.get('statute', '')
+                for _extra_statute in _cross_statutes[:2]:
+                    if _extra_statute == _primary_statute:
+                        continue
+                    try:
+                        _extra_authority = dict(authority_result)
+                        _extra_authority['statute'] = _extra_statute
+                        _extra_authority['retrievalConstraint'] = 'STATUTE_ONLY'
+                        _extra_authority['isParagraphLocked'] = False
+                        _extra_results = self.search(
+                            query=search_query,
+                            question_type=question_type,
+                            authority_result=_extra_authority,
+                            n_results=2,
+                        )
+                        _extra_docs = _extra_results.get('documents', [])
+                        if _extra_docs:
+                            for _d in _extra_docs:
+                                _d['_source_statute'] = _extra_statute
+                            _existing = retrieval_results.get('documents', [])
+                            _seen_ids = {_d.get('id', _d.get('chunk_id', '')) for _d in _existing}
+                            _new_docs = [_d for _d in _extra_docs
+                                         if _d.get('id', _d.get('chunk_id', '')) not in _seen_ids]
+                            _merged = dict(retrieval_results)
+                            _merged['documents'] = _existing + _new_docs
+                            retrieval_results = _merged
+                            print(f"[CrossStatute] +{len(_new_docs)} docs from {_extra_statute}")
+                    except Exception as _ce:
+                        print(f"[CrossStatute] Non-fatal error for {_extra_statute}: {_ce}")
+
+            # Graph reranking — hybrid scoring over FAISS results
+            _statute_str = authority_result.get("statute") or ""
+            if _statute_str and retrieval_results.get("documents"):
+                try:
+                    from app.services.norm_graph import GraphService, QueryExpander, GraphReranker, RetrievalLogger
+                    _gs = GraphService.get_instance()
+                    if _gs.is_ready():
+                        _anchor_paras = authority_result.get("domain_anchor_paragraphs") or []
+                        _expander = QueryExpander(_gs)
+                        _expansion = _expander.expand(
+                            statute=_statute_str,
+                            paragraph_refs=_anchor_paras,
+                            domain=authority_result.get("domain_anchor_domain", ""),
+                            question_type=question_type,
+                        )
+                        _reranker = GraphReranker(_gs)
+                        _reranked_docs = _reranker.rerank(
+                            results=retrieval_results["documents"],
+                            statute=_statute_str,
+                            graph_node_ids=_expansion["graph_node_ids"],
+                            anchor_node_ids=_expansion["anchor_node_ids"],
+                            question_type=question_type,
+                        )
+                        retrieval_results = dict(retrieval_results)
+                        retrieval_results["documents"] = _reranked_docs
+                        # Expose expansion context in authority result
+                        authority_result["graph_expansion"] = _expansion.get("expansion_context", "")
+                        # Log for learning
+                        try:
+                            _logger = RetrievalLogger()
+                            _logger.log_query(
+                                statute=_statute_str,
+                                paragraphs=_anchor_paras,
+                                question_type=question_type,
+                                domain=authority_result.get("domain_anchor_domain", ""),
+                                result_node_ids=_expansion["graph_node_ids"],
+                            )
+                        except Exception:
+                            pass
+                except Exception as _gre:
+                    print(f"[GraphReranker] Non-fatal error: {_gre}")
 
             # Combine results
             result = {
@@ -1085,16 +1289,28 @@ class RetrievalService:
 
             # Check if authority_final needs enforcement
             if authority_result.get("authority_final"):
-                print(f"🔒 Authority-final enforcement applied")
+                _para_locked = (
+                    authority_result.get("paragraph")
+                    or authority_result.get("reference")
+                    or authority_result.get("isParagraphLocked")
+                )
 
-                # Apply authority_final enforcement to retrieval results
+                if _para_locked:
+                    print(f"🔒 Authority-final enforcement applied (§ locked)")
+                else:
+                    print(f"📖 Authority-final: statute-only, synthesis allowed with "
+                          f"{len(retrieval_results.get('documents', []))} docs")
+
+                # Apply enforcement — respects paragraph-vs-statute distinction internally
                 result["retrieval_results"] = self.enforce_authority_final_constraint(
                     authority_result, retrieval_results
                 )
 
-                # If no documents found, handle as authority_final failure
-                if (result["retrieval_results"].get("authority_final_corpus_missing") or
-                    not result["retrieval_results"].get("documents")):
+                # Hard-fail only when a specific § was locked but the corpus is missing
+                if _para_locked and (
+                    result["retrieval_results"].get("authority_final_corpus_missing") or
+                    not result["retrieval_results"].get("documents")
+                ):
                     result["retrieval_results"] = self.handle_authority_final_failure(
                         authority_result
                     )

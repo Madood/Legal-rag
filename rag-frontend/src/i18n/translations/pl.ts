@@ -29,6 +29,10 @@ export const pl = {
     docsLoaded: 'dokumentów załadowanych',
     ready: 'Gotowy na Twoje pytanie',
     dismiss: 'Odrzuć',
+    s1: 'Co to jest § 823 BGB?',
+    s2: 'Różnica między własnością a posiadaniem?',
+    s3: 'Przesłanki odpowiedzialności z § 242 StGB?',
+    s4: 'Co reguluje kodeks handlowy (HGB)?',
   },
   documents: {
     title: 'Korpus i Dokumenty',

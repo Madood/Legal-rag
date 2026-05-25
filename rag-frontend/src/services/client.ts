@@ -21,7 +21,7 @@ export const createApiClient = (): AxiosInstance => {
   instance.interceptors.request.use(
     (config) => {
       const token = localStorage.getItem('auth_token');
-      if (token) {
+      if (token && token !== 'guest-offline') {
         config.headers.Authorization = `Bearer ${token}`;
       }
       const lang = localStorage.getItem('app_language') || 'de';

@@ -4,30 +4,17 @@ import { useState, useEffect } from 'react';
 import './AppLayout.css';
 
 export function AppLayout() {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   useEffect(() => {
-    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
-    // Priority: saved setting > system preference
-    const initialDarkMode = savedDarkMode || prefersDark;
-    setDarkMode(initialDarkMode);
-    
-    if (initialDarkMode) {
-      document.body.classList.add('dark');
-    } else {
-      document.body.classList.remove('dark');
-    }
+    // Always dark — force class and persist so it survives refreshes
+    localStorage.setItem('darkMode', 'true');
+    document.documentElement.classList.add('dark');
   }, []);
 
   useEffect(() => {
     localStorage.setItem('darkMode', darkMode.toString());
-    if (darkMode) {
-      document.body.classList.add('dark');
-    } else {
-      document.body.classList.remove('dark');
-    }
+    document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
   return (

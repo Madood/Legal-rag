@@ -29,6 +29,10 @@ export const de = {
     docsLoaded: 'Dokumente geladen',
     ready: 'Bereit für Ihre Frage',
     dismiss: 'Schließen',
+    s1: 'Was ist § 823 BGB?',
+    s2: 'Unterschied zwischen Eigentum und Besitz?',
+    s3: 'Voraussetzungen der Strafbarkeit nach § 242 StGB?',
+    s4: 'Was regelt das Handelsgesetzbuch (HGB)?',
   },
   documents: {
     title: 'Corpus & Dokumente',

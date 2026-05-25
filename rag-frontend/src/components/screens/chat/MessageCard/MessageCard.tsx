@@ -92,16 +92,25 @@ export function MessageCard({ message, onCitationClick }: MessageCardProps) {
             </div>
 
             {/* Citations */}
-            {message.citations && message.citations.length > 0 && (
+            {message.citations && message.citations.length > 0 && (() => {
+              const visibleCitations = message.citations.filter(c => (parseFloat(String(c.confidence)) || 0) > 0.05);
+              if (visibleCitations.length === 0) {
+                return (
+                  <div className="citations-section">
+                    <p className="text-slate-500 text-xs">Keine direkten Quellentreffer für diese Anfrage.</p>
+                  </div>
+                );
+              }
+              return (
               <div className="citations-section">
                 <div className="citations-header">
                   <BookOpen className="citations-icon" />
                   <span className="citations-title">
-                    {t('message.sources')} ({message.citations.length})
+                    {t('message.sources')} ({visibleCitations.length})
                   </span>
                 </div>
                 <div className="citations-list">
-                  {message.citations.map((citation, idx) => (
+                  {visibleCitations.map((citation, idx) => (
                     <div
                       key={idx}
                       className="citation-item"
@@ -145,7 +154,8 @@ export function MessageCard({ message, onCitationClick }: MessageCardProps) {
                   ))}
                 </div>
               </div>
-            )}
+              );
+            })()}
           </Card>
         </div>
       </div>

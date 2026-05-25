@@ -514,7 +514,7 @@ class DomainProfiles:
             'WpHG': 'Wertpapierhandelsgesetz',
         }
         
-        print(f'✅ DomainProfiles initialized: {len(self.domains)} domains, {len(self.term_to_domain)} terms')
+        print(f'[DomainProfiles] initialized: {len(self.domains)} domains, {len(self.term_to_domain)} terms')
     
     # Property accessors
     @property
