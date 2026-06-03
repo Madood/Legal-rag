@@ -3351,6 +3351,42 @@ STRICT RULES:
     return { fullAnswer: answer, confidence: doctrineResult.confidence || 0.92, template_used: 'python_doctrine', domain: doctrineResult.domain || 'civil', metadata: { doctrine_applied: true, python_doctrine: true, authority_mode: 'exact', epistemic_certainty: authority.epistemicCertainty, anchor_norm_mode: authority.anchorNormMode, retrieval_used: false, safety_check_skipped: true } };
   }
 
+  buildDoctrineCitationSources(authority, pythonResults = null, doctrineSources = []) {
+    const retrievedSources = (pythonResults?.results || [])
+      .slice(0, 3)
+      .map((r, i) => ({
+        id: i + 1,
+        paragraph: r.paragraph || '',
+        statute: r.statute || authority?.statute || 'BGB',
+        document: `${authority?.statute || r.statute || 'BGB'}.pdf`,
+        score: parseFloat(r.score || r.similarity || '0.5'),
+        confidence: parseFloat(r.score || r.similarity || '0.5'),
+        content: (r.content || r.text || '').substring(0, 150),
+      }));
+
+    if (retrievedSources.length > 0) return retrievedSources;
+
+    const sourceList = Array.isArray(doctrineSources)
+      ? doctrineSources
+      : doctrineSources
+      ? [doctrineSources]
+      : [];
+
+    return sourceList.slice(0, 3).map((source, i) => {
+      const text = String(source || '');
+      const match = text.match(/§\s*(\d+[a-z]?)/i);
+      return {
+        id: i + 1,
+        paragraph: match?.[1] || authority?.paragraph || '',
+        statute: authority?.statute || (text.match(/\b(BGB|STGB|HGB|GG|ZPO|STPO|GMBHG)\b/i)?.[1] || 'BGB').toUpperCase(),
+        document: `${authority?.statute || 'BGB'}.pdf`,
+        score: 0.5,
+        confidence: 0.5,
+        content: text.substring(0, 150),
+      };
+    });
+  }
+
   async retrieveDocumentsWithDoctrineGuard(question, authority, authorityLock, allDocuments, classification) {
     classification = classification || { type: 'GENERAL', domain: 'general' };
     const isDoctrinalQuestion = classification?.type === 'DOCTRINE' || authority?.question_type === 'DOCTRINE' || authority?.question_type === 'GENERAL_DOCTRINE' || (authority?.anchorNormMode === true && authority?.epistemicCertainty === 'uncertain') || authority?.doctrinal_match === true || (authority?.anchor_norm_mode === true && authority?.epistemic_certainty === 'uncertain');
@@ -3728,12 +3764,27 @@ STRICT RULES:
     let pythonAuthorityError = null;
     let _pythonFirstCallResults = []; // hoisted so it's accessible after the try block
 
-    const _lang = context.language || 'de';
-    const _LANG_MAP = { de: 'german', en: 'english', pl: 'polish', ar: 'arabic', no: 'norwegian' };
+    const _lang = (context.language || 'de').toLowerCase().split('-')[0];
+    const _LANG_MAP = {
+      de: 'german',
+      german: 'german',
+      en: 'english',
+      english: 'english',
+      pl: 'polish',
+      polish: 'polish',
+      ar: 'arabic',
+      arabic: 'arabic',
+      no: 'norwegian',
+      norwegian: 'norwegian',
+    };
     const languageStr = _LANG_MAP[_lang] || 'german';
-    const _langInstruction = languageStr !== 'german'
-      ? `\n\nCRITICAL: Respond entirely in ${languageStr}. German legal terms (§, Abs., BGB, StGB, GG, etc.) may remain in German; write ALL explanations, definitions, and analyses in ${languageStr}.`
-      : '';
+    const _langInstruction = _lang === 'en' || _lang === 'english'
+      ? '\n\nYou must answer in English.'
+      : _lang === 'pl' || _lang === 'polish'
+      ? '\n\nMusisz odpowiedzieć po polsku.'
+      : _lang === 'ar' || _lang === 'arabic'
+      ? '\n\nيجب أن تجيب باللغة العربية.'
+      : '\n\nAntworte auf Deutsch.';
 
     // §434 three-step test injection — computed once, used in all synthesis prompts
     const _is434 = /§\s*434|sachmangel|kaufvertrag\s+mangel/i.test(question);
@@ -4536,6 +4587,11 @@ STRICT RULES:
         const doctrineResult = await this.callDoctrineInductionService(question, authority);
         if (doctrineResult?.doctrine_found === true) {
           const doctrinalAnswer = this.generateDoctrinalAnswer(doctrineResult, authority, question);
+          const doctrineSources = this.buildDoctrineCitationSources(
+            authority,
+            null,
+            doctrineResult.sources || doctrineResult.statutory_basis || doctrineResult.constitutional_basis || []
+          );
           safetyCheck.logSafetyEvent('DOCTRINE_INDUCTION_SUCCESS', {
             question, statute: authority.statute, epistemicCertainty: authority.epistemicCertainty,
             retrievalUsed: false, safetyCheckSkipped: true
@@ -4545,7 +4601,7 @@ STRICT RULES:
             data: {
               answer: doctrinalAnswer.fullAnswer,
               structuredAnswer: doctrinalAnswer,
-              sources: [],
+              sources: doctrineSources,
               confidence: doctrinalAnswer.confidence,
               statute: authority.statute,
               paragraph: authority.paragraph,
@@ -4918,6 +4974,12 @@ STRICT RULES:
       };
       
       const formattedResponse = resultFormatter.formatResponse(rawResponse, authority);
+
+      if (structuredAnswer?.metadata?.doctrine_applied && formattedResponse?.data?.answer?.length > 0) {
+        if (!formattedResponse.data.sources?.length) {
+          formattedResponse.data.sources = this.buildDoctrineCitationSources(authority, pythonResults);
+        }
+      }
       
       const conversationEntry = {
         question: question,
@@ -5125,13 +5187,18 @@ STRICT RULES:
 
     if (doctrineResult?.doctrine_found === true) {
       const doctrinalAnswer = this.generateDoctrinalAnswer(doctrineResult, authority, question);
+      const doctrineSources = this.buildDoctrineCitationSources(
+        authority,
+        null,
+        doctrineResult.sources || doctrineResult.statutory_basis || doctrineResult.constitutional_basis || []
+      );
 
       return {
         success: true,
         data: {
           answer: doctrinalAnswer.fullAnswer,
           structuredAnswer: doctrinalAnswer,
-          sources: [],
+          sources: doctrineSources,
           confidence: doctrinalAnswer.confidence,
           statute: authority.statute,
           paragraph: authority.paragraph,

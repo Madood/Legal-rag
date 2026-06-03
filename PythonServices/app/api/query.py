@@ -24,6 +24,23 @@ from app.services.doctrine_induction.ai_fallback import get_ai_doctrine_explanat
 
 router = APIRouter(prefix="/query", tags=["query"])
 
+DOCTRINE_BLOCK_KEYWORDS = [
+    "agb",
+    "allgemeine geschäftsbedingungen",
+    "kollision",
+    "battle of forms",
+    "last-shot",
+    "knock-out",
+    "widersprüchlich",
+    "conflicting terms",
+    "conflicting agb",
+]
+
+
+def should_block_doctrine(question: str) -> bool:
+    q = (question or "").lower()
+    return any(kw in q for kw in DOCTRINE_BLOCK_KEYWORDS)
+
 
 # ===========================================================================
 # REQUEST/RESPONSE SCHEMAS (Transport Layer Only)
@@ -432,6 +449,10 @@ async def doctrine_explanation(
     epistemic_certainty = request.get("epistemic_certainty", "uncertain")
 
     print(f"\n[Doctrine] Request: field='{suggested_field}', statute={statute}")
+
+    if should_block_doctrine(question):
+        print("[Doctrine] AGB query blocked — forcing RAG")
+        return {"doctrine_found": False}
 
     # Step 1: Try to match suggested_field against known doctrines
     field_lower = (suggested_field or "").lower().strip()

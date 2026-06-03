@@ -4,11 +4,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: white;
-}
-
-.dark .app-layout {
-  background-color: #1a1a1a;
+  background-color: var(--bg-primary);
 }
 
 .main-content {

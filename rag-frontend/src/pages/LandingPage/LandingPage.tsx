@@ -5,6 +5,7 @@ import {
   MessageSquare, BookOpen, CheckCircle,
 } from 'lucide-react';
 import LegalAreasCarousel from '../../components/LegalAreasCarousel';
+import { JurismLayers } from '../../components/home/JurismLayers';
 import { useTranslation } from '../../i18n';
 import type { Lang } from '../../i18n';
 import './LandingPage.css';
@@ -329,12 +330,17 @@ export function LandingPage() {
       </section>
 
       {/* ══════════════════════════════════════
-          SECTION 4 — LEGAL AREAS CAROUSEL
+          SECTION 4 — ARCHITECTURE LAYERS
+      ══════════════════════════════════════ */}
+      <JurismLayers />
+
+      {/* ══════════════════════════════════════
+          SECTION 5 — LEGAL AREAS CAROUSEL
       ══════════════════════════════════════ */}
       <LegalAreasCarousel />
 
       {/* ══════════════════════════════════════
-          SECTION 5 — HOW IT WORKS
+          SECTION 6 — HOW IT WORKS
       ══════════════════════════════════════ */}
       <section className="lp-section lp-steps-bg">
         <div className="lp-container">
@@ -356,7 +362,7 @@ export function LandingPage() {
       </section>
 
       {/* ══════════════════════════════════════
-          SECTION 6 — SUPPORTED LAWS
+          SECTION 7 — SUPPORTED LAWS
       ══════════════════════════════════════ */}
       <section id="statutes" className="lp-section">
         <div className="lp-container">
@@ -382,7 +388,7 @@ export function LandingPage() {
       </section>
 
       {/* ══════════════════════════════════════
-          SECTION 7 — CTA BANNER
+          SECTION 8 — CTA BANNER
       ══════════════════════════════════════ */}
       <section className="lp-cta-wrap">
         <h2 className="lp-cta-title">
@@ -397,7 +403,7 @@ export function LandingPage() {
       </section>
 
       {/* ══════════════════════════════════════
-          SECTION 8 — FOOTER
+          SECTION 9 — FOOTER
       ══════════════════════════════════════ */}
       <footer className="lp-footer">
         <div className="lp-footer-grid">

@@ -174,3 +174,31 @@
 @media (prefers-reduced-motion: reduce) {
   .mc-row { animation: none; }
 }
+
+/* ══════════════════════════
+   Light mode overrides
+   ══════════════════════════ */
+html:not(.dark) .mc-user-bubble    { background: #2563eb; }
+html:not(.dark) .mc-assistant-card {
+  background: #dde8f5;
+  border-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .mc-content        { color: #1a2744; }
+html:not(.dark) .mc-heading        { color: #1a2744; }
+html:not(.dark) .mc-list-item      { color: #1a2744; }
+html:not(.dark) .mc-para           { color: #4a5568; }
+html:not(.dark) .mc-cit-section    { border-top-color: rgba(59,130,246,0.12); }
+html:not(.dark) .mc-cit-toggle     { color: #4a5568; }
+html:not(.dark) .mc-cit-toggle:hover { color: #2563eb; }
+html:not(.dark) .mc-cit-item {
+  background: rgba(255,255,255,0.65);
+  border-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .mc-cit-ref        { color: #2563eb; }
+html:not(.dark) .mc-cit-doc        { color: #4a5568; }
+html:not(.dark) .mc-cit-excerpt    { color: #718096; }
+html:not(.dark) .mc-cit-view       { color: #718096; }
+html:not(.dark) .mc-cit-view:hover { color: #2563eb; background: rgba(37,99,235,0.08); }
+html:not(.dark) .cc-h { background: rgba(21,128,61,0.12); color: #15803d; }
+html:not(.dark) .cc-m { background: rgba(161,98,7,0.12);  color: #a16207; }
+html:not(.dark) .cc-l { background: rgba(185,28,28,0.12); color: #b91c1c; }

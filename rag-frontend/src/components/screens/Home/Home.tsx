@@ -3,6 +3,7 @@ import { Scale, Search, Shield, Zap, Check, Moon, Sun, BookOpen, Users, Trending
 import { Button } from '../../ui/button';
 import { ImageWithFallback } from '../../figma/ImageWithFallback';
 import { useState, useEffect } from 'react';
+import { JurismLayers } from '../../home/JurismLayers';
 import './Home.css';
 
 export function Home() {
@@ -231,6 +232,9 @@ export function Home() {
           </div>
         </div>
       </section>
+
+      {/* Architecture Layers Section */}
+      <JurismLayers />
 
       {/* Documentation Section */}
       <section className="home-documentation">

@@ -34,8 +34,10 @@ async function authenticate(req, res, next) {
 function calculateTokenCost(req) {
   const body = req.body || {};
   const question = (body.question || '').toLowerCase();
+  const user = req.user;
 
   // AI fallback indicator from body (Python service may set this later; estimate here)
+  if (user?.isGuest) return parseInt(process.env.GUEST_QUERY_COST || '3', 10);
   if (question.includes('?') && question.length < 20) return 0; // clarification
   if (body._aiUsed) return 3;
   if (body._crossStatute) return 2;

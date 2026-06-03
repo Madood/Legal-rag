@@ -24,7 +24,7 @@ export function LoginModal({ reason, onClose }: LoginModalProps) {
     },
     SESSION_LIMIT: {
       title: 'Guest Session Limit Reached',
-      subtitle: 'You have used all 5 free queries this session. Create an account to get more.',
+      subtitle: 'You have used all 30 guest tokens. Create an account to get more.',
     },
     AUTH_REQUIRED: {
       title: 'Sign in Required',

@@ -1,18 +1,48 @@
-/* ── Design tokens ── */
+/* ── Light mode design tokens (default) ── */
 :root {
+  --bg-primary:     #eef2f7;
+  --bg-secondary:   #e8eef5;
+  --bg-tertiary:    #dde5f0;
+  --bg-input:       #f4f7fb;
+  --text-primary:   #1a2744;
+  --text-secondary: #4a5568;
+  --text-muted:     #718096;
+  --border:         rgba(59, 130, 246, 0.12);
+  --border-hover:   rgba(59, 130, 246, 0.30);
+  --accent:         #2563eb;
+  --accent-hover:   #1d4ed8;
+  --bubble-user:    #2563eb;
+  --bubble-ai-bg:   #dde8f5;
+  --bubble-ai-text: #1a2744;
+  --source-bg:      #e4edf7;
+  --source-border:  rgba(37, 99, 235, 0.15);
+  --source-hover:   rgba(37, 99, 235, 0.08);
+}
+
+/* ── Dark mode overrides ── */
+html.dark {
   --bg-primary:     #0a0f1e;
   --bg-secondary:   #0f172a;
   --bg-tertiary:    #1e293b;
+  --bg-input:       #1e293b;
   --text-primary:   #f1f5f9;
   --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
   --border:         rgba(255, 255, 255, 0.08);
+  --border-hover:   rgba(255, 255, 255, 0.15);
   --accent:         #3b82f6;
   --accent-hover:   #2563eb;
+  --bubble-user:    #1d4ed8;
+  --bubble-ai-bg:   #0f172a;
+  --bubble-ai-text: #e2e8f0;
+  --source-bg:      #0f172a;
+  --source-border:  rgba(255, 255, 255, 0.06);
+  --source-hover:   rgba(59, 130, 246, 0.06);
+  color-scheme: dark;
 }
 
 html {
   scroll-behavior: smooth;
-  color-scheme: dark;
 }
 
 html, body, #root {

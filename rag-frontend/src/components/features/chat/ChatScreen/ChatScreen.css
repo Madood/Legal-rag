@@ -422,3 +422,80 @@
   .cs-sidebar, .cs-topbar, .cs-input-wrap, .cs-sources-panel { display: none !important; }
   .cs-messages { overflow: visible; padding: 0; }
 }
+
+/* ══════════════════════════
+   Light mode overrides
+   ══════════════════════════ */
+html:not(.dark) .cs-root        { background: #eef2f7; }
+html:not(.dark) .cs-sidebar     { border-right-color: rgba(59,130,246,0.12); }
+html:not(.dark) .cs-empty-icon  { color: #2563eb; opacity: 0.25; }
+html:not(.dark) .cs-empty-title { color: #1a2744; }
+html:not(.dark) .cs-empty-sub   { color: #4a5568; }
+html:not(.dark) .cs-chip {
+  background: #dde5f0;
+  border-color: rgba(59,130,246,0.12);
+  color: #4a5568;
+}
+html:not(.dark) .cs-chip:hover {
+  border-color: rgba(59,130,246,0.30);
+  background: rgba(37,99,235,0.05);
+  color: #2563eb;
+}
+html:not(.dark) .cs-input-wrap {
+  background: #e8eef5;
+  border-top-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .cs-input-box {
+  background: #f4f7fb;
+  border-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .cs-input-box:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.10);
+}
+html:not(.dark) .cs-textarea              { color: #1a2744; }
+html:not(.dark) .cs-textarea::placeholder { color: #718096; }
+html:not(.dark) .cs-send-btn             { background: #2563eb; }
+html:not(.dark) .cs-send-btn:hover:not(:disabled) { background: #1d4ed8; }
+html:not(.dark) .cs-cancel-btn {
+  background: #dde5f0;
+  border-color: rgba(59,130,246,0.12);
+  color: #4a5568;
+}
+html:not(.dark) .cs-cancel-btn:hover    { background: #c8d6ea; }
+html:not(.dark) .cs-sources-panel {
+  background: #e4edf7;
+  border-left-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .cs-sources-header {
+  color: #1a2744;
+  border-bottom-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .cs-sources-close       { color: #4a5568; }
+html:not(.dark) .cs-sources-close:hover { color: #1a2744; }
+html:not(.dark) .cs-source-item {
+  background: #eef2f7;
+  border-color: rgba(37,99,235,0.15);
+}
+html:not(.dark) .cs-source-clickable:hover {
+  border-color: rgba(37,99,235,0.30) !important;
+  background: rgba(37,99,235,0.08) !important;
+}
+html:not(.dark) .cs-source-statute      { color: #2563eb; }
+html:not(.dark) .cs-source-doc          { color: #4a5568; }
+html:not(.dark) .cs-source-excerpt      { color: #718096; }
+html:not(.dark) .cs-sources-empty       { color: #718096; }
+html:not(.dark) .cs-source-bar          { background: #c8d6ea; }
+html:not(.dark) .cs-source-bar-fill     { background: linear-gradient(90deg, #2563eb, #3b82f6); }
+html:not(.dark) .cs-topbar {
+  background: #e8eef5;
+  border-bottom-color: rgba(59,130,246,0.12);
+}
+html:not(.dark) .cs-topbar-title        { color: #1a2744; }
+html:not(.dark) .cs-conv-id             { color: #718096; }
+html:not(.dark) .cs-icon-btn            { border-color: rgba(59,130,246,0.12); color: #4a5568; }
+html:not(.dark) .cs-icon-btn:hover      { background: #dde5f0; color: #1a2744; }
+html:not(.dark) .cs-icon-btn-active     { background: rgba(37,99,235,0.08); color: #2563eb; border-color: rgba(37,99,235,0.20); }
+html:not(.dark) .cs-lang-toggle         { border-color: rgba(59,130,246,0.12); color: #4a5568; }
+html:not(.dark) .cs-lang-toggle:hover   { background: #dde5f0; color: #1a2744; }
+html:not(.dark) .cs-lang-toggle-active  { background: rgba(37,99,235,0.08); color: #2563eb; border-color: rgba(37,99,235,0.20); }

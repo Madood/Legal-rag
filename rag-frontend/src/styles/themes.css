@@ -1,11 +1,4 @@
-/* Dark theme — applied via html.dark class (forced globally) */
-html.dark {
-  --border: rgba(255, 255, 255, 0.08);
-  color-scheme: dark;
-}
-
-/* Backward-compat: body.dark still matches legacy selectors */
-body.dark {
-  --border: rgba(255, 255, 255, 0.08);
+/* Dark mode color-scheme — variables are defined in index.css html.dark block */
+html.dark, body.dark {
   color-scheme: dark;
 }

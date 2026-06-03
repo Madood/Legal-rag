@@ -335,7 +335,10 @@ app.post("/api/documents/search", (req, res) => {
 // Chat endpoint - ask questions about documents
 app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
   const { question } = req.body;
-  const lang = req.headers['x-language'] || 'de';
+  const lang = req.body.language ||
+    req.headers['accept-language']?.split(',')[0] ||
+    req.headers['x-language'] ||
+    'de';
 
   if (!question) {
     return res.status(400).json({
@@ -421,11 +424,17 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
       if (isLowQuality) {
         try {
           console.log('[Doctrine Fallback] Triggering DeepSeek for question:', question.substring(0, 60));
-          const _GATE_LANG_MAP = { de: 'german', en: 'english', pl: 'polish', ar: 'arabic', no: 'norwegian' };
-          const _gateLang = _GATE_LANG_MAP[lang] || 'german';
-          const _gatePrompt = _gateLang === 'german'
-            ? 'Du bist ein deutscher Rechtsdozent. Beantworte die Frage präzise auf Deutsch. Strukturiere die Antwort mit: Definition, Bedeutung, Prüfungsschema. Zitiere relevante Paragraphen wo möglich. Max 400 Wörter.'
-            : `You are a German law expert. Answer precisely in ${_gateLang}. Structure with: Definition, Meaning, Legal Framework. Cite relevant §§ where possible. Max 400 words. CRITICAL: All explanations must be written in ${_gateLang}.`;
+          const _langCode = String(lang || 'de').toLowerCase().split('-')[0];
+          const _GATE_LANG_MAP = { de: 'german', german: 'german', en: 'english', english: 'english', pl: 'polish', polish: 'polish', ar: 'arabic', arabic: 'arabic', no: 'norwegian', norwegian: 'norwegian' };
+          const _gateLang = _GATE_LANG_MAP[_langCode] || 'german';
+          const langInstruction = _langCode === 'en'
+            ? 'You must answer in English.'
+            : _langCode === 'pl'
+            ? 'Musisz odpowiedzieć po polsku.'
+            : _langCode === 'ar'
+            ? 'يجب أن تجيب باللغة العربية.'
+            : 'Antworte auf Deutsch.';
+          const _gatePrompt = `You are a German law expert. ${langInstruction} Structure with: Definition, Meaning, Legal Framework. Cite relevant §§ where possible. Max 400 words.`;
           const fallbackRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -475,9 +484,9 @@ app.post("/api/chat/query", authenticate, checkTokens, async (req, res) => {
 
     if (response.success) {
       console.log('[SERVER] Sending response | answer length:', response.data?.answer?.length ?? 'NO ANSWER', '| comparison_mode:', !!response.data?.metadata?.comparison_mode);
-      // Deduct tokens after successful response (fire-and-forget, skip if DB unavailable)
+      // Deduct tokens before sending so the frontend refresh sees the updated balance.
       if (req.user) {
-        deductTokens(req.user, req._tokenCost || 1, {
+        await deductTokens(req.user, req._tokenCost || 1, {
           statute: response.data?.statute || null,
           doctrineLevel: response.data?.doctrineLevel || null,
           aiUsed: response.data?.aiUsed || false,

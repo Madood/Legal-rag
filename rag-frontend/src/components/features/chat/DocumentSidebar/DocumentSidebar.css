@@ -163,3 +163,29 @@
 
 .dsb-detail-key { color: #94a3b8; }
 .dsb-detail-val { color: #475569; }
+
+/* ══════════════════════════
+   Light mode overrides
+   ══════════════════════════ */
+html:not(.dark) .dsb-root           { background: #dde5f0; }
+html:not(.dark) .dsb-header         { border-bottom-color: rgba(59,130,246,0.12); }
+html:not(.dark) .dsb-title          { color: #4a5568; }
+html:not(.dark) .dsb-loading        { color: #4a5568; }
+html:not(.dark) .dsb-empty          { color: #718096; }
+html:not(.dark) .dsb-item-btn:hover { background: rgba(37,99,235,0.08); }
+html:not(.dark) .dsb-item-icon      { color: #4a5568; }
+html:not(.dark) .dsb-item-abbr      { color: #1a2744; }
+html:not(.dark) .dsb-item-name      { color: #718096; }
+html:not(.dark) .dsb-chunk-badge {
+  background: rgba(37,99,235,0.10);
+  color: #4a5568;
+}
+html:not(.dark) .dsb-chevron        { color: #718096; }
+html:not(.dark) .dsb-details        { background: rgba(37,99,235,0.06); }
+html:not(.dark) .dsb-detail-key     { color: #718096; }
+html:not(.dark) .dsb-detail-val     { color: #4a5568; }
+html:not(.dark) .dsb-count {
+  background: rgba(21,128,61,0.10);
+  color: #15803d;
+  border-color: rgba(21,128,61,0.20);
+}

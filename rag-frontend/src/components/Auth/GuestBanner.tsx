@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, X, UserPlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-const GUEST_SESSION_LIMIT = 5;
+const GUEST_QUERY_COST = 3;
 
 export function GuestBanner() {
   const { user } = useAuth();
@@ -14,7 +14,7 @@ export function GuestBanner() {
 
   const used = user.sessionTokensUsed ?? 0;
   const remaining = Math.max(0, user.tokens.balance ?? 0);
-  const sessionRemaining = Math.max(0, GUEST_SESSION_LIMIT - used);
+  const sessionRemaining = Math.floor(remaining / GUEST_QUERY_COST);
   const isLow = sessionRemaining <= 2;
   const isExhausted = sessionRemaining === 0;
 
@@ -32,7 +32,7 @@ export function GuestBanner() {
       <span className="flex-1">
         {isExhausted
           ? 'Guest session limit reached. Create a free account to continue.'
-          : `Guest mode — ${sessionRemaining} free ${sessionRemaining === 1 ? 'query' : 'queries'} left this session (${remaining} tokens total).`}
+          : `Guest mode — ${sessionRemaining} free ${sessionRemaining === 1 ? 'query' : 'queries'} left (${remaining} tokens total, ${GUEST_QUERY_COST} per question).`}
       </span>
       <button
         onClick={() => navigate('/signup')}

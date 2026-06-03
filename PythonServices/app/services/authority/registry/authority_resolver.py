@@ -35,6 +35,15 @@ from .authority_filters import validate_statute_consistency
 # domain_description is embedded and compared against the query embedding.
 # ──────────────────────────────────────────────────────────────────────────────
 DOMAIN_TO_ANCHOR: Dict[str, Dict] = {
+    "agb": {
+        "paragraphs": ["305", "306", "307", "154", "155"],
+        "statute": "BGB",
+        "domain_description": (
+            "AGB Allgemeine Geschäftsbedingungen Kollision Einbeziehung "
+            "Inhaltskontrolle battle of forms widersprüchliche Klauseln "
+            "Knock-out Regel"
+        ),
+    },
     "damages": {
         "paragraphs": ["249", "250", "251", "252", "253"],
         "statute": "BGB",
@@ -121,6 +130,24 @@ def _extract_concept_name(question: str) -> str:
     return question
 
 
+def _is_agb_query(question: str) -> bool:
+    q = (question or "").lower()
+    return any(
+        kw in q
+        for kw in [
+            "agb",
+            "allgemeine geschäftsbedingungen",
+            "kollision",
+            "battle of forms",
+            "last-shot",
+            "knock-out",
+            "widersprüchlich",
+            "conflicting terms",
+            "conflicting agb",
+        ]
+    )
+
+
 class DomainAnchorResolver:
     """
     Resolves domain anchor paragraphs for concept/definition queries
@@ -157,6 +184,20 @@ class DomainAnchorResolver:
         Find the best-matching domain anchor for a query using cosine similarity.
         Returns dict with domain, paragraphs, statute, confidence — or None.
         """
+        if _is_agb_query(question) and (not statute or statute == "BGB"):
+            anchor_info = DOMAIN_TO_ANCHOR["agb"]
+            print(
+                f"[DomainAnchor] domain='agb' "
+                f"paragraphs={anchor_info['paragraphs']} "
+                f"similarity=1.000"
+            )
+            return {
+                "domain": "agb",
+                "paragraphs": anchor_info["paragraphs"],
+                "statute": anchor_info["statute"],
+                "confidence": 1.0,
+            }
+
         if not cls._ensure_loaded() or not cls._domain_embeddings:
             return None
         try:
@@ -641,6 +682,32 @@ def resolve_authority(question: str) -> Dict[str, Any]:
     ]
     
     lower_question = question.lower()
+
+    if _is_agb_query(question):
+        anchor_info = DOMAIN_TO_ANCHOR["agb"]
+        result.update({
+            "statute": "BGB",
+            "domain": "agb",
+            "confidence": 0.9,
+            "authorityState": AuthorityState.STATUTE_CONFIRMED_PARAGRAPH_OPEN.value,
+            "requiresClarification": False,
+            "anchorNormMode": True,
+            "suggestedField": "agb",
+            "doctrinal_match": False,
+            "isStatuteLocked": True,
+            "isParagraphLocked": False,
+            "requiresParagraphMatch": False,
+            "allowedParagraphs": [],
+            "retrievalConstraint": "STATUTE_ONLY",
+            "domain_anchor_paragraphs": anchor_info["paragraphs"],
+            "domain_anchor_domain": "agb",
+            "domain_anchor_confidence": 1.0,
+        })
+        result["complexity"] = assess_complexity(
+            question, result["question_type"], result["statute"]
+        )
+        print("[Authority] AGB/battle-of-forms query — forcing BGB RAG anchors §§305, 306, 307, 154, 155")
+        return result
     
     is_doctrinal_structure = any(
         term in lower_question for term in DOCTRINAL_STRUCTURE_TERMS

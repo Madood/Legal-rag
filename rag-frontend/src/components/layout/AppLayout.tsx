@@ -4,13 +4,10 @@ import { useState, useEffect } from 'react';
 import './AppLayout.css';
 
 export function AppLayout() {
-  const [darkMode, setDarkMode] = useState(true);
-
-  useEffect(() => {
-    // Always dark — force class and persist so it survives refreshes
-    localStorage.setItem('darkMode', 'true');
-    document.documentElement.classList.add('dark');
-  }, []);
+  const [darkMode, setDarkMode] = useState(() => {
+    const stored = localStorage.getItem('darkMode');
+    return stored !== null ? stored === 'true' : true;
+  });
 
   useEffect(() => {
     localStorage.setItem('darkMode', darkMode.toString());

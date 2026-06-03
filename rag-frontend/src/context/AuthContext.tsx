@@ -52,6 +52,8 @@ function clearToken() {
 }
 
 const OFFLINE_GUEST_TOKEN = 'guest-offline';
+const GUEST_STARTING_TOKENS = 30;
+const GUEST_QUERY_COST = 3;
 
 /** Decode JWT expiry locally — no network needed */
 function isTokenExpired(token: string): boolean {
@@ -71,8 +73,25 @@ function makeOfflineGuest(): AuthUser {
     email: '',
     isGuest: true,
     tier: 'guest',
-    tokens: { balance: 10, used: 0, resetAt: null },
+    tokens: { balance: GUEST_STARTING_TOKENS, used: 0, resetAt: null },
     sessionTokensUsed: 0,
+  };
+}
+
+function normalizeOfflineGuest(user: AuthUser): AuthUser {
+  const balance = user.tokens?.balance ?? 0;
+  const used = user.tokens?.used ?? 0;
+  const total = balance + used;
+  if (total >= GUEST_STARTING_TOKENS) return user;
+
+  return {
+    ...user,
+    tokens: {
+      ...user.tokens,
+      balance: balance + (GUEST_STARTING_TOKENS - total),
+      used,
+      resetAt: null,
+    },
   };
 }
 
@@ -101,7 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const cachedRaw = localStorage.getItem('user_cache');
       if (cachedRaw) {
         try {
-          setUser(JSON.parse(cachedRaw) as AuthUser);
+          const cached = normalizeOfflineGuest(JSON.parse(cachedRaw) as AuthUser);
+          setUser(cached);
+          cacheUser(cached);
         } catch {
           setUser(makeOfflineGuest());
         }
@@ -213,6 +234,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     const stored = localStorage.getItem('auth_token');
     if (!stored) return;
+
+    if (stored === OFFLINE_GUEST_TOKEN) {
+      setUser((current) => {
+        const guest = current || makeOfflineGuest();
+        const updated = {
+          ...guest,
+          tokens: {
+            ...guest.tokens,
+            balance: Math.max(0, (guest.tokens.balance ?? GUEST_STARTING_TOKENS) - GUEST_QUERY_COST),
+            used: (guest.tokens.used ?? 0) + GUEST_QUERY_COST,
+          },
+          sessionTokensUsed: (guest.sessionTokensUsed ?? 0) + GUEST_QUERY_COST,
+        };
+        cacheUser(updated);
+        return updated;
+      });
+      return;
+    }
+
     try {
       const res = await apiClient.get('/auth/me', {
         headers: { Authorization: `Bearer ${stored}` },
